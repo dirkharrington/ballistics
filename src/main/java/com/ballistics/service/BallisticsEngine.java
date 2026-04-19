@@ -1,6 +1,7 @@
 package com.ballistics.service;
 
 import com.ballistics.model.*;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
@@ -25,6 +26,14 @@ import java.util.List;
  */
 @Service
 public class BallisticsEngine {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(BallisticsEngine.class);
+
+    private final MeterRegistry meterRegistry;
+
+    public BallisticsEngine(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
 
     // ── Physical constants (imperial — internal physics only) ─────────────────
     private static final double GRAVITY_FPS2       = 32.174;
@@ -60,6 +69,7 @@ public class BallisticsEngine {
 
     @Cacheable("trajectories")
     public TrajectoryResult compute(Bullet bullet, TrajectoryRequest req) {
+        long start = System.nanoTime();
 
         // ── Convert SI inputs to imperial for internal physics ────────────────
         double mvFps      = bullet.muzzleVelocityMps() * FPS_PER_MPS;
@@ -144,12 +154,22 @@ public class BallisticsEngine {
             if (velocity < 100) break;
         }
 
-        return new TrajectoryResult(
+        TrajectoryResult result = new TrajectoryResult(
             bullet, req, points,
             r1(maxOrdinateIn      * CM_PER_INCH),
             r1(maxOrdinateRangeYd * M_PER_YARD),
             r1(supersonicLimitYd  * M_PER_YARD)
         );
+
+        meterRegistry.timer("ballistics.compute",
+            "bullet", bullet.id())
+            .record(System.nanoTime() - start, java.util.concurrent.TimeUnit.NANOSECONDS);
+
+        log.info("trajectory computed bullet={} rangeM={} durationMs={}",
+            bullet.id(), req.maxRangeMeters(),
+            (System.nanoTime() - start) / 1_000_000);
+
+        return result;
     }
 
     // ── Drag deceleration derivatives ────────────────────────────────────────
