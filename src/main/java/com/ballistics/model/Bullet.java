@@ -82,6 +82,96 @@ public record Bullet(
                 "The modern long-range precision king. Exceptionally high BC for caliber means " +
                 "superb wind resistance and minimal drop. Dominates PRS competition. Low recoil.",
                 "#E879F9"
+            ),
+
+            // .243 Winchester — 95gr Nosler Ballistic Tip
+            new Bullet(
+                "243-win-95gr",
+                ".243 Win 95gr BT",
+                ".243 Winchester",
+                6.16,
+                920.0,
+                0.379,
+                5.94,
+                2608.0,
+                "Popular varmint-to-deer cartridge. Low recoil with a flat trajectory. " +
+                "The 95gr Ballistic Tip is a versatile hunting load with excellent terminal performance.",
+                "#34D399"
+            ),
+
+            // .270 Winchester — 130gr Nosler AccuBond
+            new Bullet(
+                "270-win-130gr",
+                ".270 Win 130gr AccuBond",
+                ".270 Winchester",
+                8.42,
+                939.0,
+                0.480,
+                6.99,
+                3714.0,
+                "Jack O'Connor's favourite. High velocity with a flat trajectory. " +
+                "Excellent all-around North American hunting cartridge. Mild recoil for its power.",
+                "#FBBF24"
+            ),
+
+            // 7mm Remington Magnum — 160gr Nosler Partition
+            new Bullet(
+                "7mm-rem-mag-160gr",
+                "7mm Rem Mag 160gr Partition",
+                "7mm Remington Magnum",
+                10.36,
+                930.0,
+                0.531,
+                7.21,
+                4484.0,
+                "A premier long-range hunting cartridge. High BC 160gr bullet retains energy " +
+                "exceptionally well. Widely used for elk and larger game at extended ranges.",
+                "#F87171"
+            ),
+
+            // .338 Lapua Magnum — 250gr Sierra MatchKing
+            new Bullet(
+                "338-lapua-250gr",
+                ".338 Lapua 250gr SMK",
+                ".338 Lapua Magnum",
+                16.20,
+                905.0,
+                0.587,
+                8.61,
+                6640.0,
+                "Elite military and precision long-range cartridge. Effective past 1500 metres. " +
+                "Punishing recoil, but unmatched downrange energy retention among standard calibers.",
+                "#A78BFA"
+            ),
+
+            // 6mm Creedmoor — 108gr Berger Hybrid
+            new Bullet(
+                "6mm-creedmoor-108gr",
+                "6mm Creedmoor 108gr Hybrid",
+                "6mm Creedmoor",
+                7.00,
+                885.0,
+                0.536,
+                6.17,
+                2740.0,
+                "PRS competition favourite. Very high BC for caliber with minimal recoil. " +
+                "Superb wind resistance. Increasingly popular in long-range precision rifle competition.",
+                "#2DD4BF"
+            ),
+
+            // .300 Winchester Magnum — 190gr Sierra MatchKing
+            new Bullet(
+                "300-win-mag-190gr",
+                ".300 Win Mag 190gr SMK",
+                ".300 Winchester Magnum",
+                12.31,
+                930.0,
+                0.533,
+                7.82,
+                5330.0,
+                "The most widely used long-range military sniper cartridge. Hits hard past 1000 metres. " +
+                "Balances power, BC, and availability. Popular in F-Class and tactical competitions.",
+                "#FB923C"
             )
         );
     }

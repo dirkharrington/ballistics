@@ -27,10 +27,10 @@ class BallisticsControllerTest {
     // ── GET /api/bullets ──────────────────────────────────────────────────────
 
     @Test
-    void getBulletsReturns200WithFourBullets() throws Exception {
+    void getBulletsReturns200WithTenBullets() throws Exception {
         mockMvc.perform(get("/api/bullets"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$", hasSize(4)))
+            .andExpect(jsonPath("$", hasSize(10)))
             .andExpect(jsonPath("$[0].id", notNullValue()))
             .andExpect(jsonPath("$[0].name", notNullValue()))
             .andExpect(jsonPath("$[0].ballisticCoefficient", greaterThan(0.0)));
@@ -243,5 +243,35 @@ class BallisticsControllerTest {
                 .content(body))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", empty()));
+    }
+
+    // ── POST /api/trajectories/custom ────────────────────────────────────────
+
+    @Test
+    void customTrajectoryReturnsResult() throws Exception {
+        mockMvc.perform(post("/api/trajectories/custom")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"name":"Test Load","bulletWeightGrams":9.0,"muzzleVelocityMps":850,
+                     "ballisticCoefficient":0.45,"bulletDiameterMm":7.82,
+                     "zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":25,
+                     "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.points").isArray())
+            .andExpect(jsonPath("$.bullet.name").value("Test Load"));
+    }
+
+    @Test
+    void customTrajectoryInvalidBCReturns400() throws Exception {
+        mockMvc.perform(post("/api/trajectories/custom")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"name":"Bad","bulletWeightGrams":9.0,"muzzleVelocityMps":850,
+                     "ballisticCoefficient":5.0,"bulletDiameterMm":7.82,
+                     "zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":25,
+                     "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15}
+                    """))
+            .andExpect(status().isBadRequest());
     }
 }

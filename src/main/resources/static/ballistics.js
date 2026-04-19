@@ -7,7 +7,13 @@ const BULLET_COLORS = {
   '223-rem-55gr':       '#4ADE80',
   '308-win-168gr':      '#F97316',
   '3006-150gr':         '#60A5FA',
-  '65-creedmoor-140gr': '#E879F9'
+  '65-creedmoor-140gr': '#E879F9',
+  '243-win-95gr':         '#34D399',
+  '270-win-130gr':        '#FBBF24',
+  '7mm-rem-mag-160gr':    '#F87171',
+  '338-lapua-250gr':      '#A78BFA',
+  '6mm-creedmoor-108gr':  '#2DD4BF',
+  '300-win-mag-190gr':    '#FB923C'
 };
 
 // G1 drag table: [velocity fps, form-factor F(v)] — linearly interpolated
@@ -39,10 +45,16 @@ let charts = {};
 // ── Mock data (offline fallback) ──────────────────────────────────────────────
 function getMockBullets() {
   return [
-    { id: '223-rem-55gr',        name: '.223 Rem 55gr FMJ',       caliber: '.223 Remington',     bulletWeightGrams: 3.56,  muzzleVelocityMps: 987.6, ballisticCoefficient: 0.243, muzzleEnergyJoules: 1738, bulletDiameterMm: 5.69 },
-    { id: '308-win-168gr',       name: '.308 Win 168gr BTHP',      caliber: '.308 Winchester',    bulletWeightGrams: 10.89, muzzleVelocityMps: 807.7, ballisticCoefficient: 0.475, muzzleEnergyJoules: 3552, bulletDiameterMm: 7.82 },
-    { id: '3006-150gr',          name: '.30-06 Springfield 150gr', caliber: '.30-06 Springfield', bulletWeightGrams: 9.72,  muzzleVelocityMps: 887.0, ballisticCoefficient: 0.435, muzzleEnergyJoules: 3823, bulletDiameterMm: 7.82 },
-    { id: '65-creedmoor-140gr',  name: '6.5 Creedmoor 140gr ELD', caliber: '6.5 Creedmoor',      bulletWeightGrams: 9.07,  muzzleVelocityMps: 826.0, ballisticCoefficient: 0.646, muzzleEnergyJoules: 3095, bulletDiameterMm: 6.71 }
+    { id: '223-rem-55gr',        name: '.223 Rem 55gr FMJ',           caliber: '.223 Remington',        bulletWeightGrams: 3.56,  muzzleVelocityMps: 987.6, ballisticCoefficient: 0.243, muzzleEnergyJoules: 1738, bulletDiameterMm: 5.69 },
+    { id: '308-win-168gr',       name: '.308 Win 168gr BTHP',          caliber: '.308 Winchester',       bulletWeightGrams: 10.89, muzzleVelocityMps: 807.7, ballisticCoefficient: 0.475, muzzleEnergyJoules: 3552, bulletDiameterMm: 7.82 },
+    { id: '3006-150gr',          name: '.30-06 Springfield 150gr',     caliber: '.30-06 Springfield',    bulletWeightGrams: 9.72,  muzzleVelocityMps: 887.0, ballisticCoefficient: 0.435, muzzleEnergyJoules: 3823, bulletDiameterMm: 7.82 },
+    { id: '65-creedmoor-140gr',  name: '6.5 Creedmoor 140gr ELD',     caliber: '6.5 Creedmoor',         bulletWeightGrams: 9.07,  muzzleVelocityMps: 826.0, ballisticCoefficient: 0.646, muzzleEnergyJoules: 3095, bulletDiameterMm: 6.71 },
+    { id: '243-win-95gr',        name: '.243 Win 95gr BT',             caliber: '.243 Winchester',       bulletWeightGrams: 6.16,  muzzleVelocityMps: 920.0, ballisticCoefficient: 0.379, muzzleEnergyJoules: 2608, bulletDiameterMm: 5.94 },
+    { id: '270-win-130gr',       name: '.270 Win 130gr AccuBond',      caliber: '.270 Winchester',       bulletWeightGrams: 8.42,  muzzleVelocityMps: 939.0, ballisticCoefficient: 0.480, muzzleEnergyJoules: 3714, bulletDiameterMm: 6.99 },
+    { id: '7mm-rem-mag-160gr',   name: '7mm Rem Mag 160gr Partition',  caliber: '7mm Remington Magnum',  bulletWeightGrams: 10.36, muzzleVelocityMps: 930.0, ballisticCoefficient: 0.531, muzzleEnergyJoules: 4484, bulletDiameterMm: 7.21 },
+    { id: '338-lapua-250gr',     name: '.338 Lapua 250gr SMK',         caliber: '.338 Lapua Magnum',     bulletWeightGrams: 16.20, muzzleVelocityMps: 905.0, ballisticCoefficient: 0.587, muzzleEnergyJoules: 6640, bulletDiameterMm: 8.61 },
+    { id: '6mm-creedmoor-108gr', name: '6mm Creedmoor 108gr Hybrid',   caliber: '6mm Creedmoor',         bulletWeightGrams: 7.00,  muzzleVelocityMps: 885.0, ballisticCoefficient: 0.536, muzzleEnergyJoules: 2740, bulletDiameterMm: 6.17 },
+    { id: '300-win-mag-190gr',   name: '.300 Win Mag 190gr SMK',       caliber: '.300 Winchester Magnum',bulletWeightGrams: 12.31, muzzleVelocityMps: 930.0, ballisticCoefficient: 0.533, muzzleEnergyJoules: 5330, bulletDiameterMm: 7.82 }
   ];
 }
 
@@ -231,6 +243,75 @@ async function runSimulation() {
   }
 }
 
+// ── CSV export ────────────────────────────────────────────────────────────────
+function exportCSV() {
+  if (!lastResults.length) return;
+  const rows = ['Round,Range (m),Drop (cm),Velocity (m/s),Energy (J),Wind Drift (cm),Time (s)'];
+  lastResults.forEach(r => {
+    r.points.forEach(p => {
+      rows.push(`"${r.bullet.name}",${p.rangeMeters},${p.dropCm},${p.velocityMps},${p.energyJoules},${p.windDriftCm},${p.timeOfFlightSec}`);
+    });
+  });
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'trajectory.csv';
+  a.click();
+}
+
+// ── PNG export ────────────────────────────────────────────────────────────────
+function exportPNG(chartId) {
+  const canvas = document.getElementById(chartId);
+  if (!canvas) return;
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = chartId + '.png';
+  a.click();
+}
+
+// ── Custom round ──────────────────────────────────────────────────────────────
+async function runCustom() {
+  const name   = document.getElementById('customName').value.trim() || 'Custom Load';
+  const weight = +document.getElementById('customWeight').value;
+  const mv     = +document.getElementById('customMV').value;
+  const bc     = +document.getElementById('customBC').value;
+  const dia    = +document.getElementById('customDia').value;
+  const req = {
+    name:                name,
+    bulletWeightGrams:   weight,
+    muzzleVelocityMps:   mv,
+    ballisticCoefficient: bc,
+    bulletDiameterMm:    dia,
+    zeroRangeMeters:     +document.getElementById('zeroRange').value,
+    maxRangeMeters:      +document.getElementById('maxRange').value,
+    stepMeters:          +document.getElementById('step').value,
+    windSpeedKph:        +document.getElementById('windSpeed').value,
+    altitudeMeters:      +document.getElementById('altitude').value,
+    temperatureC:        +document.getElementById('temperature').value
+  };
+
+  let result;
+  try {
+    const res = await fetch(`${API_BASE}/trajectories/custom`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(req)
+    });
+    result = await res.json();
+  } catch (e) {
+    // offline fallback
+    const bullet = {
+      id: 'custom', name, caliber: 'Custom',
+      bulletWeightGrams: weight, muzzleVelocityMps: mv,
+      ballisticCoefficient: bc, bulletDiameterMm: dia,
+      muzzleEnergyJoules: Math.round(0.5 * (weight / 1000) * mv * mv)
+    };
+    result = simulateBullet(bullet, { ...req, bulletIds: ['custom'] });
+  }
+  lastResults = [result];
+  renderResults([result], req);
+}
+
 // ── Results rendering ─────────────────────────────────────────────────────────
 function renderResults(results, req) {
   document.getElementById('emptyState').style.display = 'none';
@@ -288,6 +369,7 @@ function renderResults(results, req) {
             <div class="chart-title">${def.title}</div>
             <div class="chart-subtitle">${def.subtitle}</div>
           </div>
+          <button class="export-btn" onclick="exportPNG('${def.id}')">PNG</button>
         </div>
         <div class="chart-wrap"><canvas id="${def.id}"></canvas></div>
       </div>`;
@@ -411,6 +493,7 @@ if (typeof module !== 'undefined' && module.exports) {
     getMockBullets, g1Drag, airDensityRatio, simulateBullet, computeClientSide,
     renderBulletList, toggleBullet, updateBulletCards, runSimulation,
     renderResults, renderTable, switchTab, init,
+    exportCSV, exportPNG, runCustom,
     BULLET_COLORS,
     _getState:    () => ({ bullets, selectedIds, lastResults, charts }),
     _resetState:  () => { bullets = []; selectedIds = new Set(); lastResults = []; charts = {}; },
@@ -422,5 +505,8 @@ if (typeof module !== 'undefined' && module.exports) {
   window.toggleBullet  = toggleBullet;
   window.switchTab     = switchTab;
   window.runSimulation = runSimulation;
+  window.runCustom     = runCustom;
+  window.exportCSV     = exportCSV;
+  window.exportPNG     = exportPNG;
   window.init          = init;
 }

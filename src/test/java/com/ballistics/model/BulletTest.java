@@ -11,8 +11,8 @@ import static org.assertj.core.api.Assertions.*;
 class BulletTest {
 
     @Test
-    void knownRifleBulletsReturnsFourBullets() {
-        assertThat(Bullet.knownRifleBullets()).hasSize(4);
+    void knownRifleBulletsReturnsTenBullets() {
+        assertThat(Bullet.knownRifleBullets()).hasSize(10);
     }
 
     @Test
@@ -21,7 +21,9 @@ class BulletTest {
             .map(Bullet::id)
             .collect(Collectors.toSet());
         assertThat(ids).containsExactlyInAnyOrder(
-            "223-rem-55gr", "308-win-168gr", "3006-150gr", "65-creedmoor-140gr"
+            "223-rem-55gr", "308-win-168gr", "3006-150gr", "65-creedmoor-140gr",
+            "243-win-95gr", "270-win-130gr", "7mm-rem-mag-160gr",
+            "338-lapua-250gr", "6mm-creedmoor-108gr", "300-win-mag-190gr"
         );
     }
 
@@ -67,6 +69,34 @@ class BulletTest {
         assertThat(b.bulletDiameterMm()).isEqualTo(6.71);
         assertThat(b.muzzleEnergyJoules()).isEqualTo(3095.0);
         assertThat(b.hexColor()).isEqualTo("#E879F9");
+    }
+
+    @Test
+    void bulletProperties_338LapuaMagnum() {
+        Bullet b = findById("338-lapua-250gr");
+        assertThat(b.name()).isEqualTo(".338 Lapua 250gr SMK");
+        assertThat(b.caliber()).isEqualTo(".338 Lapua Magnum");
+        assertThat(b.bulletWeightGrams()).isEqualTo(16.20);
+        assertThat(b.muzzleVelocityMps()).isEqualTo(905.0);
+        assertThat(b.ballisticCoefficient()).isEqualTo(0.587);
+        assertThat(b.bulletDiameterMm()).isEqualTo(8.61);
+        assertThat(b.muzzleEnergyJoules()).isEqualTo(6640.0);
+        assertThat(b.hexColor()).isEqualTo("#A78BFA");
+        assertThat(b.description()).isNotBlank();
+    }
+
+    @Test
+    void bulletProperties_6mmCreedmoor() {
+        Bullet b = findById("6mm-creedmoor-108gr");
+        assertThat(b.name()).isEqualTo("6mm Creedmoor 108gr Hybrid");
+        assertThat(b.caliber()).isEqualTo("6mm Creedmoor");
+        assertThat(b.bulletWeightGrams()).isEqualTo(7.00);
+        assertThat(b.muzzleVelocityMps()).isEqualTo(885.0);
+        assertThat(b.ballisticCoefficient()).isEqualTo(0.536);
+        assertThat(b.bulletDiameterMm()).isEqualTo(6.17);
+        assertThat(b.muzzleEnergyJoules()).isEqualTo(2740.0);
+        assertThat(b.hexColor()).isEqualTo("#2DD4BF");
+        assertThat(b.description()).isNotBlank();
     }
 
     @Test
