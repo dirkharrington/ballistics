@@ -4,6 +4,7 @@ import com.ballistics.model.Bullet;
 import com.ballistics.model.TrajectoryRequest;
 import com.ballistics.model.TrajectoryResult;
 import com.ballistics.service.BallisticsEngine;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.openjdk.jmh.annotations.*;
 
 import java.util.List;
@@ -46,7 +47,7 @@ public class BallisticsEngineBenchmark {
 
     @Setup(Level.Trial)
     public void setup() {
-        engine  = new BallisticsEngine();
+        engine  = new BallisticsEngine(new SimpleMeterRegistry());
         catalog = Bullet.knownRifleBullets().stream()
             .collect(Collectors.toMap(Bullet::id, Function.identity()));
     }

@@ -53,21 +53,25 @@ public class BallisticsController {
     // ── POST /api/trajectories/compare ───────────────────────────────────────
     @PostMapping("/trajectories/compare")
     public ResponseEntity<?> compareTrajectories(@RequestBody CompareRequest compareRequest) {
-        List<TrajectoryResult> results = compareRequest.bulletIds().stream()
-            .filter(bulletCatalog::containsKey)
-            .parallel()
-            .map(id -> {
-                TrajectoryRequest req = new TrajectoryRequest(
-                    id,
-                    compareRequest.zeroRangeMeters(),
-                    compareRequest.maxRangeMeters(),
-                    compareRequest.stepMeters(),
-                    compareRequest.windSpeedKph(),
-                    compareRequest.altitudeMeters(),
-                    compareRequest.temperatureC()
-                );
-                return engine.compute(bulletCatalog.get(id), req);
-            })
+        List<java.util.concurrent.CompletableFuture<TrajectoryResult>> futures =
+            compareRequest.bulletIds().stream()
+                .filter(bulletCatalog::containsKey)
+                .map(id -> java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                    TrajectoryRequest req = new TrajectoryRequest(
+                        id,
+                        compareRequest.zeroRangeMeters(),
+                        compareRequest.maxRangeMeters(),
+                        compareRequest.stepMeters(),
+                        compareRequest.windSpeedKph(),
+                        compareRequest.altitudeMeters(),
+                        compareRequest.temperatureC()
+                    );
+                    return engine.compute(bulletCatalog.get(id), req);
+                }))
+                .toList();
+
+        List<TrajectoryResult> results = futures.stream()
+            .map(java.util.concurrent.CompletableFuture::join)
             .toList();
 
         return ResponseEntity.ok(results);
