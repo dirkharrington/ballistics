@@ -573,12 +573,44 @@
   }
   .export-csv-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+  .custom-section {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .custom-section summary {
+    list-style: none;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    padding: 16px 20px 8px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+    transition: color 0.15s;
+  }
+
+  .custom-section summary::-webkit-details-marker { display: none; }
+
+  .custom-section summary:hover { color: var(--text); }
+
+  .custom-section summary .chevron {
+    font-size: 8px;
+    transition: transform 0.2s;
+    display: inline-block;
+  }
+
+  .custom-section[open] summary .chevron { transform: rotate(90deg); }
+
   .custom-form {
     padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border-top: 1px solid var(--border);
   }
 </style>
 </head>
@@ -659,7 +691,8 @@
     </button>
     <button class="export-csv-btn" onclick="exportCSV()">⬇ EXPORT CSV</button>
 
-    <div class="section-label">Custom Round</div>
+    <details class="custom-section">
+      <summary>Custom Round <span class="chevron">▶</span></summary>
     <div class="custom-form" id="customForm">
       <div class="param-group">
         <label>Name</label>
@@ -689,6 +722,7 @@
         <span>▶ COMPUTE CUSTOM</span>
       </button>
     </div>
+    </details>
 
   </aside>
 
