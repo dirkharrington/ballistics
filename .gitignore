@@ -1,0 +1,6 @@
+target/
+node_modules/
+.claude/
+*.class
+*.jar
+.DS_Store

@@ -1,0 +1,18 @@
+{
+  "name": "ballistics-frontend-tests",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "jest --coverage"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "roots": ["src/test/js"],
+    "testMatch": ["**/*.test.js"],
+    "coverageDirectory": "target/js-coverage",
+    "collectCoverageFrom": ["src/main/resources/static/ballistics.js"]
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0"
+  }
+}
