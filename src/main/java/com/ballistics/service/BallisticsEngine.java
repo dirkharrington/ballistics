@@ -1,6 +1,7 @@
 package com.ballistics.service;
 
 import com.ballistics.model.*;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -57,6 +58,7 @@ public class BallisticsEngine {
 
     // ─────────────────────────────────────────────────────────────────────────
 
+    @Cacheable("trajectories")
     public TrajectoryResult compute(Bullet bullet, TrajectoryRequest req) {
 
         // ── Convert SI inputs to imperial for internal physics ────────────────

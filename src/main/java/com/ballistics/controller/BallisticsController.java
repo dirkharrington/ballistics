@@ -2,6 +2,10 @@ package com.ballistics.controller;
 
 import com.ballistics.model.*;
 import com.ballistics.service.BallisticsEngine;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,10 +18,12 @@ import java.util.stream.Collectors;
  * REST API for the ballistics visualizer.
  *
  * Endpoints:
- *   GET  /api/bullets                  — list all known bullets
- *   POST /api/trajectory               — compute single-bullet trajectory
- *   POST /api/trajectories/compare     — compute trajectories for multiple bullets
+ *   GET  /api/bullets                      — list all known bullets
+ *   POST /api/trajectory                   — compute single-bullet trajectory (legacy)
+ *   POST /api/trajectories/{bulletId}      — compute single-bullet trajectory by path param
+ *   POST /api/trajectories/compare         — compute trajectories for multiple bullets
  */
+@Tag(name = "Trajectories", description = "Compute and compare bullet trajectories")
 @RestController
 @RequestMapping("/api")
 @CrossOrigin(origins = "*")
@@ -39,8 +45,9 @@ public class BallisticsController {
     }
 
     // ── POST /api/trajectory ──────────────────────────────────────────────────
+    @Operation(summary = "Compute trajectory for a single bullet")
     @PostMapping("/trajectory")
-    public ResponseEntity<?> computeTrajectory(@RequestBody TrajectoryRequest request) {
+    public ResponseEntity<?> computeTrajectory(@Valid @RequestBody TrajectoryRequest request) {
         Bullet bullet = bulletCatalog.get(request.bulletId());
         if (bullet == null) {
             return ResponseEntity.badRequest()
@@ -50,9 +57,35 @@ public class BallisticsController {
         return ResponseEntity.ok(result);
     }
 
+    // ── POST /api/trajectories/{bulletId} ─────────────────────────────────────
+    @Operation(summary = "Compute trajectory for a single bullet by path variable")
+    @PostMapping("/trajectories/{bulletId}")
+    public ResponseEntity<?> computeTrajectoryById(
+            @PathVariable String bulletId,
+            @Valid @RequestBody TrajectoryRequest request) {
+        Bullet bullet = bulletCatalog.get(bulletId);
+        if (bullet == null) {
+            return ResponseEntity.badRequest()
+                .body("Unknown bullet ID: " + bulletId);
+        }
+        // Build a request with the path-param bulletId merged in
+        TrajectoryRequest merged = new TrajectoryRequest(
+            bulletId,
+            request.zeroRangeMeters(),
+            request.maxRangeMeters(),
+            request.stepMeters(),
+            request.windSpeedKph(),
+            request.altitudeMeters(),
+            request.temperatureC()
+        );
+        TrajectoryResult result = engine.compute(bullet, merged);
+        return ResponseEntity.ok(result);
+    }
+
     // ── POST /api/trajectories/compare ───────────────────────────────────────
+    @Operation(summary = "Compare trajectories for all known bullets")
     @PostMapping("/trajectories/compare")
-    public ResponseEntity<?> compareTrajectories(@RequestBody CompareRequest compareRequest) {
+    public ResponseEntity<?> compareTrajectories(@Valid @RequestBody CompareRequest compareRequest) {
         List<TrajectoryResult> results = compareRequest.bulletIds().stream()
             .filter(bulletCatalog::containsKey)
             .parallel()
@@ -76,11 +109,11 @@ public class BallisticsController {
     // ── Inner record for compare request ─────────────────────────────────────
     public record CompareRequest(
         List<String> bulletIds,
-        double zeroRangeMeters,
-        double maxRangeMeters,
-        double stepMeters,
-        double windSpeedKph,
-        double altitudeMeters,
-        double temperatureC
+        @Positive @Max(3000) double zeroRangeMeters,
+        @Positive @Max(5000) double maxRangeMeters,
+        @Positive @Max(500) double stepMeters,
+        @PositiveOrZero double windSpeedKph,
+        @PositiveOrZero double altitudeMeters,
+        @Min(-50) @Max(60) double temperatureC
     ) {}
 }
