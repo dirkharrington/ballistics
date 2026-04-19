@@ -5,6 +5,9 @@ const { Chart: MockChart, _mockDestroy: mockChartDestroy } = require('chart.js')
 global.fetch = jest.fn();
 global.alert = jest.fn();
 
+// ── Suppress jsdom's unimplemented HTMLCanvasElement.getContext ───────────────
+HTMLCanvasElement.prototype.getContext = jest.fn(() => ({}));
+
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 function buildDOM() {
   document.body.innerHTML = `
