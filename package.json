@@ -8,10 +8,19 @@
   },
   "jest": {
     "testEnvironment": "jsdom",
-    "roots": ["src/test/js"],
-    "testMatch": ["**/*.test.js"],
+    "roots": [
+      "src/test/js"
+    ],
+    "testMatch": [
+      "**/*.test.js"
+    ],
     "coverageDirectory": "target/js-coverage",
-    "collectCoverageFrom": ["src/main/resources/static/ballistics.js"]
+    "collectCoverageFrom": [
+      "src/main/resources/static/ballistics.js"
+    ]
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1"
   },
   "devDependencies": {
     "jest": "^29.7.0",
