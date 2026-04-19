@@ -502,7 +502,12 @@ window.runSimulation = runSimulation;
 window.runCustom     = runCustom;
 window.exportCSV     = exportCSV;
 window.exportPNG     = exportPNG;
-window.init          = init;
+
+// Auto-initialize in browser (modules are deferred, so DOM is ready).
+// Guard prevents spurious calls when imported by tests before buildDOM().
+if (document.getElementById('bulletList')) {
+  init();
+}
 
 export {
   getMockBullets, g1Drag, airDensityRatio, simulateBullet, computeClientSide,
