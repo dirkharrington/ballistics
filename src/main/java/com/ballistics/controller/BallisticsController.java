@@ -106,6 +106,33 @@ public class BallisticsController {
         return ResponseEntity.ok(results);
     }
 
+    // ── POST /api/trajectories/custom ───────────────────────────────────────
+    @PostMapping("/trajectories/custom")
+    public ResponseEntity<?> customTrajectory(@Valid @RequestBody CustomBulletRequest req) {
+        Bullet bullet = new Bullet(
+            "custom",
+            req.name(),
+            "Custom",
+            req.bulletWeightGrams(),
+            req.muzzleVelocityMps(),
+            req.ballisticCoefficient(),
+            req.bulletDiameterMm(),
+            0.5 * (req.bulletWeightGrams() / 1000.0) * req.muzzleVelocityMps() * req.muzzleVelocityMps(),
+            "User-defined custom load",
+            "#00d4ff"
+        );
+        TrajectoryRequest trajReq = new TrajectoryRequest(
+            "custom",
+            req.zeroRangeMeters(),
+            req.maxRangeMeters(),
+            req.stepMeters(),
+            req.windSpeedKph(),
+            req.altitudeMeters(),
+            req.temperatureC()
+        );
+        return ResponseEntity.ok(engine.compute(bullet, trajReq));
+    }
+
     // ── Inner record for compare request ─────────────────────────────────────
     public record CompareRequest(
         List<String> bulletIds,
