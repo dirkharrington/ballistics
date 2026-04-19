@@ -115,13 +115,13 @@ class BallisticsControllerTest {
     }
 
     @Test
-    void computeTrajectoryWithDefaultsApplied() throws Exception {
+    void computeTrajectoryWithExplicitDefaults() throws Exception {
         String body = """
             {
               "bulletId": "223-rem-55gr",
-              "zeroRangeMeters": 0,
-              "maxRangeMeters": 0,
-              "stepMeters": 0,
+              "zeroRangeMeters": 100,
+              "maxRangeMeters": 1000,
+              "stepMeters": 25,
               "windSpeedKph": 0,
               "altitudeMeters": 0,
               "temperatureC": 15

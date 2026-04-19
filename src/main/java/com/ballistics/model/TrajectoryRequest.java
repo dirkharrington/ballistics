@@ -1,5 +1,7 @@
 package com.ballistics.model;
 
+import jakarta.validation.constraints.*;
+
 /**
  * Parameters for a trajectory simulation request (all values in SI units).
  *
@@ -13,12 +15,12 @@ package com.ballistics.model;
  */
 public record TrajectoryRequest(
     String bulletId,
-    double zeroRangeMeters,
-    double maxRangeMeters,
-    double stepMeters,
-    double windSpeedKph,
-    double altitudeMeters,
-    double temperatureC
+    @Positive @Max(3000) double zeroRangeMeters,
+    @Positive @Max(5000) double maxRangeMeters,
+    @Positive @Max(500) double stepMeters,
+    @PositiveOrZero double windSpeedKph,
+    @PositiveOrZero double altitudeMeters,
+    @Min(-50) @Max(60) double temperatureC
 ) {
     /** Defaults suitable for a standard sea-level, calm-day simulation. */
     public TrajectoryRequest {
