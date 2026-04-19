@@ -1,7 +1,9 @@
 {
-  "name": "ballistics-frontend-tests",
+  "name": "ballistics-frontend",
   "version": "1.0.0",
   "scripts": {
+    "build": "vite build",
+    "dev": "vite",
     "test": "jest --coverage"
   },
   "jest": {
@@ -13,6 +15,7 @@
   },
   "devDependencies": {
     "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0"
+    "jest-environment-jsdom": "^29.7.0",
+    "vite": "^6.3.4"
   }
 }
