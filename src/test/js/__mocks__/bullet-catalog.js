@@ -1,0 +1,13 @@
+// Jest mock for virtual:bullet-catalog — mirrors bullets.yaml
+module.exports = [
+  { id: '223-rem-55gr',        name: '.223 Rem 55gr FMJ',           caliber: '.223 Remington',        bulletWeightGrams: 3.56,  muzzleVelocityMps: 987.6, ballisticCoefficient: 0.243, muzzleEnergyJoules: 1738,  bulletDiameterMm: 5.69,  hexColor: '#4ADE80' },
+  { id: '308-win-168gr',       name: '.308 Win 168gr BTHP',          caliber: '.308 Winchester',       bulletWeightGrams: 10.89, muzzleVelocityMps: 807.7, ballisticCoefficient: 0.475, muzzleEnergyJoules: 3552,  bulletDiameterMm: 7.82,  hexColor: '#F97316' },
+  { id: '3006-150gr',          name: '.30-06 Springfield 150gr',     caliber: '.30-06 Springfield',    bulletWeightGrams: 9.72,  muzzleVelocityMps: 887.0, ballisticCoefficient: 0.435, muzzleEnergyJoules: 3823,  bulletDiameterMm: 7.82,  hexColor: '#60A5FA' },
+  { id: '65-creedmoor-140gr',  name: '6.5 Creedmoor 140gr ELD',     caliber: '6.5 Creedmoor',         bulletWeightGrams: 9.07,  muzzleVelocityMps: 826.0, ballisticCoefficient: 0.646, muzzleEnergyJoules: 3095,  bulletDiameterMm: 6.71,  hexColor: '#E879F9' },
+  { id: '243-win-95gr',        name: '.243 Win 95gr BT',             caliber: '.243 Winchester',       bulletWeightGrams: 6.16,  muzzleVelocityMps: 920.0, ballisticCoefficient: 0.379, muzzleEnergyJoules: 2608,  bulletDiameterMm: 5.94,  hexColor: '#34D399' },
+  { id: '270-win-130gr',       name: '.270 Win 130gr AccuBond',      caliber: '.270 Winchester',       bulletWeightGrams: 8.42,  muzzleVelocityMps: 939.0, ballisticCoefficient: 0.480, muzzleEnergyJoules: 3714,  bulletDiameterMm: 6.99,  hexColor: '#FBBF24' },
+  { id: '7mm-rem-mag-160gr',   name: '7mm Rem Mag 160gr Partition',  caliber: '7mm Remington Magnum',  bulletWeightGrams: 10.36, muzzleVelocityMps: 930.0, ballisticCoefficient: 0.531, muzzleEnergyJoules: 4484,  bulletDiameterMm: 7.21,  hexColor: '#F87171' },
+  { id: '338-lapua-250gr',     name: '.338 Lapua 250gr SMK',         caliber: '.338 Lapua Magnum',     bulletWeightGrams: 16.20, muzzleVelocityMps: 905.0, ballisticCoefficient: 0.587, muzzleEnergyJoules: 6640,  bulletDiameterMm: 8.61,  hexColor: '#A78BFA' },
+  { id: '6mm-creedmoor-108gr', name: '6mm Creedmoor 108gr Hybrid',   caliber: '6mm Creedmoor',         bulletWeightGrams: 7.00,  muzzleVelocityMps: 885.0, ballisticCoefficient: 0.536, muzzleEnergyJoules: 2740,  bulletDiameterMm: 6.17,  hexColor: '#2DD4BF' },
+  { id: '300-win-mag-190gr',   name: '.300 Win Mag 190gr SMK',       caliber: '.300 Winchester Magnum',bulletWeightGrams: 12.31, muzzleVelocityMps: 930.0, ballisticCoefficient: 0.533, muzzleEnergyJoules: 5330,  bulletDiameterMm: 7.82,  hexColor: '#FB923C' }
+];

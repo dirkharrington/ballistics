@@ -1,0 +1,106 @@
+# Canonical physics tables shared between the Java engine
+# (com.ballistics.service.BallisticsEngine) and the JS client
+# (src/main/resources/static/ballistics.js, via virtual:physics-tables).
+#
+# Edits here propagate to both sides.  Do NOT keep duplicate copies.
+
+# ── G1 drag function (Ingalls table approximation) ──────────────────────────
+# v: velocity in fps   f: form factor F(v)
+g1Table:
+  - { v: 0,    f: 0.1198 }
+  - { v: 400,  f: 0.1198 }
+  - { v: 500,  f: 0.1197 }
+  - { v: 600,  f: 0.1196 }
+  - { v: 700,  f: 0.1194 }
+  - { v: 800,  f: 0.1193 }
+  - { v: 900,  f: 0.1194 }
+  - { v: 950,  f: 0.1202 }
+  - { v: 1000, f: 0.1250 }
+  - { v: 1050, f: 0.1315 }
+  - { v: 1100, f: 0.1420 }
+  - { v: 1150, f: 0.1550 }
+  - { v: 1200, f: 0.1700 }
+  - { v: 1250, f: 0.1820 }
+  - { v: 1300, f: 0.1920 }
+  - { v: 1350, f: 0.1990 }
+  - { v: 1400, f: 0.2030 }
+  - { v: 1450, f: 0.2020 }
+  - { v: 1500, f: 0.1990 }
+  - { v: 1600, f: 0.1920 }
+  - { v: 1700, f: 0.1840 }
+  - { v: 1800, f: 0.1750 }
+  - { v: 1900, f: 0.1660 }
+  - { v: 2000, f: 0.1580 }
+  - { v: 2100, f: 0.1500 }
+  - { v: 2200, f: 0.1425 }
+  - { v: 2300, f: 0.1355 }
+  - { v: 2400, f: 0.1295 }
+  - { v: 2500, f: 0.1240 }
+  - { v: 2600, f: 0.1188 }
+  - { v: 2700, f: 0.1140 }
+  - { v: 2800, f: 0.1096 }
+  - { v: 2900, f: 0.1056 }
+  - { v: 3000, f: 0.1020 }
+  - { v: 3100, f: 0.0986 }
+  - { v: 3200, f: 0.0955 }
+  - { v: 3300, f: 0.0926 }
+  - { v: 3400, f: 0.0900 }
+  - { v: 3500, f: 0.0878 }
+  - { v: 3600, f: 0.0858 }
+  - { v: 4000, f: 0.0800 }
+
+# ── G7 drag function (Mayewski table for long-range boat-tail projectiles) ──
+# v: velocity in fps   f: form factor F(v)
+# G7 values are ~55–65% of G1 at supersonic speeds (less base drag) and converge
+# to G1 at subsonic speeds.  Use with G7-derived ballistic coefficients.
+g7Table:
+  - { v: 0,    f: 0.1198 }
+  - { v: 400,  f: 0.1198 }
+  - { v: 500,  f: 0.1197 }
+  - { v: 600,  f: 0.1194 }
+  - { v: 700,  f: 0.1189 }
+  - { v: 800,  f: 0.1185 }
+  - { v: 900,  f: 0.1183 }
+  - { v: 950,  f: 0.1183 }
+  - { v: 1000, f: 0.1185 }
+  - { v: 1050, f: 0.1200 }
+  - { v: 1100, f: 0.1230 }
+  - { v: 1150, f: 0.1270 }
+  - { v: 1200, f: 0.1318 }
+  - { v: 1250, f: 0.1357 }
+  - { v: 1300, f: 0.1386 }
+  - { v: 1350, f: 0.1395 }
+  - { v: 1400, f: 0.1378 }
+  - { v: 1450, f: 0.1335 }
+  - { v: 1500, f: 0.1278 }
+  - { v: 1600, f: 0.1163 }
+  - { v: 1700, f: 0.1066 }
+  - { v: 1800, f: 0.0985 }
+  - { v: 1900, f: 0.0920 }
+  - { v: 2000, f: 0.0868 }
+  - { v: 2100, f: 0.0826 }
+  - { v: 2200, f: 0.0790 }
+  - { v: 2300, f: 0.0757 }
+  - { v: 2400, f: 0.0728 }
+  - { v: 2500, f: 0.0702 }
+  - { v: 2600, f: 0.0680 }
+  - { v: 2700, f: 0.0661 }
+  - { v: 2800, f: 0.0644 }
+  - { v: 2900, f: 0.0630 }
+  - { v: 3000, f: 0.0617 }
+  - { v: 3100, f: 0.0604 }
+  - { v: 3200, f: 0.0593 }
+  - { v: 3300, f: 0.0583 }
+  - { v: 3400, f: 0.0573 }
+  - { v: 3500, f: 0.0564 }
+  - { v: 3600, f: 0.0555 }
+  - { v: 4000, f: 0.0520 }
+
+# ── Standard atmosphere model constants (imperial) ──────────────────────────
+# Used by airDensityRatio(altFt, tempF) on both Java and JS sides.
+atmosphere:
+  stdTempF: 59.0              # ICAO standard sea-level temperature (°F)
+  lapseRatePer1000Ft: 3.5     # Temperature lapse rate (°F per 1000 ft)
+  rankineOffset: 459.67       # °F → °R (Rankine) conversion offset
+  pressureCoeff: 6.87559e-6   # Pressure-altitude exponent base coefficient
+  pressureExp: 5.256          # Pressure-altitude exponent
