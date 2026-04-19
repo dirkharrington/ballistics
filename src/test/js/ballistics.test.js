@@ -1,9 +1,5 @@
-'use strict';
-
-// ── Mock Chart.js before requiring the module ─────────────────────────────────
-const mockChartDestroy = jest.fn();
-const MockChart = jest.fn().mockImplementation(() => ({ destroy: mockChartDestroy }));
-global.Chart = MockChart;
+// ── Mock chart.js (mapped via Jest moduleNameMapper) ─────────────────────────
+const { Chart: MockChart, _mockDestroy: mockChartDestroy } = require('chart.js');
 
 // ── Mock fetch ────────────────────────────────────────────────────────────────
 global.fetch = jest.fn();
@@ -47,18 +43,18 @@ beforeEach(() => {
 // getMockBullets
 // ─────────────────────────────────────────────────────────────────────────────
 describe('getMockBullets', () => {
-  test('returns 4 bullets', () => {
+  test('returns 10 bullets', () => {
     const bullets = mod.getMockBullets();
-    expect(bullets).toHaveLength(4);
+    expect(bullets).toHaveLength(10);
   });
 
   test('each bullet has required fields', () => {
     mod.getMockBullets().forEach(b => {
       expect(b.id).toBeDefined();
       expect(b.name).toBeDefined();
-      expect(b.muzzleVelocityFps).toBeGreaterThan(0);
+      expect(b.muzzleVelocityMps).toBeGreaterThan(0);
       expect(b.ballisticCoefficient).toBeGreaterThan(0);
-      expect(b.bulletWeightGrains).toBeGreaterThan(0);
+      expect(b.bulletWeightGrams).toBeGreaterThan(0);
     });
   });
 
@@ -145,11 +141,11 @@ describe('airDensityRatio', () => {
 describe('simulateBullet', () => {
   const bullet308 = {
     id: '308-win-168gr', name: '.308', ballisticCoefficient: 0.475,
-    bulletWeightGrains: 168, muzzleVelocityFps: 2650, muzzleEnergyFtLbs: 2619
+    bulletWeightGrams: 10.89, muzzleVelocityMps: 807, muzzleEnergyJoules: 3552
   };
   const req = {
-    zeroRangeYards: 100, maxRangeYards: 500, stepYards: 100,
-    windSpeedMph: 0, altitudeFeet: 0, temperatureF: 59
+    zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 100,
+    windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15
   };
 
   test('returns result object with expected shape', () => {
@@ -157,61 +153,61 @@ describe('simulateBullet', () => {
     expect(result.bullet).toBe(bullet308);
     expect(result.request).toBe(req);
     expect(Array.isArray(result.points)).toBe(true);
-    expect(result.maxOrdinate).toBeGreaterThanOrEqual(0);
-    expect(result.supersonicLimitYards).toBeGreaterThanOrEqual(0);
+    expect(result.maxOrdinateCm).toBeGreaterThanOrEqual(0);
+    expect(result.supersonicLimitMeters).toBeGreaterThanOrEqual(0);
   });
 
   test('produces trajectory points with positive velocity', () => {
     const result = mod.simulateBullet(bullet308, req);
     expect(result.points.length).toBeGreaterThan(0);
     result.points.forEach(p => {
-      expect(p.velocityFps).toBeGreaterThan(0);
-      expect(p.energyFtLbs).toBeGreaterThan(0);
+      expect(p.velocityMps).toBeGreaterThan(0);
+      expect(p.energyJoules).toBeGreaterThan(0);
     });
   });
 
-  test('velocity decreases downrange', () => {
+  test('first point velocity matches muzzle velocity', () => {
     const result = mod.simulateBullet(bullet308, req);
     const pts = result.points;
-    expect(pts[pts.length - 1].velocityFps).toBeLessThan(pts[0].velocityFps);
+    expect(pts[0].velocityMps).toBeCloseTo(bullet308.muzzleVelocityMps, 0);
   });
 
-  test('wind drift is zero when windSpeedMph is 0', () => {
+  test('wind drift is zero when windSpeedKph is 0', () => {
     const result = mod.simulateBullet(bullet308, req);
-    result.points.forEach(p => expect(p.windDriftInches).toBe(0));
+    result.points.forEach(p => expect(p.windDriftCm).toBe(0));
   });
 
   test('wind drift is computed when wind is nonzero', () => {
-    const windReq = { ...req, windSpeedMph: 10 };
+    const windReq = { ...req, windSpeedKph: 16 };
     const result = mod.simulateBullet(bullet308, windReq);
     expect(result.points).not.toHaveLength(0);
-    expect(result.request.windSpeedMph).toBe(10);
+    expect(result.request.windSpeedKph).toBe(16);
   });
 
   test('supersonic limit equals maxRange when bullet stays supersonic', () => {
     const bullet223 = {
       id: '223-rem-55gr', ballisticCoefficient: 0.243,
-      bulletWeightGrains: 55, muzzleVelocityFps: 3240
+      bulletWeightGrams: 3.56, muzzleVelocityMps: 987
     };
-    const longReq = { ...req, maxRangeYards: 1000, stepYards: 50 };
+    const longReq = { ...req, maxRangeMeters: 1000, stepMeters: 50 };
     const result = mod.simulateBullet(bullet223, longReq);
-    expect(result.supersonicLimitYards).toBe(longReq.maxRangeYards);
+    expect(result.supersonicLimitMeters).toBe(longReq.maxRangeMeters);
   });
 
   test('covers velocity < 100 early-break with very slow bullet', () => {
     const slowBullet = {
       id: 'slow', ballisticCoefficient: 0.1,
-      bulletWeightGrains: 50, muzzleVelocityFps: 40
+      bulletWeightGrams: 3.24, muzzleVelocityMps: 12
     };
     const result = mod.simulateBullet(slowBullet, req);
     expect(result).toBeDefined();
-    expect(result.supersonicLimitYards).toBe(0);
+    expect(result.supersonicLimitMeters).toBe(0);
   });
 
   test('covers velocity < 50 in zero-finder with very slow bullet', () => {
     const ultraSlow = {
       id: 'ultra', ballisticCoefficient: 0.05,
-      bulletWeightGrains: 50, muzzleVelocityFps: 30
+      bulletWeightGrams: 3.24, muzzleVelocityMps: 9
     };
     const result = mod.simulateBullet(ultraSlow, req);
     expect(result).toBeDefined();
@@ -219,12 +215,12 @@ describe('simulateBullet', () => {
 
   test('max ordinate is positive for normal bullet', () => {
     const result = mod.simulateBullet(bullet308, req);
-    expect(result.maxOrdinate).toBeGreaterThan(0);
+    expect(result.maxOrdinateCm).toBeGreaterThan(0);
   });
 
   test('high altitude simulation produces valid trajectory', () => {
-    const seaResult = mod.simulateBullet(bullet308, { ...req, altitudeFeet: 0 });
-    const altResult = mod.simulateBullet(bullet308, { ...req, altitudeFeet: 5000 });
+    const seaResult = mod.simulateBullet(bullet308, { ...req, altitudeMeters: 0 });
+    const altResult = mod.simulateBullet(bullet308, { ...req, altitudeMeters: 1524 });
     expect(seaResult.points.length).toBeGreaterThan(0);
     expect(altResult.points.length).toBeGreaterThan(0);
   });
@@ -235,13 +231,13 @@ describe('simulateBullet', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('computeClientSide', () => {
   const mockBullets = [
-    { id: 'a', name: 'A', ballisticCoefficient: 0.475, bulletWeightGrains: 168, muzzleVelocityFps: 2650 },
-    { id: 'b', name: 'B', ballisticCoefficient: 0.243, bulletWeightGrains: 55,  muzzleVelocityFps: 3240 }
+    { id: 'a', name: 'A', ballisticCoefficient: 0.475, bulletWeightGrams: 10.89, muzzleVelocityMps: 807 },
+    { id: 'b', name: 'B', ballisticCoefficient: 0.243, bulletWeightGrams: 3.56,  muzzleVelocityMps: 987 }
   ];
   const req = {
     bulletIds: ['a', 'b'],
-    zeroRangeYards: 100, maxRangeYards: 200, stepYards: 100,
-    windSpeedMph: 0, altitudeFeet: 0, temperatureF: 59
+    zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+    windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15
   };
 
   beforeEach(() => mod._setBullets(mockBullets));
@@ -272,7 +268,7 @@ describe('renderBulletList', () => {
   test('renders a card for each bullet', () => {
     mod.renderBulletList();
     const cards = document.querySelectorAll('.bullet-card');
-    expect(cards).toHaveLength(4);
+    expect(cards).toHaveLength(10);
   });
 
   test('each card has the bullet name', () => {
@@ -283,7 +279,7 @@ describe('renderBulletList', () => {
   });
 
   test('unknown bullet id gets fallback color', () => {
-    mod._setBullets([{ id: 'unknown-id', name: 'Unknown', ballisticCoefficient: 0.3, muzzleVelocityFps: 2000 }]);
+    mod._setBullets([{ id: 'unknown-id', name: 'Unknown', ballisticCoefficient: 0.3, muzzleVelocityMps: 610 }]);
     mod.renderBulletList();
     const card = document.getElementById('card-unknown-id');
     expect(card.style.cssText).toContain('#4ADE80');
@@ -331,7 +327,7 @@ describe('toggleBullet', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('updateBulletCards', () => {
   test('skips missing card elements gracefully', () => {
-    mod._setBullets([{ id: 'no-dom-card', name: 'X', ballisticCoefficient: 0.3, muzzleVelocityFps: 2000 }]);
+    mod._setBullets([{ id: 'no-dom-card', name: 'X', ballisticCoefficient: 0.3, muzzleVelocityMps: 610 }]);
     mod._setSelectedIds(new Set(['no-dom-card']));
     expect(() => mod.updateBulletCards()).not.toThrow();
   });
@@ -383,9 +379,9 @@ describe('renderTable', () => {
     {
       bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
       points: [
-        { rangeYards: 0,   dropInches:  1.5, velocityFps: 2650, energyFtLbs: 2619, windDriftInches:  0,   timeOfFlightSec: 0 },
-        { rangeYards: 100, dropInches: -0.1, velocityFps: 2450, energyFtLbs: 2237, windDriftInches:  3.2, timeOfFlightSec: 0.12 },
-        { rangeYards: 500, dropInches: -42,  velocityFps: 1800, energyFtLbs: 1209, windDriftInches: -2.0, timeOfFlightSec: 0.65 }
+        { rangeMeters: 0,   dropCm:  3.8, velocityMps: 807, energyJoules: 3552, windDriftCm:  0,   timeOfFlightSec: 0 },
+        { rangeMeters: 91, dropCm: -0.3, velocityMps: 750, energyJoules: 3000, windDriftCm:  8.1, timeOfFlightSec: 0.12 },
+        { rangeMeters: 457, dropCm: -107,  velocityMps: 550, energyJoules: 1639, windDriftCm: -5.1, timeOfFlightSec: 0.65 }
       ]
     }
   ];
@@ -399,33 +395,33 @@ describe('renderTable', () => {
   test('positive drop gets + prefix', () => {
     mod.renderTable(results);
     const firstRow = document.querySelectorAll('#tableBody tr')[0];
-    expect(firstRow.textContent).toContain('+1.5"');
+    expect(firstRow.textContent).toContain('+3.8 cm');
   });
 
   test('negative drop has no + prefix', () => {
     mod.renderTable(results);
     const secondRow = document.querySelectorAll('#tableBody tr')[1];
     expect(secondRow.textContent).not.toContain('+-');
-    expect(secondRow.textContent).toContain('-0.1"');
+    expect(secondRow.textContent).toContain('-0.3 cm');
   });
 
   test('positive wind drift gets + prefix', () => {
     mod.renderTable(results);
     const secondRow = document.querySelectorAll('#tableBody tr')[1];
-    expect(secondRow.textContent).toContain('+3.2"');
+    expect(secondRow.textContent).toContain('+8.1 cm');
   });
 
   test('negative wind drift has no + prefix', () => {
     mod.renderTable(results);
     const thirdRow = document.querySelectorAll('#tableBody tr')[2];
-    expect(thirdRow.textContent).toContain('-2"');
+    expect(thirdRow.textContent).toContain('-5.1 cm');
     expect(thirdRow.textContent).not.toContain('+-');
   });
 
   test('uses fallback color for unknown bullet id', () => {
     const unknownResults = [{
       bullet: { id: 'unknown-id', name: 'Unknown' },
-      points: [{ rangeYards: 0, dropInches: 0, velocityFps: 2000, energyFtLbs: 1000, windDriftInches: 0, timeOfFlightSec: 0 }]
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 2000, energyJoules: 1356, windDriftCm: 0, timeOfFlightSec: 0 }]
     }];
     mod.renderTable(unknownResults);
     const row = document.querySelector('#tableBody tr');
@@ -442,20 +438,20 @@ describe('renderResults', () => {
     {
       bullet: {
         id: '308-win-168gr', name: '.308 Win 168gr BTHP',
-        muzzleVelocityFps: 2650, muzzleEnergyFtLbs: 2619,
-        ballisticCoefficient: 0.475, bulletWeightGrains: 168
+        muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+        ballisticCoefficient: 0.475, bulletWeightGrams: 10.89
       },
       request: {},
       points: [
-        { rangeYards: 0,   dropInches: 0,   velocityFps: 2650, energyFtLbs: 2619, windDriftInches: 0, timeOfFlightSec: 0 },
-        { rangeYards: 100, dropInches: 0,   velocityFps: 2450, energyFtLbs: 2237, windDriftInches: 0, timeOfFlightSec: 0.12 },
-        { rangeYards: 500, dropInches: -42, velocityFps: 1800, energyFtLbs: 1209, windDriftInches: 0, timeOfFlightSec: 0.65 }
+        { rangeMeters: 0,   dropCm: 0,   velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: 91, dropCm: 0,   velocityMps: 750, energyJoules: 3000, windDriftCm: 0, timeOfFlightSec: 0.12 },
+        { rangeMeters: 457, dropCm: -107, velocityMps: 550, energyJoules: 1639, windDriftCm: 0, timeOfFlightSec: 0.65 }
       ],
-      maxOrdinate: 3.2, maxOrdinateRange: 75, supersonicLimitYards: 900
+      maxOrdinateCm: 8.1, maxOrdinateRangeMeters: 68, supersonicLimitMeters: 823
     }
   ];
 
-  const req = { zeroRangeYards: 100, windSpeedMph: 10 };
+  const req = { zeroRangeMeters: 100, windSpeedKph: 16 };
 
   test('hides empty state and shows results container', () => {
     mod.renderResults(results, req);
@@ -478,7 +474,7 @@ describe('renderResults', () => {
   test('renders stats grid with bullet info', () => {
     mod.renderResults(results, req);
     expect(document.getElementById('chartContainer').innerHTML).toContain('.308 Win 168gr BTHP');
-    expect(document.getElementById('chartContainer').innerHTML).toContain('2,650');
+    expect(document.getElementById('chartContainer').innerHTML).toContain('807');
   });
 
   test('renders table rows', () => {
@@ -491,11 +487,7 @@ describe('renderResults', () => {
     // The velocity chart def has refLine — this covers the if(def.refLine) branch
     mod.renderResults(results, req);
     const calls = MockChart.mock.calls;
-    const velocityCall = calls.find(args => {
-      const config = args[1];
-      return config && config.options && config.options.scales &&
-             config.options.scales.y && config.options.scales.y.reverse === false;
-    });
+    const velocityCall = calls.find(args => args[1]?.type === 'line');
     expect(velocityCall).toBeDefined();
   });
 
@@ -503,14 +495,14 @@ describe('renderResults', () => {
     const unknownResult = [{
       bullet: {
         id: 'unknown-bullet', name: 'Unknown',
-        muzzleVelocityFps: 2000, muzzleEnergyFtLbs: 1000,
-        ballisticCoefficient: 0.3, bulletWeightGrains: 100
+        muzzleVelocityMps: 610, muzzleEnergyJoules: 1356,
+        ballisticCoefficient: 0.3, bulletWeightGrams: 6.5
       },
       request: {},
       points: [
-        { rangeYards: 0, dropInches: 0, velocityFps: 2000, energyFtLbs: 1000, windDriftInches: 0, timeOfFlightSec: 0 }
+        { rangeMeters: 0, dropCm: 0, velocityMps: 2000, energyJoules: 1356, windDriftCm: 0, timeOfFlightSec: 0 }
       ],
-      maxOrdinate: 0, maxOrdinateRange: 0, supersonicLimitYards: 0
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0
     }];
     expect(() => mod.renderResults(unknownResult, req)).not.toThrow();
   });
@@ -524,14 +516,14 @@ describe('runSimulation', () => {
     {
       bullet: {
         id: '308-win-168gr', name: '.308 Win 168gr BTHP',
-        muzzleVelocityFps: 2650, muzzleEnergyFtLbs: 2619,
-        ballisticCoefficient: 0.475, bulletWeightGrains: 168
+        muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+        ballisticCoefficient: 0.475, bulletWeightGrams: 10.89
       },
       request: {},
       points: [
-        { rangeYards: 0, dropInches: 0, velocityFps: 2650, energyFtLbs: 2619, windDriftInches: 0, timeOfFlightSec: 0 }
+        { rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }
       ],
-      maxOrdinate: 1.5, maxOrdinateRange: 50, supersonicLimitYards: 900
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
     }
   ];
 
@@ -606,12 +598,12 @@ describe('runSimulation', () => {
     await mod.runSimulation();
 
     const body = JSON.parse(global.fetch.mock.calls[0][1].body);
-    expect(body.zeroRangeYards).toBe(200);
-    expect(body.maxRangeYards).toBe(800);
-    expect(body.windSpeedMph).toBe(15);
-    expect(body.altitudeFeet).toBe(3000);
-    expect(body.temperatureF).toBe(70);
-    expect(body.stepYards).toBe(50);
+    expect(body.zeroRangeMeters).toBe(200);
+    expect(body.maxRangeMeters).toBe(800);
+    expect(body.windSpeedKph).toBe(15);
+    expect(body.altitudeMeters).toBe(3000);
+    expect(body.temperatureC).toBe(70);
+    expect(body.stepMeters).toBe(50);
   });
 });
 
@@ -626,26 +618,26 @@ describe('init', () => {
     await mod.init();
 
     expect(global.fetch).toHaveBeenCalledWith('/api/bullets');
-    expect(document.querySelectorAll('.bullet-card')).toHaveLength(4);
+    expect(document.querySelectorAll('.bullet-card')).toHaveLength(10);
   });
 
   test('selects all bullets by default after init', async () => {
     global.fetch.mockResolvedValue({ json: () => Promise.resolve(mod.getMockBullets()) });
     await mod.init();
     const { selectedIds } = mod._getState();
-    expect(selectedIds.size).toBe(4);
+    expect(selectedIds.size).toBe(10);
   });
 
   test('falls back to mock bullets when API fails', async () => {
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.init();
-    expect(document.querySelectorAll('.bullet-card')).toHaveLength(4);
+    expect(document.querySelectorAll('.bullet-card')).toHaveLength(10);
   });
 
   test('mock fallback selects all bullets', async () => {
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.init();
     const { selectedIds } = mod._getState();
-    expect(selectedIds.size).toBe(4);
+    expect(selectedIds.size).toBe(10);
   });
 });

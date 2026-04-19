@@ -10,11 +10,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap&subset=latin" rel="stylesheet">
 <link rel="preload" href="./ballistics.css" as="style">
 <link rel="stylesheet" href="./ballistics.css">
-<script type="module">
-import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from 'chart.js';
-Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
-window.Chart = Chart;
-</script>
 </head>
 <body>
 
@@ -187,7 +182,7 @@ window.Chart = Chart;
   </main>
 </div>
 
-<script src="ballistics.js"></script>
-<script>init();</script>
+<script type="module" src="./ballistics.js"></script>
+<script type="module">window.init();</script>
 </body>
 </html>

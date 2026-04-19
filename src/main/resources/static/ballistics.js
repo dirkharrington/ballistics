@@ -1,4 +1,5 @@
-'use strict';
+import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from 'chart.js';
+Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const API_BASE = '/api';
@@ -487,26 +488,27 @@ async function init() {
   updateBulletCards();
 }
 
-// ── Exports (CommonJS for Jest; browser globals otherwise) ────────────────────
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    getMockBullets, g1Drag, airDensityRatio, simulateBullet, computeClientSide,
-    renderBulletList, toggleBullet, updateBulletCards, runSimulation,
-    renderResults, renderTable, switchTab, init,
-    exportCSV, exportPNG, runCustom,
-    BULLET_COLORS,
-    _getState:    () => ({ bullets, selectedIds, lastResults, charts }),
-    _resetState:  () => { bullets = []; selectedIds = new Set(); lastResults = []; charts = {}; },
-    _setBullets:  (b) => { bullets = b; },
-    _setSelectedIds: (s) => { selectedIds = s; },
-    _setCharts:   (c) => { charts = c; }
-  };
-} else {
-  window.toggleBullet  = toggleBullet;
-  window.switchTab     = switchTab;
-  window.runSimulation = runSimulation;
-  window.runCustom     = runCustom;
-  window.exportCSV     = exportCSV;
-  window.exportPNG     = exportPNG;
-  window.init          = init;
-}
+// ── State helpers (for test access) ──────────────────────────────────────────
+function _getState()     { return { bullets, selectedIds, lastResults, charts }; }
+function _resetState()   { bullets = []; selectedIds = new Set(); lastResults = []; charts = {}; }
+function _setBullets(b)  { bullets = b; }
+function _setSelectedIds(s) { selectedIds = s; }
+function _setCharts(c)   { charts = c; }
+
+// ── Browser globals (for inline onclick handlers) ─────────────────────────────
+window.toggleBullet  = toggleBullet;
+window.switchTab     = switchTab;
+window.runSimulation = runSimulation;
+window.runCustom     = runCustom;
+window.exportCSV     = exportCSV;
+window.exportPNG     = exportPNG;
+window.init          = init;
+
+export {
+  getMockBullets, g1Drag, airDensityRatio, simulateBullet, computeClientSide,
+  renderBulletList, toggleBullet, updateBulletCards, runSimulation,
+  renderResults, renderTable, switchTab, init,
+  exportCSV, exportPNG, runCustom,
+  BULLET_COLORS,
+  _getState, _resetState, _setBullets, _setSelectedIds, _setCharts,
+};
