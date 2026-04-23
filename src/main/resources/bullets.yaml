@@ -1,0 +1,111 @@
+app:
+  bullets:
+    - id: "223-rem-55gr"
+      name: ".223 Rem 55gr FMJ"
+      caliber: ".223 Remington"
+      bulletWeightGrams: 3.56
+      muzzleVelocityMps: 987.6
+      ballisticCoefficient: 0.243
+      bulletDiameterMm: 5.69
+      muzzleEnergyJoules: 1738.0
+      description: "Standard AR-15 / M16 loading. High velocity, flat trajectory at shorter ranges. Popular varmint and defensive round. Loses energy quickly beyond 400 metres."
+      hexColor: "#4ADE80"
+
+    - id: "308-win-168gr"
+      name: ".308 Win 168gr BTHP"
+      caliber: ".308 Winchester"
+      bulletWeightGrams: 10.89
+      muzzleVelocityMps: 807.7
+      ballisticCoefficient: 0.475
+      bulletDiameterMm: 7.82
+      muzzleEnergyJoules: 3552.0
+      description: "The gold standard precision rifle cartridge. 168gr Sierra MatchKing is the benchmark for long-range accuracy. Favoured by military snipers and competition shooters."
+      hexColor: "#F97316"
+
+    - id: "3006-150gr"
+      name: ".30-06 Springfield 150gr"
+      caliber: ".30-06 Springfield"
+      bulletWeightGrams: 9.72
+      muzzleVelocityMps: 887.0
+      ballisticCoefficient: 0.435
+      bulletDiameterMm: 7.82
+      muzzleEnergyJoules: 3823.0
+      description: "The legendary American hunting cartridge. Over a century of service. Excellent all-around performance for North American game at hunting distances."
+      hexColor: "#60A5FA"
+
+    - id: "65-creedmoor-140gr"
+      name: "6.5 Creedmoor 140gr ELD"
+      caliber: "6.5 Creedmoor"
+      bulletWeightGrams: 9.07
+      muzzleVelocityMps: 826.0
+      ballisticCoefficient: 0.646
+      bulletDiameterMm: 6.71
+      muzzleEnergyJoules: 3095.0
+      description: "The modern long-range precision king. Exceptionally high BC for caliber means superb wind resistance and minimal drop. Dominates PRS competition. Low recoil."
+      hexColor: "#E879F9"
+
+    - id: "243-win-95gr"
+      name: ".243 Win 95gr BT"
+      caliber: ".243 Winchester"
+      bulletWeightGrams: 6.16
+      muzzleVelocityMps: 920.0
+      ballisticCoefficient: 0.379
+      bulletDiameterMm: 5.94
+      muzzleEnergyJoules: 2608.0
+      description: "Popular varmint-to-deer cartridge. Low recoil with a flat trajectory. The 95gr Ballistic Tip is a versatile hunting load with excellent terminal performance."
+      hexColor: "#34D399"
+
+    - id: "270-win-130gr"
+      name: ".270 Win 130gr AccuBond"
+      caliber: ".270 Winchester"
+      bulletWeightGrams: 8.42
+      muzzleVelocityMps: 939.0
+      ballisticCoefficient: 0.480
+      bulletDiameterMm: 6.99
+      muzzleEnergyJoules: 3714.0
+      description: "Jack O'Connor's favourite. High velocity with a flat trajectory. Excellent all-around North American hunting cartridge. Mild recoil for its power."
+      hexColor: "#FBBF24"
+
+    - id: "7mm-rem-mag-160gr"
+      name: "7mm Rem Mag 160gr Partition"
+      caliber: "7mm Remington Magnum"
+      bulletWeightGrams: 10.36
+      muzzleVelocityMps: 930.0
+      ballisticCoefficient: 0.531
+      bulletDiameterMm: 7.21
+      muzzleEnergyJoules: 4484.0
+      description: "A premier long-range hunting cartridge. High BC 160gr bullet retains energy exceptionally well. Widely used for elk and larger game at extended ranges."
+      hexColor: "#F87171"
+
+    - id: "338-lapua-250gr"
+      name: ".338 Lapua 250gr SMK"
+      caliber: ".338 Lapua Magnum"
+      bulletWeightGrams: 16.20
+      muzzleVelocityMps: 905.0
+      ballisticCoefficient: 0.587
+      bulletDiameterMm: 8.61
+      muzzleEnergyJoules: 6640.0
+      description: "Elite military and precision long-range cartridge. Effective past 1500 metres. Punishing recoil, but unmatched downrange energy retention among standard calibers."
+      hexColor: "#A78BFA"
+
+    - id: "6mm-creedmoor-108gr"
+      name: "6mm Creedmoor 108gr Hybrid"
+      caliber: "6mm Creedmoor"
+      bulletWeightGrams: 7.00
+      muzzleVelocityMps: 885.0
+      ballisticCoefficient: 0.536
+      bulletDiameterMm: 6.17
+      muzzleEnergyJoules: 2740.0
+      description: "PRS competition favourite. Very high BC for caliber with minimal recoil. Superb wind resistance. Increasingly popular in long-range precision rifle competition."
+      hexColor: "#2DD4BF"
+
+    - id: "300-win-mag-190gr"
+      name: ".300 Win Mag 190gr SMK"
+      caliber: ".300 Winchester Magnum"
+      bulletWeightGrams: 12.31
+      muzzleVelocityMps: 930.0
+      ballisticCoefficient: 0.533
+      bulletDiameterMm: 7.82
+      muzzleEnergyJoules: 5330.0
+      description: "The most widely used long-range military sniper cartridge. Hits hard past 1000 metres. Balances power, BC, and availability. Popular in F-Class and tactical competitions."
+      hexColor: "#FB923C"

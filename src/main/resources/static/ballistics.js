@@ -1,21 +1,22 @@
 import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from 'chart.js';
+import BULLET_CATALOG from 'virtual:bullet-catalog';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const API_BASE = '/api';
 
-const BULLET_COLORS = {
-  '223-rem-55gr':       '#4ADE80',
-  '308-win-168gr':      '#F97316',
-  '3006-150gr':         '#60A5FA',
-  '65-creedmoor-140gr': '#E879F9',
-  '243-win-95gr':         '#34D399',
-  '270-win-130gr':        '#FBBF24',
-  '7mm-rem-mag-160gr':    '#F87171',
-  '338-lapua-250gr':      '#A78BFA',
-  '6mm-creedmoor-108gr':  '#2DD4BF',
-  '300-win-mag-190gr':    '#FB923C'
-};
+// Derived from bullets.yaml via virtual:bullet-catalog at build time
+const BULLET_COLORS = Object.fromEntries(BULLET_CATALOG.map(b => [b.id, b.hexColor]));
+
+// ── HTML escaping – used wherever user-supplied strings enter innerHTML ────────
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // G1 drag table: [velocity fps, form-factor F(v)] — linearly interpolated
 const G1_TABLE = [
@@ -43,20 +44,9 @@ let selectedIds = new Set();
 let lastResults = [];
 let charts = {};
 
-// ── Mock data (offline fallback) ──────────────────────────────────────────────
+// ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
 function getMockBullets() {
-  return [
-    { id: '223-rem-55gr',        name: '.223 Rem 55gr FMJ',           caliber: '.223 Remington',        bulletWeightGrams: 3.56,  muzzleVelocityMps: 987.6, ballisticCoefficient: 0.243, muzzleEnergyJoules: 1738, bulletDiameterMm: 5.69 },
-    { id: '308-win-168gr',       name: '.308 Win 168gr BTHP',          caliber: '.308 Winchester',       bulletWeightGrams: 10.89, muzzleVelocityMps: 807.7, ballisticCoefficient: 0.475, muzzleEnergyJoules: 3552, bulletDiameterMm: 7.82 },
-    { id: '3006-150gr',          name: '.30-06 Springfield 150gr',     caliber: '.30-06 Springfield',    bulletWeightGrams: 9.72,  muzzleVelocityMps: 887.0, ballisticCoefficient: 0.435, muzzleEnergyJoules: 3823, bulletDiameterMm: 7.82 },
-    { id: '65-creedmoor-140gr',  name: '6.5 Creedmoor 140gr ELD',     caliber: '6.5 Creedmoor',         bulletWeightGrams: 9.07,  muzzleVelocityMps: 826.0, ballisticCoefficient: 0.646, muzzleEnergyJoules: 3095, bulletDiameterMm: 6.71 },
-    { id: '243-win-95gr',        name: '.243 Win 95gr BT',             caliber: '.243 Winchester',       bulletWeightGrams: 6.16,  muzzleVelocityMps: 920.0, ballisticCoefficient: 0.379, muzzleEnergyJoules: 2608, bulletDiameterMm: 5.94 },
-    { id: '270-win-130gr',       name: '.270 Win 130gr AccuBond',      caliber: '.270 Winchester',       bulletWeightGrams: 8.42,  muzzleVelocityMps: 939.0, ballisticCoefficient: 0.480, muzzleEnergyJoules: 3714, bulletDiameterMm: 6.99 },
-    { id: '7mm-rem-mag-160gr',   name: '7mm Rem Mag 160gr Partition',  caliber: '7mm Remington Magnum',  bulletWeightGrams: 10.36, muzzleVelocityMps: 930.0, ballisticCoefficient: 0.531, muzzleEnergyJoules: 4484, bulletDiameterMm: 7.21 },
-    { id: '338-lapua-250gr',     name: '.338 Lapua 250gr SMK',         caliber: '.338 Lapua Magnum',     bulletWeightGrams: 16.20, muzzleVelocityMps: 905.0, ballisticCoefficient: 0.587, muzzleEnergyJoules: 6640, bulletDiameterMm: 8.61 },
-    { id: '6mm-creedmoor-108gr', name: '6mm Creedmoor 108gr Hybrid',   caliber: '6mm Creedmoor',         bulletWeightGrams: 7.00,  muzzleVelocityMps: 885.0, ballisticCoefficient: 0.536, muzzleEnergyJoules: 2740, bulletDiameterMm: 6.17 },
-    { id: '300-win-mag-190gr',   name: '.300 Win Mag 190gr SMK',       caliber: '.300 Winchester Magnum',bulletWeightGrams: 12.31, muzzleVelocityMps: 930.0, ballisticCoefficient: 0.533, muzzleEnergyJoules: 5330, bulletDiameterMm: 7.82 }
-  ];
+  return BULLET_CATALOG;
 }
 
 // ── G1 drag table interpolation ───────────────────────────────────────────────
@@ -92,7 +82,13 @@ function simulateBullet(bullet, req) {
   const rho        = airDensityRatio(req.altitudeMeters * FT_PER_M,
                                      req.temperatureC * 9 / 5 + 32);
 
-  // Find zero angle via bisection
+  // RK4 derivative: returns [dvx/dt, dvy/dt]
+  const deriv = (vx, vy, vel) => {
+    const drag = g1Drag(Math.abs(vel)) * rho / bc;
+    return [-(vx / vel) * drag, -(vy / vel) * drag - G];
+  };
+
+  // Find zero angle via bisection — RK4 integrator matches main trajectory
   const sightHt = 1.5 / 12;
   const zeroFt  = req.zeroRangeMeters * FT_PER_M;
   let lo = -0.05, hi = 0.05;
@@ -101,20 +97,27 @@ function simulateBullet(bullet, req) {
     let vx = mvFps * Math.cos(mid);
     let vy = mvFps * Math.sin(mid);
     let x = 0, y = 0;
-    const dt = 0.001;
+    const dt = 0.0005;
     while (x < zeroFt) {
       const vel = Math.hypot(vx, vy);
       if (vel < 50) break;
-      const drag = g1Drag(vel) * rho / bc;
-      const ax = -(vx / vel) * drag;
-      const ay = -(vy / vel) * drag - G;
-      vx += ax * dt; vy += ay * dt; x += vx * dt; y += vy * dt;
+      const [ax1, ay1] = deriv(vx, vy, vel);
+      const vx2 = vx + 0.5*dt*ax1, vy2 = vy + 0.5*dt*ay1;
+      const [ax2, ay2] = deriv(vx2, vy2, Math.hypot(vx2, vy2));
+      const vx3 = vx + 0.5*dt*ax2, vy3 = vy + 0.5*dt*ay2;
+      const [ax3, ay3] = deriv(vx3, vy3, Math.hypot(vx3, vy3));
+      const vx4 = vx +    dt*ax3, vy4 = vy +    dt*ay3;
+      const [ax4, ay4] = deriv(vx4, vy4, Math.hypot(vx4, vy4));
+      vx += (dt/6)*(ax1 + 2*ax2 + 2*ax3 + ax4);
+      vy += (dt/6)*(ay1 + 2*ay2 + 2*ay3 + ay4);
+      x  += vx * dt;
+      y  += vy * dt;
     }
     if (y < sightHt) lo = mid; else hi = mid;
   }
   const angle = (lo + hi) / 2;
 
-  // Integrate main trajectory
+  // Integrate main trajectory — 4th-order Runge-Kutta, dt=0.5 ms (matches Java)
   let vx = mvFps * Math.cos(angle);
   let vy = mvFps * Math.sin(angle);
   let x = 0, y = 0, t = 0;
@@ -124,6 +127,11 @@ function simulateBullet(bullet, req) {
   let maxOrdIn = 0, maxOrdRangeYd = 0, supersonicLimYd = maxRangeYd;
   let supersonicLogged = false;
 
+  // Precompute the initial horizontal velocity component used in the vacuum-TOF
+  // term of the Pejsa wind drift formula.  Dividing by mvFps * cos(angle) rather
+  // than mvFps alone removes a systematic under-estimate that grows with range.
+  const mvHorizFps = mvFps * Math.cos(angle);
+
   while ((x / 3) <= maxRangeYd + stepYd) {
     const rangeYd = x / 3;
     const vel = Math.hypot(vx, vy);
@@ -132,7 +140,8 @@ function simulateBullet(bullet, req) {
       const dropIn    = (y - x * Math.tan(angle)) * 12;
       const energy    = 0.5 * (wLbs / G) * vel * vel;
       const windFps   = windMph * 1.46667;
-      const windDrift = windFps * (t - x / mvFps) * 12;
+      const vacuumTof = (x / mvHorizFps);
+      const windDrift = windFps * (t - vacuumTof) * 12;
       points.push({
         rangeMeters:     Math.round(rangeYd * M_PER_YARD * 10) / 10,
         dropCm:          Math.round(dropIn * CM_PER_INCH * 10) / 10,
@@ -150,10 +159,18 @@ function simulateBullet(bullet, req) {
       supersonicLogged = true;
     }
 
-    const drag = g1Drag(vel) * rho / bc;
-    const ax = -(vx / vel) * drag;
-    const ay = -(vy / vel) * drag - G;
-    vx += ax * dt; vy += ay * dt; x += vx * dt; y += vy * dt; t += dt;
+    const [ax1, ay1] = deriv(vx, vy, vel);
+    const vx2 = vx + 0.5*dt*ax1, vy2 = vy + 0.5*dt*ay1;
+    const [ax2, ay2] = deriv(vx2, vy2, Math.hypot(vx2, vy2));
+    const vx3 = vx + 0.5*dt*ax2, vy3 = vy + 0.5*dt*ay2;
+    const [ax3, ay3] = deriv(vx3, vy3, Math.hypot(vx3, vy3));
+    const vx4 = vx +    dt*ax3, vy4 = vy +    dt*ay3;
+    const [ax4, ay4] = deriv(vx4, vy4, Math.hypot(vx4, vy4));
+    vx += (dt/6)*(ax1 + 2*ax2 + 2*ax3 + ax4);
+    vy += (dt/6)*(ay1 + 2*ay2 + 2*ay3 + ay4);
+    x  += vx * dt;
+    y  += vy * dt;
+    t  += dt;
     if (vel < 100) break;
   }
 
@@ -180,16 +197,19 @@ function computeClientSide(req) {
 function renderBulletList() {
   const list = document.getElementById('bulletList');
   list.innerHTML = bullets.map(b => `
-    <div class="bullet-card" id="card-${b.id}"
-         style="--bullet-color:${BULLET_COLORS[b.id] || '#4ADE80'}"
-         onclick="toggleBullet('${b.id}')">
-      <div class="bullet-name">${b.name}</div>
+    <div class="bullet-card" id="card-${escapeHtml(b.id)}"
+         style="--bullet-color:${BULLET_COLORS[b.id] || '#4ADE80'}">
+      <div class="bullet-name">${escapeHtml(b.name)}</div>
       <div class="bullet-specs">
-        BC: ${b.ballisticCoefficient} &nbsp;|&nbsp; MV: ${b.muzzleVelocityMps} m/s
+        BC: ${escapeHtml(String(b.ballisticCoefficient))} &nbsp;|&nbsp; MV: ${escapeHtml(String(b.muzzleVelocityMps))} m/s
       </div>
       <div class="check"></div>
     </div>
   `).join('');
+  bullets.forEach(b => {
+    const card = document.getElementById('card-' + b.id);
+    if (card) card.addEventListener('click', () => toggleBullet(b.id));
+  });
 }
 
 function toggleBullet(id) {
@@ -210,7 +230,7 @@ async function runSimulation() {
   if (selectedIds.size === 0) { alert('Select at least one round.'); return; }
   const btn = document.getElementById('runBtn');
   btn.classList.add('loading');
-  btn.querySelector('span').textContent = '⟳ COMPUTING...';
+  btn.querySelector('span').textContent = '⏳ COMPUTING...';
 
   const req = {
     bulletIds:       [...selectedIds],
@@ -231,8 +251,10 @@ async function runSimulation() {
         body:    JSON.stringify(req)
       });
       results = await res.json();
+      setOfflineMode(false);
     } catch (e) {
       results = computeClientSide(req);
+      setOfflineMode(true);
     }
     lastResults = results;
     renderResults(results, req);
@@ -254,10 +276,12 @@ function exportCSV() {
     });
   });
   const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
   a.download = 'trajectory.csv';
   a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── PNG export ────────────────────────────────────────────────────────────────
@@ -271,12 +295,26 @@ function exportPNG(chartId) {
 }
 
 // ── Custom round ──────────────────────────────────────────────────────────────
+function showCustomError(msg) {
+  const el = document.getElementById('customError');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
 async function runCustom() {
   const name   = document.getElementById('customName').value.trim() || 'Custom Load';
   const weight = +document.getElementById('customWeight').value;
   const mv     = +document.getElementById('customMV').value;
   const bc     = +document.getElementById('customBC').value;
   const dia    = +document.getElementById('customDia').value;
+
+  if (!(weight > 0))           return showCustomError('Weight must be greater than 0');
+  if (!(mv > 0))               return showCustomError('Muzzle velocity must be greater than 0');
+  if (!(bc > 0 && bc <= 1.2))  return showCustomError('BC must be between 0 and 1.2');
+  if (!(dia > 0))              return showCustomError('Diameter must be greater than 0');
+  showCustomError('');
+
   const req = {
     name:                name,
     bulletWeightGrams:   weight,
@@ -313,6 +351,19 @@ async function runCustom() {
   renderResults([result], req);
 }
 
+// ── Offline indicator ─────────────────────────────────────────────────────────
+function setOfflineMode(isOffline) {
+  const pill = document.getElementById('statusPill');
+  if (!pill) return;
+  if (isOffline) {
+    pill.className = 'status-pill status-offline';
+    pill.textContent = '⚠ OFFLINE — LOCAL COMPUTE';
+  } else {
+    pill.className = 'status-pill status-live';
+    pill.textContent = '● READY';
+  }
+}
+
 // ── Results rendering ─────────────────────────────────────────────────────────
 function renderResults(results, req) {
   document.getElementById('emptyState').style.display = 'none';
@@ -329,7 +380,7 @@ function renderResults(results, req) {
     <div class="stats-grid">
       ${results.map(r => `
         <div class="stat-card" style="--bullet-color:${BULLET_COLORS[r.bullet.id]}">
-          <div class="stat-label" style="color:${BULLET_COLORS[r.bullet.id]}">${r.bullet.name}</div>
+          <div class="stat-label" style="color:${BULLET_COLORS[r.bullet.id]}">${escapeHtml(r.bullet.name)}</div>
           <div class="stat-value">${r.bullet.muzzleVelocityMps.toLocaleString()}</div>
           <div class="stat-unit">MV m/s &nbsp;·&nbsp; BC ${r.bullet.ballisticCoefficient} &nbsp;·&nbsp; ${r.bullet.bulletWeightGrams}g</div>
           <div style="margin-top:8px; font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--text-dim); letter-spacing:1px; line-height:1.8">
@@ -370,11 +421,13 @@ function renderResults(results, req) {
             <div class="chart-title">${def.title}</div>
             <div class="chart-subtitle">${def.subtitle}</div>
           </div>
-          <button class="export-btn" onclick="exportPNG('${def.id}')">PNG</button>
+          <button class="export-btn" data-chart-id="${def.id}">PNG</button>
         </div>
         <div class="chart-wrap"><canvas id="${def.id}"></canvas></div>
       </div>`;
     cc.insertAdjacentHTML('beforeend', html);
+    cc.querySelector(`.chart-panel:last-child .export-btn`)
+      ?.addEventListener('click', () => exportPNG(def.id));
 
     const datasets = results.map(r => ({
       label:           r.bullet.name,
@@ -453,7 +506,7 @@ function renderTable(results) {
       const color = BULLET_COLORS[r.bullet.id] || '#4ADE80';
       rows.push(`
         <tr>
-          <td><span class="bullet-tag" style="background:${color}"></span>${r.bullet.name}</td>
+          <td><span class="bullet-tag" style="background:${color}"></span>${escapeHtml(r.bullet.name)}</td>
           <td>${p.rangeMeters}</td>
           <td>${p.dropCm > 0 ? '+' : ''}${p.dropCm} cm</td>
           <td>${p.velocityMps.toLocaleString()}</td>
@@ -482,10 +535,18 @@ async function init() {
   } catch (e) {
     console.warn('API offline — using mock data for preview');
     bullets = getMockBullets();
+    setOfflineMode(true);
   }
   renderBulletList();
   bullets.forEach(b => selectedIds.add(b.id));
   updateBulletCards();
+
+  // Wire up static event listeners (replaces window.* globals and onclick attrs)
+  document.getElementById('runBtn')?.addEventListener('click', runSimulation);
+  document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
+  document.getElementById('runCustomBtn')?.addEventListener('click', runCustom);
+  document.getElementById('tab-charts')?.addEventListener('click', function() { switchTab('charts', this); });
+  document.getElementById('tab-data')?.addEventListener('click', function() { switchTab('data', this); });
 }
 
 // ── State helpers (for test access) ──────────────────────────────────────────
@@ -494,14 +555,6 @@ function _resetState()   { bullets = []; selectedIds = new Set(); lastResults = 
 function _setBullets(b)  { bullets = b; }
 function _setSelectedIds(s) { selectedIds = s; }
 function _setCharts(c)   { charts = c; }
-
-// ── Browser globals (for inline onclick handlers) ─────────────────────────────
-window.toggleBullet  = toggleBullet;
-window.switchTab     = switchTab;
-window.runSimulation = runSimulation;
-window.runCustom     = runCustom;
-window.exportCSV     = exportCSV;
-window.exportPNG     = exportPNG;
 
 // Auto-initialize in browser (modules are deferred, so DOM is ready).
 // Guard prevents spurious calls when imported by tests before buildDOM().
@@ -513,7 +566,7 @@ export {
   getMockBullets, g1Drag, airDensityRatio, simulateBullet, computeClientSide,
   renderBulletList, toggleBullet, updateBulletCards, runSimulation,
   renderResults, renderTable, switchTab, init,
-  exportCSV, exportPNG, runCustom,
-  BULLET_COLORS,
+  exportCSV, exportPNG, runCustom, setOfflineMode,
+  BULLET_COLORS, escapeHtml,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts,
 };

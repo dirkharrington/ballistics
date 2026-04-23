@@ -2,19 +2,22 @@ package com.ballistics;
 
 import com.ballistics.model.*;
 import com.ballistics.service.BallisticsEngine;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.lang.reflect.Method;
 
 import static org.assertj.core.api.Assertions.*;
 
-@SpringBootTest
 class BallisticsEngineTest {
 
-    @Autowired
-    BallisticsEngine engine;
+    private BallisticsEngine engine;
+
+    @BeforeEach
+    void setUp() {
+        engine = new BallisticsEngine(new SimpleMeterRegistry());
+    }
 
     // ── Core trajectory ───────────────────────────────────────────────────────
 
@@ -22,7 +25,7 @@ class BallisticsEngineTest {
     void allKnownBulletsProduceTrajectory() {
         for (Bullet bullet : Bullet.knownRifleBullets()) {
             TrajectoryRequest r = new TrajectoryRequest(
-                bullet.id(), 100, 1000, 25, 16, 0, 15
+                bullet.id(), 100, 1000, 25, 16, 0, 15, null
             );
             TrajectoryResult result = engine.compute(bullet, r);
 
@@ -46,7 +49,7 @@ class BallisticsEngineTest {
 
         assertThat(creedmoor.ballisticCoefficient()).isGreaterThan(rem223.ballisticCoefficient());
 
-        TrajectoryRequest req = new TrajectoryRequest(null, 100, 1000, 100, 0, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest(null, 100, 1000, 100, 0, 0, 15, null);
         TrajectoryResult creedmoorResult = engine.compute(creedmoor, req);
         TrajectoryResult rem223Result    = engine.compute(rem223, req);
 
@@ -57,7 +60,7 @@ class BallisticsEngineTest {
     @Test
     void zeroingWorksCorrectly() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         // At the zero range the bore is angled upward, so the extended bore height exceeds
@@ -76,7 +79,7 @@ class BallisticsEngineTest {
     @Test
     void windDriftIsZeroWhenNoWind() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         result.points().forEach(p ->
@@ -87,7 +90,7 @@ class BallisticsEngineTest {
     @Test
     void windDriftIsComputedWhenWindIsPresent() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 100, 16, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 100, 16, 0, 15, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         assertThat(result.points()).isNotEmpty();
@@ -99,7 +102,7 @@ class BallisticsEngineTest {
     @Test
     void supersonicLimitEqualsMaxRangeWhenBulletNeverGoesSubsonic() {
         Bullet bullet = findById("223-rem-55gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 50, 0, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 50, 0, 0, 15, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         assertThat(result.supersonicLimitMeters()).isEqualTo(req.maxRangeMeters());
@@ -110,7 +113,7 @@ class BallisticsEngineTest {
         // 40 m/s ≈ 131 fps — well below speed of sound; supersonicLimit set at range 0
         Bullet slow = new Bullet("slow-test", "Slow", "test",
             50, 40, 0.1, 0.3, 5, "test", "#fff");
-        TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15, null);
         TrajectoryResult result = engine.compute(slow, req);
 
         assertThat(result.supersonicLimitMeters()).isEqualTo(0.0);
@@ -121,7 +124,7 @@ class BallisticsEngineTest {
     @Test
     void maxOrdinateIsPositiveAboveBoreLine() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         assertThat(result.maxOrdinateCm()).isGreaterThan(0);
@@ -176,7 +179,7 @@ class BallisticsEngineTest {
         // muzzleVelocityMps=4500 → ~14764 fps, triggers "≥ last entry" branch in interpolateG1
         Bullet fast = new Bullet("fast-test", "Hypervelocity", "test",
             55, 4500, 0.5, 5.56, 3000, "test", "#fff");
-        TrajectoryRequest req = new TrajectoryRequest("fast-test", 100, 300, 50, 0, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest("fast-test", 100, 300, 50, 0, 0, 15, null);
         TrajectoryResult result = engine.compute(fast, req);
         assertThat(result.points()).isNotEmpty();
     }
@@ -186,7 +189,7 @@ class BallisticsEngineTest {
         // muzzleVelocityMps=40 → ~131 fps, below speed of sound → supersonicLimit=0
         Bullet slow = new Bullet("slow-test", "Slow", "test",
             50, 40, 0.1, 0.3, 5, "test", "#fff");
-        TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15, null);
         TrajectoryResult result = engine.compute(slow, req);
 
         assertThat(result).isNotNull();
@@ -198,7 +201,7 @@ class BallisticsEngineTest {
     @Test
     void trajectoryResultContainsExpectedFields() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 16, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 16, 0, 15, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         assertThat(result.bullet()).isEqualTo(bullet);
@@ -212,7 +215,7 @@ class BallisticsEngineTest {
     @Test
     void trajectoryPointFieldsAreRoundedAndPositive() {
         Bullet bullet = findById("223-rem-55gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 200, 25, 16, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 200, 25, 16, 0, 15, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         result.points().forEach(p -> {
@@ -226,7 +229,7 @@ class BallisticsEngineTest {
     @Test
     void defaultTrajectoryRequestValuesAreApplied() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 0, 0, 0, 0, 0, 15);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 0, 0, 0, 0, 0, 15, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         // default step=25m, maxRange=1000m → 40+ points

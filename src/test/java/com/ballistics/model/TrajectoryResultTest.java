@@ -10,7 +10,7 @@ class TrajectoryResultTest {
 
     private static final Bullet BULLET = Bullet.knownRifleBullets().get(1);
     private static final TrajectoryRequest REQUEST =
-        new TrajectoryRequest("308-win-168gr", 100, 500, 25, 0, 0, 15);
+        new TrajectoryRequest("308-win-168gr", 100, 500, 25, 0, 0, 15, null);
 
     @Test
     void constructorAndAllAccessors() {

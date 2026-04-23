@@ -26,8 +26,15 @@ function buildDOM() {
     <div id="resultsContainer" style="display:none"></div>
     <div id="chartContainer"></div>
     <table><tbody id="tableBody"><tr><td colspan="7">NO DATA</td></tr></tbody></table>
-    <div class="tab active" id="tabCharts"></div>
-    <div class="tab"        id="tabData"></div>
+    <div class="tab active" id="tab-charts"></div>
+    <div class="tab"        id="tab-data"></div>
+    <span class="status-pill status-live" id="statusPill">● READY</span>
+    <input id="customName"   value="" />
+    <input id="customWeight" value="9.0" />
+    <input id="customMV"     value="850" />
+    <input id="customBC"     value="0.45" />
+    <input id="customDia"    value="7.82" />
+    <div   id="customError"  style="display:none"></div>
   `;
 }
 
@@ -351,7 +358,7 @@ describe('updateBulletCards', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('switchTab', () => {
   test('switching to charts activates chartsPanel', () => {
-    const el = document.getElementById('tabCharts');
+    const el = document.getElementById('tab-charts');
     mod.switchTab('charts', el);
     expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(true);
     expect(document.getElementById('dataPanel').classList.contains('active')).toBe(false);
@@ -359,16 +366,16 @@ describe('switchTab', () => {
   });
 
   test('switching to data activates dataPanel', () => {
-    const el = document.getElementById('tabData');
+    const el = document.getElementById('tab-data');
     mod.switchTab('data', el);
     expect(document.getElementById('dataPanel').classList.contains('active')).toBe(true);
     expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(false);
   });
 
   test('removes active from all other tabs', () => {
-    const tabCharts = document.getElementById('tabCharts');
+    const tabCharts = document.getElementById('tab-charts');
     tabCharts.classList.add('active');
-    const tabData = document.getElementById('tabData');
+    const tabData = document.getElementById('tab-data');
     mod.switchTab('data', tabData);
     expect(tabCharts.classList.contains('active')).toBe(false);
     expect(tabData.classList.contains('active')).toBe(true);
@@ -643,5 +650,109 @@ describe('init', () => {
     await mod.init();
     const { selectedIds } = mod._getState();
     expect(selectedIds.size).toBe(10);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// setOfflineMode
+// ─────────────────────────────────────────────────────────────────────────────
+describe('setOfflineMode', () => {
+  test('sets offline class and text when offline', () => {
+    mod.setOfflineMode(true);
+    const pill = document.getElementById('statusPill');
+    expect(pill.className).toContain('status-offline');
+    expect(pill.textContent).toMatch(/offline/i);
+  });
+
+  test('restores live class and READY text when back online', () => {
+    mod.setOfflineMode(true);
+    mod.setOfflineMode(false);
+    const pill = document.getElementById('statusPill');
+    expect(pill.className).toContain('status-live');
+    expect(pill.textContent).toContain('READY');
+  });
+
+  test('does nothing when statusPill element is absent', () => {
+    document.getElementById('statusPill').remove();
+    expect(() => mod.setOfflineMode(true)).not.toThrow();
+  });
+
+  test('init sets offline mode when API fails', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    const pill = document.getElementById('statusPill');
+    if (pill) expect(pill.className).toContain('status-offline');
+  });
+
+  test('runSimulation sets offline mode on fetch failure', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.runSimulation();
+    const pill = document.getElementById('statusPill');
+    if (pill) expect(pill.className).toContain('status-offline');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// runCustom validation
+// ─────────────────────────────────────────────────────────────────────────────
+describe('runCustom validation', () => {
+  function setCustomInputs({ weight = '9.0', mv = '850', bc = '0.45', dia = '7.82' } = {}) {
+    document.getElementById('customWeight').value = weight;
+    document.getElementById('customMV').value     = mv;
+    document.getElementById('customBC').value     = bc;
+    document.getElementById('customDia').value    = dia;
+  }
+
+  function errorText() {
+    return document.getElementById('customError').textContent;
+  }
+
+  function errorVisible() {
+    return document.getElementById('customError').style.display !== 'none';
+  }
+
+  test('shows error when weight is zero', async () => {
+    setCustomInputs({ weight: '0' });
+    await mod.runCustom();
+    expect(errorVisible()).toBe(true);
+    expect(errorText()).toMatch(/weight/i);
+  });
+
+  test('shows error when muzzle velocity is zero', async () => {
+    setCustomInputs({ mv: '0' });
+    await mod.runCustom();
+    expect(errorVisible()).toBe(true);
+    expect(errorText()).toMatch(/muzzle velocity/i);
+  });
+
+  test('shows error when BC is zero', async () => {
+    setCustomInputs({ bc: '0' });
+    await mod.runCustom();
+    expect(errorVisible()).toBe(true);
+    expect(errorText()).toMatch(/BC/i);
+  });
+
+  test('shows error when BC exceeds 1.2', async () => {
+    setCustomInputs({ bc: '1.3' });
+    await mod.runCustom();
+    expect(errorVisible()).toBe(true);
+    expect(errorText()).toMatch(/BC/i);
+  });
+
+  test('shows error when diameter is zero', async () => {
+    setCustomInputs({ dia: '0' });
+    await mod.runCustom();
+    expect(errorVisible()).toBe(true);
+    expect(errorText()).toMatch(/diameter/i);
+  });
+
+  test('clears error and proceeds when all inputs are valid', async () => {
+    setCustomInputs();
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.runCustom();
+    expect(errorVisible()).toBe(false);
+    expect(errorText()).toBe('');
   });
 });

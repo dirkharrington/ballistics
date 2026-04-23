@@ -39,7 +39,7 @@ public class BallisticsEngine {
     private static final double GRAVITY_FPS2       = 32.174;
     private static final double SPEED_OF_SOUND_FPS = 1125.0;
 
-    // ── SI ↔ imperial conversion factors ─────────────────────────────────────
+    // ── SI → imperial conversion factors ─────────────────────────────────────
     private static final double FPS_PER_MPS      = 3.28084;
     private static final double FT_PER_METER     = 3.28084;
     private static final double M_PER_YARD       = 0.9144;
@@ -82,8 +82,9 @@ public class BallisticsEngine {
         double maxRangeYd = req.maxRangeMeters()  / M_PER_YARD;
         double stepYd     = req.stepMeters()      / M_PER_YARD;
 
+        double sightHeightFt   = req.sightHeightMm() / 304.8;
         double airDensityRatio = airDensityRatio(altFt, tempF);
-        double launchAngleRad  = findZeroAngle(mvFps, bc, airDensityRatio, zeroFt);
+        double launchAngleRad  = findZeroAngle(mvFps, bc, airDensityRatio, zeroFt, sightHeightFt);
         double tanLaunchAngle  = Math.tan(launchAngleRad);
 
         int expectedPoints = (int)(maxRangeYd / stepYd) + 2;
@@ -113,7 +114,7 @@ public class BallisticsEngine {
             if (x >= (nextSampleYd * 3.0) - 0.01) {
                 double dropIn      = (y - x * tanLaunchAngle) * 12.0;
                 double energyFtLbs = 0.5 * (weightLbs / GRAVITY_FPS2) * velocity * velocity;
-                double windDriftIn = windDriftIn(windMph, mvFps, rangeYd, t);
+                double windDriftIn = windDriftIn(windMph, mvFps, rangeYd, t, launchAngleRad);
 
                 // Convert outputs to SI
                 points.add(new TrajectoryPoint(
@@ -172,7 +173,7 @@ public class BallisticsEngine {
         return result;
     }
 
-    // ── Drag deceleration derivatives ────────────────────────────────────────
+    // ── Drag deceleration derivatives ─────────────────────────────────────────
 
     private void derivatives(double vx, double vy, double velocity,
                               double bc, double airDensityRatio, double[] out) {
@@ -198,10 +199,10 @@ public class BallisticsEngine {
         return f0 + t * (f1 - f0);
     }
 
-    // ── Zero-angle solver (bisection) ─────────────────────────────────────────
+    // ── Zero-angle solver (bisection) — uses RK4 to match main trajectory ─────
 
-    private double findZeroAngle(double mvFps, double bc, double airDensityRatio, double zeroFt) {
-        double sightHeightFt = 1.5 / 12.0;
+    private double findZeroAngle(double mvFps, double bc, double airDensityRatio, double zeroFt,
+                                  double sightHeightFt) {
         double lo = -0.05, hi = 0.05;
         for (int iter = 0; iter < 64; iter++) {
             double mid = (lo + hi) / 2.0;
@@ -212,32 +213,54 @@ public class BallisticsEngine {
         return (lo + hi) / 2.0;
     }
 
+    /**
+     * Simulates vertical position at targetX using RK4 — identical integrator to
+     * the main trajectory loop so zero-angle accuracy matches trajectory accuracy.
+     */
     private double simulateY(double mvFps, double bc, double anglRad,
                               double targetX, double airDensityRatio) {
         double vx = mvFps * Math.cos(anglRad);
         double vy = mvFps * Math.sin(anglRad);
-        double x = 0, y = 0, dt = 0.001;
-        double[] d = new double[2];
+        double x = 0, y = 0, dt = 0.0005;
+        double[] k1 = new double[2], k2 = new double[2],
+                 k3 = new double[2], k4 = new double[2];
         while (x < targetX) {
             double velocity = Math.hypot(vx, vy);
             if (velocity < 50) break;
-            derivatives(vx, vy, velocity, bc, airDensityRatio, d);
-            vx += d[0] * dt;  vy += d[1] * dt;
-            x  += vx * dt;    y  += vy * dt;
+            derivatives(vx, vy, velocity, bc, airDensityRatio, k1);
+            double vx2 = vx + 0.5*dt*k1[0], vy2 = vy + 0.5*dt*k1[1];
+            derivatives(vx2, vy2, Math.hypot(vx2, vy2), bc, airDensityRatio, k2);
+            double vx3 = vx + 0.5*dt*k2[0], vy3 = vy + 0.5*dt*k2[1];
+            derivatives(vx3, vy3, Math.hypot(vx3, vy3), bc, airDensityRatio, k3);
+            double vx4 = vx + dt*k3[0], vy4 = vy + dt*k3[1];
+            derivatives(vx4, vy4, Math.hypot(vx4, vy4), bc, airDensityRatio, k4);
+            vx += (dt / 6.0) * (k1[0] + 2*k2[0] + 2*k3[0] + k4[0]);
+            vy += (dt / 6.0) * (k1[1] + 2*k2[1] + 2*k3[1] + k4[1]);
+            x  += vx * dt;
+            y  += vy * dt;
         }
         return y;
     }
 
     // ── Wind drift (Pejsa approximation) ─────────────────────────────────────
 
-    private double windDriftIn(double windMph, double mvFps, double rangeYd, double tof) {
+    /**
+     * Computes lateral wind drift in inches.
+     *
+     * The vacuum time-of-flight divides by the initial horizontal component of
+     * velocity (mvFps × cos(launchAngle)) rather than mvFps alone.  The
+     * difference is small for typical launch angles but eliminates a systematic
+     * under-estimate of drift at long range.
+     */
+    private double windDriftIn(double windMph, double mvFps, double rangeYd,
+                                double tof, double launchAngleRad) {
         if (windMph == 0) return 0;
-        double windFps   = windMph * 1.46667;
-        double noWindTof = (rangeYd * 3.0) / mvFps;
-        return windFps * (tof - noWindTof) * 12.0;
+        double windFps      = windMph * 1.46667;
+        double vacuumTof    = (rangeYd * 3.0) / (mvFps * Math.cos(launchAngleRad));
+        return windFps * (tof - vacuumTof) * 12.0;
     }
 
-    // ── Atmosphere model (imperial — altFt, tempF) ───────────────────────────
+    // ── Atmosphere model (imperial — altFt, tempF) ────────────────────────────
 
     private double airDensityRatio(double altFt, double tempF) {
         double standardTempAtAlt = 59.0 - 3.5 * (altFt / 1000.0);

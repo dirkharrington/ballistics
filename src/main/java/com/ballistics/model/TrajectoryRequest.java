@@ -12,6 +12,7 @@ import jakarta.validation.constraints.*;
  * @param windSpeedKph      crosswind speed in km/h
  * @param altitudeMeters    altitude above sea level in metres (affects air density)
  * @param temperatureC      ambient temperature in Celsius
+ * @param sightHeightMm     height of scope/sights above bore centreline in mm (default 38.1 = 1.5 in)
  */
 public record TrajectoryRequest(
     String bulletId,
@@ -20,12 +21,15 @@ public record TrajectoryRequest(
     @Positive @Max(500) double stepMeters,
     @PositiveOrZero double windSpeedKph,
     @PositiveOrZero double altitudeMeters,
-    @Min(-50) @Max(60) double temperatureC
+    @Min(-50) @Max(60) double temperatureC,
+    @Max(150) Double sightHeightMm
 ) {
     /** Defaults suitable for a standard sea-level, calm-day simulation. */
     public TrajectoryRequest {
         if (zeroRangeMeters <= 0) zeroRangeMeters = 100;
         if (maxRangeMeters  <= 0) maxRangeMeters  = 1000;
         if (stepMeters      <= 0) stepMeters       = 25;
+        // null means absent from JSON; <=0 means caller wants the default
+        if (sightHeightMm == null || sightHeightMm <= 0) sightHeightMm = 38.1;
     }
 }

@@ -32,7 +32,7 @@
     <p>External trajectory modeling // G1 drag model // RK4 integration</p>
   </div>
   <div class="header-status">
-    <span class="status-pill status-live">● READY</span>
+    <span class="status-pill status-live" id="statusPill">● READY</span>
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
   </div>
 </header>
@@ -82,10 +82,10 @@
       </div>
     </div>
 
-    <button class="run-btn" id="runBtn" onclick="runSimulation()">
+    <button class="run-btn" id="runBtn">
       <span>▶ COMPUTE TRAJECTORIES</span>
     </button>
-    <button class="export-csv-btn" onclick="exportCSV()">⬇ EXPORT CSV</button>
+    <button class="export-csv-btn">⬇ EXPORT CSV</button>
 
     <details class="custom-section">
       <summary>Custom Round <span class="chevron">▶</span></summary>
@@ -114,7 +114,8 @@
           <input type="number" id="customDia" value="7.82" min="4" max="20" step="0.01">
         </div>
       </div>
-      <button class="run-btn" style="margin:8px 0 0" onclick="runCustom()">
+      <div id="customError" style="display:none;color:#f87171;font-size:11px;margin-top:6px;font-family:'Share Tech Mono',monospace"></div>
+      <button class="run-btn" id="runCustomBtn" style="margin:8px 0 0">
         <span>▶ COMPUTE CUSTOM</span>
       </button>
     </div>
@@ -127,8 +128,8 @@
 
     <!-- TABS -->
     <div class="tabs">
-      <div class="tab active" onclick="switchTab('charts',this)">Trajectory Charts</div>
-      <div class="tab" onclick="switchTab('data',this)">Data Table</div>
+      <div class="tab active" id="tab-charts">Trajectory Charts</div>
+      <div class="tab" id="tab-data">Data Table</div>
     </div>
 
     <!-- CHARTS PANEL -->
