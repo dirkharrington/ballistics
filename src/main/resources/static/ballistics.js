@@ -602,6 +602,25 @@ function annotationPlugin(annotations) {
   };
 }
 
+// ── Mobile sidebar drawer toggle ─────────────────────────────────────────────
+function openSidebar() {
+  const sidebar  = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  /* istanbul ignore else -- #sidebar is always present in the app shell */
+  if (sidebar)  sidebar.classList.add('open');
+  /* istanbul ignore else -- #sidebarBackdrop is always present in the app shell */
+  if (backdrop) backdrop.classList.add('open');
+}
+
+function closeSidebar() {
+  const sidebar  = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  /* istanbul ignore else -- #sidebar is always present in the app shell */
+  if (sidebar)  sidebar.classList.remove('open');
+  /* istanbul ignore else -- #sidebarBackdrop is always present in the app shell */
+  if (backdrop) backdrop.classList.remove('open');
+}
+
 const crosshairPlugin = {
   id: 'ballistics-crosshair',
   afterDraw(chart) {
@@ -718,6 +737,7 @@ function buildChartConfig(def, datasets, results) {
     plugins: [crosshairPlugin, annotationPlugin(def.annotations ?? [])],
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
+      events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
       interaction: { mode: 'index', intersect: false },
       onHover: (event, elements) => {
         if (crosshairPinned) return;
@@ -869,6 +889,23 @@ function renderResults(results, req) {
 
     const ctx = document.getElementById(def.id).getContext('2d');
     charts[def.id] = new Chart(ctx, buildChartConfig(def, datasets, results));
+
+    // Item 4: forward touchmove as mousemove so the crosshair readout works
+    // on both iOS (unreliable synthetic mouse events) and Android Chrome.
+    // passive:false lets us call preventDefault() to suppress page scroll
+    // while the user is scrubbing the chart.
+    const canvas = document.getElementById(def.id);
+    /* istanbul ignore else -- canvas is always present after chart creation */
+    if (canvas) {
+      canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        const t = e.touches[0];
+        canvas.dispatchEvent(new MouseEvent('mousemove', {
+          clientX: t.clientX, clientY: t.clientY,
+          bubbles: true, cancelable: true,
+        }));
+      }, { passive: false });
+    }
   });
 
   renderTable(results);
@@ -951,9 +988,13 @@ async function init() {
 
   // Wire up static event listeners (replaces window.* globals and onclick attrs)
   document.getElementById('retryBtn')?.addEventListener('click', probeServer);
-  document.getElementById('runBtn')?.addEventListener('click', runSimulation);
+  document.getElementById('runBtn')?.addEventListener('click', () => { closeSidebar(); runSimulation(); });
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
-  document.getElementById('runCustomBtn')?.addEventListener('click', runCustom);
+  document.getElementById('runCustomBtn')?.addEventListener('click', () => { closeSidebar(); runCustom(); });
+
+  // Mobile drawer: FAB opens sidebar; backdrop tap closes it
+  document.getElementById('paramsToggle')?.addEventListener('click', openSidebar);
+  document.getElementById('sidebarBackdrop')?.addEventListener('click', closeSidebar);
   document.getElementById('tab-charts')?.addEventListener('click', function() { switchTab('charts', this); });
   document.getElementById('tab-data')?.addEventListener('click', function() { switchTab('data', this); });
 
@@ -1094,5 +1135,6 @@ export {
   BULLET_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
   drawVLine, drawHLine, annotationPlugin, windChartSubtitle,
   savePrefs, loadPrefs, PREF_KEYS, PREF_DEFAULTS,
+  openSidebar, closeSidebar,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
 };

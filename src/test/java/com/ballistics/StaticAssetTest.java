@@ -40,4 +40,11 @@ class StaticAssetTest {
             .andExpect(content().string(org.hamcrest.Matchers.containsString("standalone")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("#00d4ff")));
     }
+
+    @Test
+    void appleTouchIconIsServed() throws Exception {
+        mvc.perform(get("/apple-touch-icon.png"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentTypeCompatibleWith("image/png"));
+    }
 }

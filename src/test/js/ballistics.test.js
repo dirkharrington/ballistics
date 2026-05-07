@@ -40,7 +40,11 @@ function buildDOM() {
       <option value="G1" selected>G1 (standard)</option>
       <option value="G7">G7 (long-range)</option>
     </select>
+    <aside class="sidebar" id="sidebar"></aside>
+    <button id="paramsToggle" class="fab-params">☰ PARAMS</button>
+    <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
     <button id="runBtn" class="run-btn"><span>▶ COMPUTE TRAJECTORIES</span></button>
+    <button id="runCustomBtn" class="run-btn"><span>▶ COMPUTE CUSTOM</span></button>
     <div id="chartsPanel" class="charts-panel active"></div>
     <div id="dataPanel"   class="data-panel"></div>
     <div id="emptyState"  style="display:block"></div>
@@ -2807,6 +2811,111 @@ describe('G7 drag model — runSimulation and renderResults', () => {
     // G7 uses a different drag table — result should still be valid
     expect(result).toBeDefined();
     expect(result.points.length).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mobile: sidebar drawer (items 2 & 3)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('openSidebar / closeSidebar', () => {
+  test('openSidebar adds .open to sidebar and backdrop', () => {
+    mod.openSidebar();
+    expect(document.getElementById('sidebar').classList.contains('open')).toBe(true);
+    expect(document.getElementById('sidebarBackdrop').classList.contains('open')).toBe(true);
+  });
+
+  test('closeSidebar removes .open from sidebar and backdrop', () => {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('sidebarBackdrop').classList.add('open');
+    mod.closeSidebar();
+    expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
+    expect(document.getElementById('sidebarBackdrop').classList.contains('open')).toBe(false);
+  });
+
+  test('init wires paramsToggle click to openSidebar', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    mod.closeSidebar();
+    document.getElementById('paramsToggle').click();
+    expect(document.getElementById('sidebar').classList.contains('open')).toBe(true);
+  });
+
+  test('init wires sidebarBackdrop click to closeSidebar', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    mod.openSidebar();
+    document.getElementById('sidebarBackdrop').click();
+    expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
+  });
+
+  test('runBtn click closes sidebar before running simulation', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    mod.openSidebar();
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
+    document.getElementById('runBtn').click();
+    expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
+  });
+
+  test('runCustomBtn click closes sidebar before running custom', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    mod.openSidebar();
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({
+      bullet: { id: 'c', name: 'Custom', weightGrams: 9, muzzleVelocityMps: 850, ballisticCoefficient: 0.45, diameterMm: 7.82 },
+      points: [],
+    }) });
+    document.getElementById('runCustomBtn').click();
+    expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mobile: chart touch forwarding (item 4)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('chart canvas touchmove → mousemove forwarding', () => {
+  const mockResults = [{
+    bullet: { id: '308-win-168gr', name: '.308 Win 168gr' },
+    points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 820, energyJoules: 3500, windDriftCm: 0, timeOfFlightSec: 0 }],
+    supersonicLimitMeters: 800, maxOrdinateCm: 5, maxOrdinateRangeMeters: 100,
+  }];
+
+  test('touchmove on chart canvas dispatches a mousemove event', () => {
+    mod._setLastResults(mockResults);
+    mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
+
+    const canvas = document.getElementById('dropChart');
+    expect(canvas).toBeTruthy();
+
+    const dispatched = [];
+    canvas.addEventListener('mousemove', e => dispatched.push(e));
+
+    // jsdom lacks the Touch constructor — use a plain Event with a touches array
+    const touchEvent = new Event('touchmove', { bubbles: true, cancelable: true });
+    touchEvent.touches = [{ clientX: 120, clientY: 80 }];
+    canvas.dispatchEvent(touchEvent);
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].clientX).toBe(120);
+    expect(dispatched[0].clientY).toBe(80);
+  });
+
+  test('touchmove handler calls preventDefault to suppress page scroll', () => {
+    mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
+
+    const canvas = document.getElementById('dropChart');
+    const touchEvent = new Event('touchmove', { bubbles: true, cancelable: true });
+    touchEvent.touches = [{ clientX: 50, clientY: 50 }];
+
+    const preventDefaultSpy = jest.spyOn(touchEvent, 'preventDefault');
+    canvas.dispatchEvent(touchEvent);
+    expect(preventDefaultSpy).toHaveBeenCalled();
+  });
+
+  test('buildChartConfig includes touch events in the events array', () => {
+    const def = { id: 'test', title: 'T', subtitle: 's', yLabel: 'y', key: 'dropCm' };
+    const cfg = mod.buildChartConfig(def, [], []);
+    expect(cfg.options.events).toEqual(expect.arrayContaining(['touchstart', 'touchmove']));
   });
 });
 
