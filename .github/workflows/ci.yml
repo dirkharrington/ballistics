@@ -93,7 +93,7 @@ jobs:
           restore-keys: ${{ runner.os }}-m2-
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           language: ${{ matrix.language }}
           # Use the security-extended query suite for broader coverage
@@ -108,7 +108,7 @@ jobs:
       # JavaScript: CodeQL analyses source files directly — no build needed.
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
 
@@ -200,7 +200,7 @@ jobs:
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy
