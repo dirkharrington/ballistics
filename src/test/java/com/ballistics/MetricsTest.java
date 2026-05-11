@@ -22,10 +22,11 @@ class MetricsTest {
         mvc = MockMvcBuilders.webAppContextSetup(wac).build();
     }
 
+    // Item 6 — actuator hardening: /actuator/metrics is not exposed; use /actuator/prometheus instead.
     @Test
-    void metricsEndpointIsExposed() throws Exception {
+    void metricsEndpointIsNotExposed() throws Exception {
         mvc.perform(get("/actuator/metrics"))
-            .andExpect(status().isOk());
+            .andExpect(status().isNotFound());
     }
 
     @Test

@@ -2,8 +2,9 @@ services:
 
   app:
     build: .
+    # Item 11 — bind to localhost; let a reverse proxy handle TLS termination
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
     healthcheck:
@@ -15,8 +16,9 @@ services:
 
   prometheus:
     image: prom/prometheus:v3.4.0
-    ports:
-      - "9090:9090"
+    # Item 11 — not exposed publicly; accessible only within the compose network
+    expose:
+      - "9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
@@ -27,13 +29,16 @@ services:
 
   grafana:
     image: grafana/grafana:12.0.0
-    ports:
-      - "3000:3000"
+    # Item 11 — not exposed publicly; accessible only within the compose network
+    expose:
+      - "3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # :? causes compose to fail with a clear error if variable is unset — prevents
+      # accidental deployment with no password.  Set GRAFANA_ADMIN_PASSWORD in .env or
+      # via the deployment environment before running docker compose up.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_AUTH_ANONYMOUS_ENABLED=false
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro

@@ -209,6 +209,23 @@
                     </excludes>
                 </configuration>
             </plugin>
+            <!-- Item 4 — OWASP Dependency-Check: fail build on CVSS ≥ 7 (high/critical).
+                 Run manually: mvn dependency-check:check
+                 NVD API key (optional but recommended to avoid rate-limits):
+                   export NVD_API_KEY=<your-key>  or set MAVEN_OPTS / settings.xml property -->
+            <plugin>
+                <groupId>org.owasp</groupId>
+                <artifactId>dependency-check-maven</artifactId>
+                <version>10.0.4</version>
+                <configuration>
+                    <failBuildOnCVSS>7</failBuildOnCVSS>
+                    <suppressionFiles>
+                        <suppressionFile>owasp-suppressions.xml</suppressionFile>
+                    </suppressionFiles>
+                    <!-- NVD API key reduces rate-limiting in CI; set via env var -->
+                    <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 

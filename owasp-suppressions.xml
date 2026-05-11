@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OWASP Dependency-Check false-positive suppressions.
+  Reference: https://jeremylong.github.io/DependencyCheck/general/suppressing.html
+
+  To suppress a finding, add a <suppress> block with:
+    <notes>  — reason for suppression and ticket/expiry
+    <cve>    — specific CVE (preferred) or <cpe> for broader suppression
+
+  Example:
+  <suppress until="2026-01-01Z">
+    <notes>CVE-2023-XXXX affects test scope only; not exploitable in prod.</notes>
+    <cve>CVE-2023-XXXX</cve>
+  </suppress>
+-->
+<suppressions
+    xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+
+    <!-- Add project-specific suppressions here as they arise. -->
+
+</suppressions>

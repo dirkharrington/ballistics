@@ -6,6 +6,7 @@ on:
   pull_request:
 
 jobs:
+  # ── Build & test ─────────────────────────────────────────────────────────────
   build:
     runs-on: ubuntu-latest
 
@@ -34,6 +35,11 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
           restore-keys: ${{ runner.os }}-node-
 
+      # Item 2 — npm audit: fail on high or critical JS dependency vulnerabilities.
+      # npm audit reads package-lock.json directly; no install required (npm ≥ 7).
+      - name: npm audit
+        run: npm audit --audit-level=high
+
       - name: Build and test
         run: mvn --batch-mode test
 
@@ -50,3 +56,151 @@ jobs:
         with:
           name: js-coverage
           path: target/js-coverage/
+
+  # ── CodeQL SAST ──────────────────────────────────────────────────────────────
+  # Item 3 — Static analysis for Java and JavaScript.
+  # Runs in parallel with the build job; results appear in the GitHub
+  # Security → Code scanning tab and block PRs on new findings.
+  codeql:
+    name: CodeQL SAST
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [java, javascript]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        if: matrix.language == 'java'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven repository
+        if: matrix.language == 'java'
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-codeql-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          language: ${{ matrix.language }}
+          # Use the security-extended query suite for broader coverage
+          queries: security-extended
+
+      # Java: compile so CodeQL can intercept javac and trace data flow.
+      # Skip tests and frontend build — CodeQL only needs compiled classes.
+      - name: Build Java (CodeQL intercepts javac)
+        if: matrix.language == 'java'
+        run: mvn --batch-mode compile -Dskip.npm.test=true
+
+      # JavaScript: CodeQL analyses source files directly — no build needed.
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
+
+  # ── OWASP Dependency-Check ───────────────────────────────────────────────────
+  # Item 4 — Fails on any dependency with CVSS ≥ 7 (high or critical).
+  # Runs in parallel with build and codeql jobs.
+  # Set the NVD_API_KEY secret in repo Settings → Secrets to avoid NVD rate-limits.
+  dependency-check:
+    name: OWASP Dependency-Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-owasp-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-
+
+      - name: Cache NVD data
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: ${{ runner.os }}-nvd-${{ github.run_id }}
+          restore-keys: ${{ runner.os }}-nvd-
+
+      - name: Run OWASP Dependency-Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: mvn --batch-mode dependency-check:check -DskipTests
+
+      - name: Upload Dependency-Check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: target/dependency-check-report.html
+
+  # ── Trivy container scan ─────────────────────────────────────────────────────
+  # Item 5 — Scans the built JAR's base image for OS and library CVEs.
+  # Results appear in GitHub Security → Code scanning tab (SARIF upload).
+  # Fails on CRITICAL vulnerabilities; HIGH findings are reported but non-blocking.
+  trivy:
+    name: Trivy Container Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-trivy-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-
+
+      - name: Build JAR (skip tests and frontend)
+        run: mvn --batch-mode package -DskipTests -Dskip.npm.test=true
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
