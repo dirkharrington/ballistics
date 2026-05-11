@@ -2071,7 +2071,7 @@ describe('exportCSV', () => {
     expect(csvContent).toContain('Range (m)');
     expect(csvContent).toContain('MOA');
     expect(csvContent).toContain('MRAD');
-    expect(csvContent).toContain(bullet.name.replace('"', '""'));
+    expect(csvContent).toContain(bullet.name.replace(/"/g, '""'));
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
     expect(anchorClick).toHaveBeenCalledTimes(1);
