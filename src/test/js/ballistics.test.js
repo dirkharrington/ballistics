@@ -1091,6 +1091,22 @@ describe('renderResults', () => {
     expect(html).toContain('#4ADE80');
     expect(html).not.toContain('undefined');
   });
+
+  test('renderStatCards silently skips results missing bullet property', () => {
+    const mixedResults = [
+      { points: [], maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0 },
+      {
+        bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP',
+                  muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+                  ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+        request: {},
+        points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+        maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
+      }
+    ];
+    expect(() => mod.renderResults(mixedResults, req)).not.toThrow();
+    expect(document.getElementById('chartContainer').innerHTML).toContain('.308 Win 168gr BTHP');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1241,6 +1257,22 @@ describe('runSimulation', () => {
   test('streamCompare throws when response is not ok', async () => {
     global.fetch.mockResolvedValue({ ok: false, status: 429 });
     await expect(mod.streamCompare({}, () => {})).rejects.toThrow('HTTP 429');
+  });
+
+  test('batch compare ok:true path — renders results and clears offline mode', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    mod.setOfflineMode(true);
+
+    global.fetch.mockImplementation(async (url) => {
+      if (url.includes('stream')) return { ok: false, status: 503 };
+      return { ok: true, json: async () => mockApiResults };
+    });
+
+    await mod.runSimulation();
+
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+    expect(mod._getState().offlineMode).toBe(false);
   });
 });
 
@@ -2317,6 +2349,16 @@ describe('runCustom server success', () => {
 
     expect(mod._getState().lastResults).toHaveLength(1);
     expect(mod._getState().lastResults[0]).toEqual(serverResult);
+  });
+
+  test('falls back to offline simulation when server returns non-ok response', async () => {
+    setValidCustomInputs();
+    global.fetch.mockResolvedValueOnce({ ok: false, status: 422 });
+    await mod.runCustom();
+    const result = mod._getState().lastResults[0];
+    expect(result).toBeDefined();
+    expect(result.bullet).toBeDefined();
+    expect(result.bullet.id).toBe('custom');
   });
 });
 

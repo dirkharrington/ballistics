@@ -382,6 +382,7 @@ async function runSimulation() {
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(req)
           });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
           (await res.json()).forEach(r => results.push(r));
           setOfflineMode(false);
         } catch (_batchErr) {
@@ -506,6 +507,7 @@ async function runCustom() {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(req)
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     result = await res.json();
   } catch (e) {
     // offline fallback
@@ -850,7 +852,8 @@ function windChartSubtitle(req) {
 }
 
 // ── Results rendering (~30-line orchestrator) ─────────────────────────────────
-function renderResults(results, req) {
+function renderResults(rawResults, req) {
+  const results = rawResults.filter(r => r?.bullet);
   document.getElementById('emptyState').style.display = 'none';
   const rc = document.getElementById('resultsContainer');
   rc.style.display = 'flex';
