@@ -746,8 +746,11 @@ tr:hover td { background: var(--bg3); }
 }
 .export-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-.export-csv-btn {
+.export-dropdown {
+  position: relative;
   margin: 0 12px 8px;
+}
+.export-toggle {
   background: transparent;
   border: 1px solid var(--dim);
   color: var(--text-dim);
@@ -759,9 +762,39 @@ tr:hover td { background: var(--bg3); }
   border-radius: var(--radius-xs);
   text-transform: uppercase;
   transition: all 0.15s;
-  width: calc(100% - 24px);
+  width: 100%;
 }
-.export-csv-btn:hover { border-color: var(--accent); color: var(--accent); }
+.export-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.export-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-xs) var(--radius-xs);
+}
+.export-dropdown.open .export-menu { display: block; }
+.export-csv-btn, .export-json-btn, .export-md-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 1px;
+  padding: 8px 12px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: all 0.15s;
+}
+.export-csv-btn:hover, .export-json-btn:hover, .export-md-btn:hover {
+  color: var(--accent);
+  background: var(--hover);
+}
 
 .custom-section {
   border-bottom: 1px solid var(--border);
@@ -975,4 +1008,99 @@ tr:hover td { background: var(--bg3); }
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* ── Tools panel ──────────────────────────────────────────────────────────── */
+
+.tools-panel {
+  display: none;
+  padding: 16px;
+}
+.tools-panel.active { display: block; }
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.tool-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+
+.tool-title {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 12px;
+}
+
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tool-row label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  min-width: 70px;
+}
+
+.tool-row input,
+.tool-row select {
+  flex: 1;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+}
+
+.tool-calc-btn {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 2px;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  text-transform: uppercase;
+  transition: all 0.15s;
+  width: 100%;
+  margin: 8px 0;
+}
+.tool-calc-btn:hover { background: var(--accent); color: var(--bg); }
+
+.tool-results {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.tool-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.tool-value {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-sm);
+  color: var(--text);
 }

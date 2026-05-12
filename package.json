@@ -20,7 +20,8 @@
     ],
     "coverageDirectory": "target/js-coverage",
     "collectCoverageFrom": [
-      "src/main/resources/static/ballistics.js"
+      "src/main/resources/static/ballistics.js",
+      "src/main/resources/static/tools.js"
     ],
     "transform": {
       "^.+\\.js$": "babel-jest"

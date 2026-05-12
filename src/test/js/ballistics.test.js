@@ -58,6 +58,8 @@ function buildDOM() {
     <table><tbody id="tableBody"><tr><td colspan="9">NO DATA</td></tr></tbody></table>
     <div class="tab active" id="tab-charts"></div>
     <div class="tab"        id="tab-data"></div>
+    <div class="tab"        id="tab-tools"></div>
+    <div id="toolsPanel" class="tools-panel"></div>
     <span class="status-pill status-live" id="statusPill">● READY</span>
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
     <button id="retryBtn" style="display:none">↺ RETRY</button>
@@ -748,6 +750,15 @@ describe('switchTab', () => {
     mod.switchTab('data', tabData);
     expect(tabCharts.classList.contains('active')).toBe(false);
     expect(tabData.classList.contains('active')).toBe(true);
+  });
+
+  test('switching to tools activates toolsPanel', () => {
+    const el = document.getElementById('tab-tools');
+    mod.switchTab('tools', el);
+    expect(document.getElementById('toolsPanel').classList.contains('active')).toBe(true);
+    expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(false);
+    expect(document.getElementById('dataPanel').classList.contains('active')).toBe(false);
+    expect(el.classList.contains('active')).toBe(true);
   });
 });
 
@@ -2079,6 +2090,159 @@ describe('exportCSV', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// _downloadBlob
+// ─────────────────────────────────────────────────────────────────────────────
+describe('_downloadBlob', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('creates an anchor with the given filename and revokes the URL after click', () => {
+    const blob = new Blob(['test'], { type: 'text/plain' });
+    mod._downloadBlob(blob, 'test.txt');
+    expect(createObjectURL).toHaveBeenCalledWith(blob);
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// exportJSON
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportJSON', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    global.Blob = jest.fn((parts) => ({ parts }));
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('returns early without creating a Blob when lastResults is empty', () => {
+    mod._resetState();
+    mod.exportJSON();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  test('creates a JSON blob with all result data and triggers download', () => {
+    const bullet = mod.getMockBullets()[0];
+    const result = mod.simulateBullet(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    mod._setLastResults([result]);
+    mod.exportJSON();
+
+    expect(global.Blob).toHaveBeenCalledTimes(1);
+    const jsonContent = global.Blob.mock.calls[0][0][0];
+    const parsed = JSON.parse(jsonContent);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed[0].bullet.name).toBe(bullet.name);
+    expect(parsed[0].points).toBeDefined();
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// exportMarkdown
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportMarkdown', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    global.Blob = jest.fn((parts) => ({ parts }));
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('returns early without creating a Blob when lastResults is empty', () => {
+    mod._resetState();
+    mod.exportMarkdown();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  test('creates Markdown with table headers and bullet name heading', () => {
+    const bullet = mod.getMockBullets()[0];
+    const result = mod.simulateBullet(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    mod._setLastResults([result]);
+    mod.exportMarkdown();
+
+    expect(global.Blob).toHaveBeenCalledTimes(1);
+    const md = global.Blob.mock.calls[0][0][0];
+    expect(md).toContain(`## ${bullet.name}`);
+    expect(md).toContain('| Range (m)');
+    expect(md).toContain('| MOA |');
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// export dropdown wiring
+// ─────────────────────────────────────────────────────────────────────────────
+describe('export dropdown toggle', () => {
+  beforeEach(() => {
+    buildDOM();
+    // Append the export dropdown elements to the existing DOM
+    const dropdown = document.createElement('div');
+    dropdown.className = 'export-dropdown';
+    dropdown.innerHTML = `
+      <button class="export-toggle">EXPORT ▾</button>
+      <div class="export-menu">
+        <button class="export-csv-btn">CSV</button>
+        <button class="export-json-btn">JSON</button>
+        <button class="export-md-btn">Markdown</button>
+      </div>`;
+    document.body.appendChild(dropdown);
+    global.fetch.mockResolvedValue({ json: () => Promise.resolve(mod.getMockBullets()) });
+  });
+
+  test('clicking .export-toggle adds "open" class to .export-dropdown', async () => {
+    await mod.init();
+    document.querySelector('.export-toggle').click();
+    expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(true);
+  });
+
+  test('clicking outside the dropdown removes "open" class', async () => {
+    await mod.init();
+    document.querySelector('.export-toggle').click();
+    expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(true);
+    document.getElementById('runBtn').click();
+    expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // exportPNG
 // ─────────────────────────────────────────────────────────────────────────────
 describe('exportPNG', () => {
@@ -2346,6 +2510,14 @@ describe('tab click listeners wired by init()', () => {
     await mod.init();
     document.getElementById('tab-data').click();
     expect(document.getElementById('dataPanel').classList.contains('active')).toBe(true);
+  });
+
+  test('clicking #tab-tools switches to tools panel', async () => {
+    global.fetch.mockResolvedValueOnce({ json: async () => mod.getMockBullets() });
+    await mod.init();
+    document.getElementById('tab-tools').click();
+    expect(document.getElementById('toolsPanel').classList.contains('active')).toBe(true);
+    expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(false);
   });
 });
 

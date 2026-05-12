@@ -127,7 +127,14 @@
     <button class="run-btn" id="runBtn">
       <span>▶ COMPUTE TRAJECTORIES</span>
     </button>
-    <button class="export-csv-btn">⬇ EXPORT CSV</button>
+    <div class="export-dropdown">
+      <button class="export-toggle">⬇ EXPORT ▾</button>
+      <div class="export-menu">
+        <button class="export-csv-btn">CSV</button>
+        <button class="export-json-btn">JSON</button>
+        <button class="export-md-btn">Markdown</button>
+      </div>
+    </div>
 
     <details class="custom-section">
       <summary>Custom Round <span class="chevron">▶</span></summary>
@@ -172,6 +179,7 @@
     <div class="tabs">
       <div class="tab active" id="tab-charts">Trajectory Charts</div>
       <div class="tab" id="tab-data">Data Table</div>
+      <div class="tab" id="tab-tools">Tools</div>
     </div>
 
     <!-- CHARTS PANEL -->
@@ -244,6 +252,64 @@
       </div>
     </div>
 
+    <div id="toolsPanel" class="tools-panel">
+      <div class="tools-grid">
+
+        <!-- MOA / MRAD calculator -->
+        <div class="tool-card">
+          <h3 class="tool-title">MOA / MRAD Calculator</h3>
+          <div class="tool-row">
+            <label>Drop (cm)</label>
+            <input type="number" id="toolDrop" value="0" step="0.1">
+          </div>
+          <div class="tool-row">
+            <label>Range (m)</label>
+            <input type="number" id="toolRange" value="100" step="1" min="1">
+          </div>
+          <button class="tool-calc-btn" id="toolCalcBtn">Calculate</button>
+          <div class="tool-results" id="toolResults"></div>
+        </div>
+
+        <!-- Unit converter -->
+        <div class="tool-card">
+          <h3 class="tool-title">Unit Converter</h3>
+          <div class="tool-row">
+            <label>Value</label>
+            <input type="number" id="unitValue" value="1" step="any">
+          </div>
+          <div class="tool-row">
+            <label>From</label>
+            <select id="unitFrom">
+              <option value="mps">m/s</option>
+              <option value="fps">ft/s</option>
+              <option value="kph">km/h</option>
+              <option value="mph">mph</option>
+              <option value="cm">cm</option>
+              <option value="in">in</option>
+              <option value="m">m</option>
+              <option value="yd">yd</option>
+            </select>
+          </div>
+          <div class="tool-row">
+            <label>To</label>
+            <select id="unitTo">
+              <option value="fps">ft/s</option>
+              <option value="mps">m/s</option>
+              <option value="kph">km/h</option>
+              <option value="mph">mph</option>
+              <option value="in">in</option>
+              <option value="cm">cm</option>
+              <option value="yd">yd</option>
+              <option value="m">m</option>
+            </select>
+          </div>
+          <button class="tool-calc-btn" id="unitCalcBtn">Convert</button>
+          <div class="tool-results" id="unitResults"></div>
+        </div>
+
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -252,5 +318,9 @@
 <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
 
 <script type="module" src="./ballistics.js"></script>
+<script type="module">
+  import { initTools } from './tools.js';
+  document.addEventListener('DOMContentLoaded', initTools);
+</script>
 </body>
 </html>

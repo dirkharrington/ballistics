@@ -15,7 +15,8 @@ public class CacheConfig {
         CaffeineCacheManager mgr = new CaffeineCacheManager("trajectories");
         mgr.setCaffeine(Caffeine.newBuilder()
             .maximumSize(500)
-            .expireAfterWrite(5, TimeUnit.MINUTES));
+            .expireAfterWrite(5, TimeUnit.MINUTES)
+            .recordStats());
         return mgr;
     }
 }

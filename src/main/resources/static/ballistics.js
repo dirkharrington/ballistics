@@ -400,6 +400,16 @@ async function runSimulation() {
   }
 }
 
+// ── Export helpers ────────────────────────────────────────────────────────────
+function _downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── CSV export ────────────────────────────────────────────────────────────────
 function exportCSV() {
   if (!lastResults.length) return;
@@ -410,13 +420,33 @@ function exportCSV() {
       rows.push(`${csvCell(r.bullet.name)},${p.rangeMeters},${p.dropCm},${p.velocityMps},${p.energyJoules},${p.windDriftCm},${p.timeOfFlightSec},${adj.moa},${adj.mrad}`);
     });
   });
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = 'trajectory.csv';
-  a.click();
-  URL.revokeObjectURL(url);
+  _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), 'trajectory.csv');
+}
+
+// ── JSON export ───────────────────────────────────────────────────────────────
+function exportJSON() {
+  if (!lastResults.length) return;
+  _downloadBlob(
+    new Blob([JSON.stringify(lastResults, null, 2)], { type: 'application/json' }),
+    'trajectory.json'
+  );
+}
+
+// ── Markdown export ───────────────────────────────────────────────────────────
+function exportMarkdown() {
+  if (!lastResults.length) return;
+  const lines = [];
+  lastResults.forEach(r => {
+    lines.push(`## ${r.bullet.name}\n`);
+    lines.push('| Range (m) | Drop (cm) | Velocity (m/s) | Energy (J) | Wind Drift (cm) | MOA | MRAD |');
+    lines.push('|----------:|----------:|---------------:|-----------:|----------------:|----:|-----:|');
+    r.points.forEach(p => {
+      const adj = computeAdjustments(p.dropCm, p.rangeMeters);
+      lines.push(`| ${p.rangeMeters} | ${p.dropCm} | ${p.velocityMps} | ${p.energyJoules} | ${p.windDriftCm} | ${adj.moa} | ${adj.mrad} |`);
+    });
+    lines.push('');
+  });
+  _downloadBlob(new Blob([lines.join('\n')], { type: 'text/markdown' }), 'trajectory.md');
 }
 
 // ── PNG export ────────────────────────────────────────────────────────────────
@@ -942,6 +972,7 @@ function switchTab(name, el) {
   el.classList.add('active');
   document.getElementById('chartsPanel').classList.toggle('active', name === 'charts');
   document.getElementById('dataPanel').classList.toggle('active', name === 'data');
+  document.getElementById('toolsPanel')?.classList.toggle('active', name === 'tools');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -990,6 +1021,17 @@ async function init() {
   document.getElementById('retryBtn')?.addEventListener('click', probeServer);
   document.getElementById('runBtn')?.addEventListener('click', () => { closeSidebar(); runSimulation(); });
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
+  document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
+  document.querySelector('.export-md-btn')?.addEventListener('click', exportMarkdown);
+  document.querySelector('.export-toggle')?.addEventListener('click', function() {
+    this.closest('.export-dropdown')?.classList.toggle('open');
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.export-dropdown')) {
+      document.querySelectorAll('.export-dropdown.open')
+        .forEach(d => d.classList.remove('open'));
+    }
+  });
   document.getElementById('runCustomBtn')?.addEventListener('click', () => { closeSidebar(); runCustom(); });
 
   // Mobile drawer: FAB opens sidebar; backdrop tap closes it
@@ -997,6 +1039,7 @@ async function init() {
   document.getElementById('sidebarBackdrop')?.addEventListener('click', closeSidebar);
   document.getElementById('tab-charts')?.addEventListener('click', function() { switchTab('charts', this); });
   document.getElementById('tab-data')?.addEventListener('click', function() { switchTab('data', this); });
+  document.getElementById('tab-tools')?.addEventListener('click', function() { switchTab('tools', this); });
 
   // Pin button toggles crosshair lock (chart onClick also toggles)
   document.getElementById('readoutPin')?.addEventListener('click', () => {
@@ -1131,7 +1174,8 @@ export {
   renderBulletList, toggleBullet, updateBulletCards, runSimulation, streamCompare,
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
-  exportCSV, exportPNG, runCustom, setOfflineMode, probeServer, showToast,
+  exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, setOfflineMode, probeServer, showToast,
+  _downloadBlob,
   BULLET_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
   drawVLine, drawHLine, annotationPlugin, windChartSubtitle,
   savePrefs, loadPrefs, PREF_KEYS, PREF_DEFAULTS,
