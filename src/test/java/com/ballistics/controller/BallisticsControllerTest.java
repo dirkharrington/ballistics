@@ -395,4 +395,61 @@ class BallisticsControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.points").isArray());
     }
+
+    @Test
+    void customTrajectoryWithExplicitOptionalFields() throws Exception {
+        // Passes explicit shootingAngleDegrees, windDirectionDeg, dragModel (non-null)
+        // Covers the != null (false branch) of those compact-constructor conditions.
+        mockMvc.perform(post("/api/trajectories/custom")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"name":"G7 Test","bulletWeightGrams":9.0,"muzzleVelocityMps":850,
+                     "ballisticCoefficient":0.45,"bulletDiameterMm":7.82,
+                     "zeroRangeMeters":100,"maxRangeMeters":300,"stepMeters":25,
+                     "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15,
+                     "shootingAngleDegrees":5.0,"windDirectionDeg":45.0,"dragModel":"G7"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.points").isArray());
+    }
+
+    @Test
+    void compareStreamWithAllUnknownBulletIdsCompletesImmediately() throws Exception {
+        // All IDs unknown → compareAsync returns empty list → futures.isEmpty() true branch
+        String body = """
+            {
+              "bulletIds": ["no-such-bullet-abc"],
+              "zeroRangeMeters": 100,
+              "maxRangeMeters": 200,
+              "stepMeters": 100,
+              "windSpeedKph": 0,
+              "altitudeMeters": 0,
+              "temperatureC": 15
+            }
+            """;
+
+        MvcResult mvcResult = mockMvc.perform(post("/api/trajectories/compare/stream")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        mvcResult.getAsyncResult(5_000);
+        // Emitter completes immediately with no events
+        assertThat(mvcResult.getResponse().getContentAsString()).isEmpty();
+    }
+
+    @Test
+    void unknownBulletIdOver64CharsTriggersTruncateInErrorResponse() throws Exception {
+        // 65-char bulletId exercises the truncate(s, 64) substring branch in GlobalExceptionHandler
+        // Uses /api/trajectory (body-based) so @NotBlank on bulletId is satisfied.
+        String longId = "a".repeat(65);
+        mockMvc.perform(post("/api/trajectory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"bulletId\":\"" + longId + "\","
+                    + "\"zeroRangeMeters\":100,\"maxRangeMeters\":200,\"stepMeters\":50,"
+                    + "\"windSpeedKph\":0,\"altitudeMeters\":0,\"temperatureC\":15}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.detail").isString());
+    }
 }

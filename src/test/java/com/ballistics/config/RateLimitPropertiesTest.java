@@ -96,6 +96,14 @@ class RateLimitPropertiesTest {
     }
 
     @Test
+    void globalCapacityLessThan1Fails() {
+        // capacity=5 passes the first check; globalCapacity=0 exercises the globalCapacity < 1 branch
+        assertThatThrownBy(() -> new RateLimitProperties.Tier(5, 0))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("global-capacity must be >= 1");
+    }
+
+    @Test
     void expireAfterAccessLessThanPeriodFails() {
         assertThatThrownBy(() -> new RateLimitProperties(
             true,

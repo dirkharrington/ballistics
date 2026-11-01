@@ -184,6 +184,41 @@ class PhysicsTablesLoaderTest {
         assertThrows(yaml, "atmosphere.pressureCoeff is missing or not a number");
     }
 
+    // ── Table structure: non-list and non-mapping row ─────────────────────────
+
+    @Test
+    void g1TableNotAListThrows() {
+        // g1Table is a scalar, not a list → "must be a YAML list"
+        String yaml = "g1Table: scalar_value\n" + validG7() + validAtm();
+        assertThrows(yaml, "g1Table must be a YAML list");
+    }
+
+    @Test
+    void tableRowNotAMappingThrows() {
+        // Each row must be a YAML mapping; a plain string is not
+        String bad = "g1Table:\n  - just_a_string\n  - { v: 100, f: 0.2 }\n";
+        String yaml = buildYaml(bad, validG7(), validAtm());
+        assertThrows(yaml, "g1Table[0] must be a mapping");
+    }
+
+    // ── Row validation: non-finite v or f ─────────────────────────────────────
+
+    @Test
+    void vNotFiniteThrows() {
+        // .nan is YAML 1.1 literal for NaN; exercises !isFinite(v) true branch
+        String bad = "g1Table:\n  - { v: .nan, f: 0.1 }\n  - { v: 100, f: 0.2 }\n";
+        String yaml = buildYaml(bad, validG7(), validAtm());
+        assertThrows(yaml, "g1Table[0].v must be finite and >= 0");
+    }
+
+    @Test
+    void fNotFiniteThrows() {
+        // .nan for coefficient; exercises !isFinite(f) true branch
+        String bad = "g1Table:\n  - { v: 0, f: .nan }\n  - { v: 100, f: 0.2 }\n";
+        String yaml = buildYaml(bad, validG7(), validAtm());
+        assertThrows(yaml, "g1Table[0].f must be finite and > 0");
+    }
+
     // ── Malformed YAML ────────────────────────────────────────────────────────
 
     @Test
