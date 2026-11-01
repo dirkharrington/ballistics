@@ -1,5 +1,6 @@
 package com.ballistics.controller;
 
+import com.ballistics.ratelimit.RateLimitExceededException;
 import com.ballistics.service.UnknownBulletException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -21,12 +22,6 @@ import java.util.stream.Collectors;
 @ControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    /** Truncate bullet ID to at most 64 characters to prevent log injection. */
-    private static String truncate(String s, int max) {
-        if (s == null) return "null";
-        return s.length() <= max ? s : s.substring(0, max);
-    }
-
     @ExceptionHandler(UnknownBulletException.class)
     public ResponseEntity<ProblemDetail> handleUnknownBullet(UnknownBulletException ex) {
         String detail = "Unknown bullet ID: " + truncate(ex.bulletId(), 64);
@@ -36,10 +31,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             .body(problem);
     }
 
-    /**
-     * Overrides the default validation-failure handler to include per-field
-     * violation details in the {@code detail} field.
-     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimit(RateLimitExceededException ex,
+                                                          jakarta.servlet.http.HttpServletRequest request) {
+        long retryAfter = ex.retryAfterSeconds();
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+            HttpStatus.TOO_MANY_REQUESTS,
+            "Rate limit exceeded. Retry after " + retryAfter + " s.");
+        problem.setInstance(java.net.URI.create(request.getRequestURI()));
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+            .header("Retry-After", String.valueOf(retryAfter))
+            .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+            .body(problem);
+    }
+
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex,
@@ -54,5 +59,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
         return createResponseEntity(problem, headers, status, request);
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "null";
+        return s.length() <= max ? s : s.substring(0, max);
     }
 }

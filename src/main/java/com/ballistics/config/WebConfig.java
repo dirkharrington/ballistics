@@ -1,9 +1,12 @@
 package com.ballistics.config;
 
+import com.ballistics.ratelimit.RateLimitInterceptor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.CacheControl;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -32,6 +35,14 @@ public class WebConfig implements WebMvcConfigurer {
     /** Comma-separated list of allowed CORS origins. Injected from application.properties. */
     @Value("${app.cors.allowed-origins}")
     private String[] allowedOrigins;
+
+    @Autowired
+    private RateLimitInterceptor rateLimitInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(rateLimitInterceptor).addPathPatterns("/api/**");
+    }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
