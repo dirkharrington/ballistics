@@ -343,9 +343,36 @@ async function streamCompare(req, onResult) {
   }
 }
 
+// ── Error handling helpers ────────────────────────────────────────────────────
+
+/** Returns {status, detail, retryAfterSeconds} from a fetch Response. Never throws. */
+async function _parseRejection(res) {
+  let body = null;
+  try { body = await res.json(); } catch (_) {}
+  const detail = body?.detail ?? 'Server rejected the request.';
+  const retryAfterParsed = parseInt(res.headers.get('Retry-After') ?? '0', 10);
+  const retryAfterSeconds = Number.isFinite(retryAfterParsed) ? retryAfterParsed : 0;
+  return { status: res.status, detail, retryAfterSeconds };
+}
+
+/** Shows or hides the inline simulation error banner. */
+function _setSimulationError(message) {
+  const el = document.getElementById('simulationError');
+  /* istanbul ignore next -- #simulationError is always present in the app shell */
+  if (!el) return;
+  if (message) {
+    el.textContent = message;
+    el.removeAttribute('hidden');
+  } else {
+    el.setAttribute('hidden', '');
+    el.textContent = '';
+  }
+}
+
 // ── Simulation ────────────────────────────────────────────────────────────────
 async function runSimulation() {
   if (selectedIds.size === 0) { alert('Select at least one round.'); return; }
+  _setSimulationError(null);
   const btn   = document.getElementById('runBtn');
   btn.classList.add('loading');
 
@@ -383,18 +410,38 @@ async function runSimulation() {
     } catch (_streamErr) {
       /* istanbul ignore else -- partial-results path requires a stream that delivers some events then fails; not exercised in unit tests */
       if (results.length === 0) {
+        let res;
         try {
-          const res = await fetch(`${API_BASE}/trajectories/compare`, {
+          res = await fetch(`${API_BASE}/trajectories/compare`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(req)
           });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          (await res.json()).forEach(r => results.push(r));
-          setOfflineMode(false);
-        } catch (_batchErr) {
+        } catch (networkErr) {
+          // Network/DNS/CORS errors → OFFLINE fallback
           computeClientSide(req).forEach(r => results.push(r));
           setOfflineMode(true);
+          renderResults(results, req);
+          lastResults = results;
+          return;
+        }
+
+        if (!res.ok) {
+          const ct = res.headers?.get('Content-Type') ?? '';
+          if (res.status < 500 && ct.includes('problem+json')) {
+            const { detail, retryAfterSeconds } = await _parseRejection(res);
+            const msg = retryAfterSeconds > 0
+              ? `${detail} Retry after ${retryAfterSeconds} s.`
+              : detail;
+            _setSimulationError(msg);
+            return;
+          }
+          // 4xx non-JSON or 5xx → existing OFFLINE fallback
+          computeClientSide(req).forEach(r => results.push(r));
+          setOfflineMode(true);
+        } else {
+          (await res.json()).forEach(r => results.push(r));
+          setOfflineMode(false);
         }
         renderResults(results, req);
       }
@@ -1267,24 +1314,34 @@ const PREF_DEFAULTS = {
   dragModel:   'G1',  // G1 = standard flat-base/spitzer; G7 = boat-tail long-range
 };
 
+/** Maps PREF_DEFAULTS keys to their DOM input element IDs (selectedIds has no input). */
+const DOM_ID_FOR_PREF = {
+  zero:        'zeroRange',
+  maxRange:    'maxRange',
+  wind:        'windSpeed',
+  windDir:     'windDir',
+  altitude:    'altitude',
+  temp:        'temperature',
+  step:        'step',
+  sightHeight: 'sightHeight',
+  angle:       'shootingAngle',
+  dragModel:   'dragModel',
+};
+
 /**
  * Persist current parameter inputs and selected bullet IDs to localStorage.
  * Wrapped in try/catch: silently degrades in private-browsing or when quota is full.
  */
 function savePrefs() {
   try {
-    const get = id => document.getElementById(id)?.value;
     localStorage.setItem(PREF_KEYS.selectedIds, JSON.stringify([...selectedIds]));
-    localStorage.setItem(PREF_KEYS.zero,        get('zeroRange')     ?? String(PREF_DEFAULTS.zero));
-    localStorage.setItem(PREF_KEYS.maxRange,    get('maxRange')      ?? String(PREF_DEFAULTS.maxRange));
-    localStorage.setItem(PREF_KEYS.wind,        get('windSpeed')     ?? String(PREF_DEFAULTS.wind));
-    localStorage.setItem(PREF_KEYS.windDir,     get('windDir')       ?? String(PREF_DEFAULTS.windDir));
-    localStorage.setItem(PREF_KEYS.altitude,    get('altitude')      ?? String(PREF_DEFAULTS.altitude));
-    localStorage.setItem(PREF_KEYS.temp,        get('temperature')   ?? String(PREF_DEFAULTS.temp));
-    localStorage.setItem(PREF_KEYS.step,        get('step')          ?? String(PREF_DEFAULTS.step));
-    localStorage.setItem(PREF_KEYS.sightHeight, get('sightHeight')   ?? String(PREF_DEFAULTS.sightHeight));
-    localStorage.setItem(PREF_KEYS.angle,       get('shootingAngle') ?? String(PREF_DEFAULTS.angle));
-    localStorage.setItem(PREF_KEYS.dragModel,   get('dragModel')     ?? PREF_DEFAULTS.dragModel);
+    for (const k of Object.keys(PREF_DEFAULTS).filter(k => k !== 'selectedIds')) {
+      const domId = DOM_ID_FOR_PREF[k];
+      /* istanbul ignore next -- null branch only reached when a pref has no DOM element */
+      const value = (domId ? document.getElementById(domId)?.value : null)
+                    ?? String(PREF_DEFAULTS[k]);
+      localStorage.setItem(PREF_KEYS[k], value);
+    }
   } catch (e) {
     console.warn('localStorage unavailable — preferences not saved', e);
   }
@@ -1302,22 +1359,16 @@ function loadPrefs() {
     try {
       savedIds = raw !== null ? JSON.parse(raw) : null;
       if (!Array.isArray(savedIds)) savedIds = null;
-    } catch (_) {
-      savedIds = null;
+    } catch (_) { savedIds = null; }
+
+    const prefs = { selectedIds: savedIds };
+    for (const k of Object.keys(PREF_DEFAULTS).filter(k => k !== 'selectedIds')) {
+      const stored = localStorage.getItem(PREF_KEYS[k]);
+      prefs[k] = typeof PREF_DEFAULTS[k] === 'number'
+        ? +(stored ?? PREF_DEFAULTS[k])
+        : (stored ?? PREF_DEFAULTS[k]);
     }
-    return {
-      selectedIds: savedIds,
-      zero:        +(localStorage.getItem(PREF_KEYS.zero)        ?? PREF_DEFAULTS.zero),
-      maxRange:    +(localStorage.getItem(PREF_KEYS.maxRange)    ?? PREF_DEFAULTS.maxRange),
-      wind:        +(localStorage.getItem(PREF_KEYS.wind)        ?? PREF_DEFAULTS.wind),
-      windDir:     +(localStorage.getItem(PREF_KEYS.windDir)     ?? PREF_DEFAULTS.windDir),
-      altitude:    +(localStorage.getItem(PREF_KEYS.altitude)    ?? PREF_DEFAULTS.altitude),
-      temp:        +(localStorage.getItem(PREF_KEYS.temp)        ?? PREF_DEFAULTS.temp),
-      step:        +(localStorage.getItem(PREF_KEYS.step)        ?? PREF_DEFAULTS.step),
-      sightHeight: +(localStorage.getItem(PREF_KEYS.sightHeight) ?? PREF_DEFAULTS.sightHeight),
-      angle:       +(localStorage.getItem(PREF_KEYS.angle)       ?? PREF_DEFAULTS.angle),
-      dragModel:     localStorage.getItem(PREF_KEYS.dragModel)   ?? PREF_DEFAULTS.dragModel,
-    };
+    return prefs;
   } catch (e) {
     console.warn('localStorage unavailable — using defaults', e);
     return { ...PREF_DEFAULTS };
@@ -1359,4 +1410,5 @@ export {
   openSidebar, closeSidebar,
   currentState, syncUrl, copyLink,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
+  _parseRejection, _setSimulationError,
 };

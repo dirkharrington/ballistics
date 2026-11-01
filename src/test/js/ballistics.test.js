@@ -44,6 +44,7 @@ function buildDOM() {
     <button id="paramsToggle" class="fab-params">☰ PARAMS</button>
     <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
     <button id="runBtn" class="run-btn"><span>▶ COMPUTE TRAJECTORIES</span></button>
+    <div id="simulationError" class="simulation-error" hidden aria-live="assertive" role="alert"></div>
     <button id="runCustomBtn" class="run-btn"><span>▶ COMPUTE CUSTOM</span></button>
     <div id="chartsPanel" class="charts-panel active"></div>
     <div id="dataPanel"   class="data-panel"></div>
@@ -1294,6 +1295,264 @@ describe('runSimulation', () => {
 
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
     expect(mod._getState().offlineMode).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FE-R1: runSimulation error-handling refactor
+// ─────────────────────────────────────────────────────────────────────────────
+describe('runSimulation — FE-R1 error handling', () => {
+  const mockApiResults = [
+    {
+      bullet: {
+        id: '308-win-168gr', name: '.308 Win 168gr BTHP',
+        muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+        ballisticCoefficient: 0.475, bulletWeightGrams: 10.89
+      },
+      request: {},
+      points: [
+        { rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }
+      ],
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
+    }
+  ];
+
+  function makeRejectionResponse({ status, detail, retryAfter }) {
+    return {
+      ok: false,
+      status,
+      headers: {
+        get(name) {
+          if (name === 'Content-Type') return 'application/problem+json';
+          if (name === 'Retry-After') return retryAfter ?? null;
+          return null;
+        }
+      },
+      json: async () => ({ detail })
+    };
+  }
+
+  function makeStreamFailThenBatch(batchResponse) {
+    return global.fetch.mockImplementation(async (url) => {
+      if (url.includes('/stream')) return { ok: false, status: 503 };
+      return batchResponse;
+    });
+  }
+
+  test('400 with problem+json → error banner shown, OFFLINE not set, computeClientSide not called', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 400, detail: 'Wind speed too high.' }));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(false);
+    expect(banner.textContent).toContain('Wind speed too high.');
+    expect(mod._getState().offlineMode).toBe(false);
+    expect(document.getElementById('resultsContainer').style.display).not.toBe('flex');
+  });
+
+  test('429 with Retry-After header → message contains retry seconds', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 429, detail: 'Rate limit exceeded.', retryAfter: '15' }));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(false);
+    expect(banner.textContent).toContain('Retry after 15 s.');
+    expect(mod._getState().offlineMode).toBe(false);
+  });
+
+  test('429 without Retry-After → message does not contain "Retry after"', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 429, detail: 'Rate limit exceeded.' }));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.textContent).not.toContain('Retry after');
+  });
+
+  test('TypeError from fetch → OFFLINE fallback, error banner not shown', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(true);
+    expect(mod._getState().offlineMode).toBe(true);
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('500 → OFFLINE fallback, error banner not shown', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch({
+      ok: false, status: 500,
+      headers: { get: () => null },
+      json: async () => ({})
+    });
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(true);
+    expect(mod._getState().offlineMode).toBe(true);
+  });
+
+  test('413 with problem+json → error banner shown, OFFLINE not set', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 413, detail: 'Request too large.' }));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(false);
+    expect(banner.textContent).toContain('Request too large.');
+    expect(mod._getState().offlineMode).toBe(false);
+  });
+
+  test('second runSimulation clears previously displayed error banner', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    // First call: server rejects
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 400, detail: 'Too fast.' }));
+    await mod.runSimulation();
+    expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(false);
+
+    // Second call: server succeeds
+    global.fetch.mockImplementation(async (url) => {
+      if (url.includes('/stream')) return { ok: false, status: 503 };
+      return { ok: true, json: async () => mockApiResults };
+    });
+    await mod.runSimulation();
+    expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FE-R1: _parseRejection unit tests
+// ─────────────────────────────────────────────────────────────────────────────
+describe('_parseRejection', () => {
+  test('returns detail from body and retryAfterSeconds from header', async () => {
+    const res = {
+      status: 429,
+      headers: { get: (n) => n === 'Retry-After' ? '30' : null },
+      json: async () => ({ detail: 'Too many requests.' })
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.detail).toBe('Too many requests.');
+    expect(result.retryAfterSeconds).toBe(30);
+    expect(result.status).toBe(429);
+  });
+
+  test('malformed JSON body → fallback detail, no exception thrown', async () => {
+    const res = {
+      status: 400,
+      headers: { get: () => null },
+      json: async () => { throw new SyntaxError('Unexpected token'); }
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.detail).toBe('Server rejected the request.');
+    expect(result.retryAfterSeconds).toBe(0);
+  });
+
+  test('missing Retry-After header → retryAfterSeconds is 0', async () => {
+    const res = {
+      status: 400,
+      headers: { get: () => null },
+      json: async () => ({ detail: 'Bad input.' })
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.retryAfterSeconds).toBe(0);
+  });
+
+  test('non-numeric Retry-After → retryAfterSeconds is 0', async () => {
+    const res = {
+      status: 429,
+      headers: { get: (n) => n === 'Retry-After' ? 'soon' : null },
+      json: async () => ({})
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.retryAfterSeconds).toBe(0);
+  });
+
+  test('body without detail field → fallback detail', async () => {
+    const res = {
+      status: 400,
+      headers: { get: () => null },
+      json: async () => ({ title: 'Bad Request' })
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.detail).toBe('Server rejected the request.');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FE-R2: savePrefs / loadPrefs map-driven loop
+// ─────────────────────────────────────────────────────────────────────────────
+describe('FE-R2: savePrefs loop', () => {
+  test('sets all 10 non-selectedIds keys with correct DOM values', () => {
+    document.getElementById('zeroRange').value     = '200';
+    document.getElementById('maxRange').value      = '900';
+    document.getElementById('windSpeed').value     = '5';
+    document.getElementById('windDir').value       = '0';
+    document.getElementById('altitude').value      = '1500';
+    document.getElementById('temperature').value   = '10';
+    document.getElementById('step').value          = '10';
+    document.getElementById('sightHeight').value   = '50';
+    document.getElementById('shootingAngle').value = '5';
+    document.getElementById('dragModel').value     = 'G7';
+
+    mod.savePrefs();
+
+    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('200');
+    expect(localStorage.getItem(mod.PREF_KEYS.maxRange)).toBe('900');
+    expect(localStorage.getItem(mod.PREF_KEYS.wind)).toBe('5');
+    expect(localStorage.getItem(mod.PREF_KEYS.windDir)).toBe('0');
+    expect(localStorage.getItem(mod.PREF_KEYS.altitude)).toBe('1500');
+    expect(localStorage.getItem(mod.PREF_KEYS.temp)).toBe('10');
+    expect(localStorage.getItem(mod.PREF_KEYS.step)).toBe('10');
+    expect(localStorage.getItem(mod.PREF_KEYS.sightHeight)).toBe('50');
+    expect(localStorage.getItem(mod.PREF_KEYS.angle)).toBe('5');
+    expect(localStorage.getItem(mod.PREF_KEYS.dragModel)).toBe('G7');
+  });
+});
+
+describe('FE-R2: loadPrefs loop', () => {
+  test('empty storage returns same keys/values as { ...PREF_DEFAULTS } with selectedIds null', () => {
+    const prefs = mod.loadPrefs();
+    const defaults = { ...mod.PREF_DEFAULTS };
+    defaults.selectedIds = null;
+    expect(prefs).toEqual(defaults);
+  });
+
+  test('with all keys in storage returns numeric for numbers and string for dragModel', () => {
+    localStorage.setItem(mod.PREF_KEYS.zero,        '150');
+    localStorage.setItem(mod.PREF_KEYS.maxRange,    '800');
+    localStorage.setItem(mod.PREF_KEYS.wind,        '20');
+    localStorage.setItem(mod.PREF_KEYS.windDir,     '270');
+    localStorage.setItem(mod.PREF_KEYS.altitude,    '500');
+    localStorage.setItem(mod.PREF_KEYS.temp,        '22');
+    localStorage.setItem(mod.PREF_KEYS.step,        '50');
+    localStorage.setItem(mod.PREF_KEYS.sightHeight, '40');
+    localStorage.setItem(mod.PREF_KEYS.angle,       '10');
+    localStorage.setItem(mod.PREF_KEYS.dragModel,   'G7');
+
+    const prefs = mod.loadPrefs();
+
+    expect(typeof prefs.zero).toBe('number');
+    expect(prefs.zero).toBe(150);
+    expect(typeof prefs.dragModel).toBe('string');
+    expect(prefs.dragModel).toBe('G7');
   });
 });
 
