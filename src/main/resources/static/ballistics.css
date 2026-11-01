@@ -1122,3 +1122,61 @@ tr:hover td { background: var(--bg3); }
   font-size: var(--font-sm);
   color: var(--text);
 }
+
+.save-preset-btn {
+  background: transparent;
+  border: 1px solid var(--dim);
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 2px;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  text-transform: uppercase;
+  transition: all 0.15s;
+  width: 100%;
+  margin: 8px 0 0;
+  display: block;
+}
+.save-preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+#customPresetSection { margin-top: 8px; }
+
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  list-style: none;
+}
+.preset-row:last-child { border-bottom: none; }
+
+.preset-name {
+  flex: 1;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-load-btn,
+.preset-delete-btn {
+  background: transparent;
+  border: 1px solid var(--dim);
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  text-transform: uppercase;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.preset-load-btn:hover   { border-color: var(--accent); color: var(--accent); }
+.preset-delete-btn:hover { border-color: var(--danger); color: var(--danger); }

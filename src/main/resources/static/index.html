@@ -142,7 +142,7 @@
     <div class="custom-form" id="customForm">
       <div class="param-group">
         <label>Name</label>
-        <input type="text" id="customName" placeholder="My Load" style="width:100%">
+        <input type="text" id="customName" placeholder="My Load" maxlength="64" style="width:100%">
       </div>
       <div class="param-row">
         <div class="param-group">
@@ -168,6 +168,11 @@
       <button class="run-btn" id="runCustomBtn" style="margin:8px 0 0">
         <span>▶ COMPUTE CUSTOM</span>
       </button>
+      <button type="button" id="savePresetBtn" class="save-preset-btn">SAVE AS PRESET</button>
+      <div id="customPresetSection" hidden>
+        <div class="section-label">Saved presets</div>
+        <ul id="customPresetList" aria-label="Saved custom round presets"></ul>
+      </div>
     </div>
     </details>
 

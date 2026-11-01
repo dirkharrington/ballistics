@@ -71,6 +71,9 @@ function buildDOM() {
     <input id="customDia"    value="7.82" />
     <div   id="customError"  style="display:none"></div>
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
+    <button type="button" id="savePresetBtn">SAVE AS PRESET</button>
+    <div id="customPresetSection" hidden></div>
+    <ul id="customPresetList" aria-label="Saved custom round presets"></ul>
   `;
 }
 
@@ -3291,5 +3294,133 @@ describe('init() with URL params (FE-1)', () => {
     mod.toggleBullet('308-win-168gr');
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// init() FE-2: preset library glue
+// ─────────────────────────────────────────────────────────────────────────────
+describe('init() FE-2: preset library glue', () => {
+  const VALID_FIELDS = {
+    customName:   'Test Load',
+    customWeight: '11.34',
+    customMV:     '800',
+    customBC:     '0.505',
+    customDia:    '7.82',
+  };
+
+  function fillForm(fields = VALID_FIELDS) {
+    Object.entries(fields).forEach(([id, val]) => {
+      document.getElementById(id).value = val;
+    });
+  }
+
+  async function runInit() {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+  }
+
+  test('init() calls renderPresetList with stored presets on startup', async () => {
+    // Store one preset so the section becomes visible
+    const preset = {
+      id: '3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c',
+      name: 'Stored Load',
+      weightG: 11.34, mvMps: 800, bc: 0.505, diaMm: 7.82,
+      savedAt: '2026-11-01T14:03:22.511Z',
+    };
+    localStorage.setItem('bv_customRounds', JSON.stringify([preset]));
+    await runInit();
+    expect(document.getElementById('customPresetSection').hidden).toBe(false);
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
+  });
+
+  test('savePresetBtn saves preset and shows toast "Preset saved"', async () => {
+    await runInit();
+    fillForm();
+    const toastEl = document.getElementById('toast');
+    document.getElementById('savePresetBtn').click();
+    expect(toastEl.textContent).toBe('Preset saved');
+    expect(document.getElementById('customPresetSection').hidden).toBe(false);
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
+  });
+
+  test('savePresetBtn replaces preset with same name and shows "Preset updated"', async () => {
+    await runInit();
+    fillForm();
+    document.getElementById('savePresetBtn').click(); // first save
+    document.getElementById('customWeight').value = '12';
+    document.getElementById('savePresetBtn').click(); // replace
+    expect(document.getElementById('toast').textContent).toBe('Preset updated');
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
+  });
+
+  test('savePresetBtn shows full toast when library is full', async () => {
+    // Fill with 20 presets
+    const presets = Array.from({ length: 20 }, (_, i) => ({
+      id: `3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a${String(i).padStart(4, '0')}`,
+      name: `Load ${i}`,
+      weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82,
+      savedAt: '2026-11-01T14:03:22.511Z',
+    }));
+    localStorage.setItem('bv_customRounds', JSON.stringify(presets));
+    await runInit();
+    fillForm({ ...VALID_FIELDS, customName: 'New Load' });
+    document.getElementById('savePresetBtn').click();
+    expect(document.getElementById('toast').textContent).toContain('full');
+  });
+
+  test('savePresetBtn shows custom error when field is invalid', async () => {
+    await runInit();
+    fillForm({ ...VALID_FIELDS, customWeight: '0' });
+    document.getElementById('savePresetBtn').click();
+    const errEl = document.getElementById('customError');
+    expect(errEl.style.display).toBe('block');
+    expect(errEl.textContent).toContain('Weight');
+  });
+
+  test('savePresetBtn shows storage toast on localStorage failure', async () => {
+    await runInit();
+    fillForm();
+    const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new Error('QuotaExceededError');
+    });
+    document.getElementById('savePresetBtn').click();
+    expect(document.getElementById('toast').textContent).toContain("Couldn't save preset");
+    spy.mockRestore();
+  });
+
+  test('onLoad fills form fields and clears custom error', async () => {
+    const preset = {
+      id: '3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c',
+      name: 'Stored Load', weightG: 9.5, mvMps: 900, bc: 0.45, diaMm: 6.0,
+      savedAt: '2026-11-01T14:03:22.511Z',
+    };
+    localStorage.setItem('bv_customRounds', JSON.stringify([preset]));
+    await runInit();
+    // Trigger a custom error first
+    document.getElementById('customError').style.display = 'block';
+    document.getElementById('customError').textContent = 'some error';
+    // Click the Load button
+    document.querySelector('.preset-load-btn').click();
+    expect(document.getElementById('customName').value).toBe('Stored Load');
+    expect(document.getElementById('customWeight').value).toBe('9.5');
+    expect(document.getElementById('customMV').value).toBe('900');
+    expect(document.getElementById('customBC').value).toBe('0.45');
+    expect(document.getElementById('customDia').value).toBe('6');
+    expect(document.getElementById('customError').style.display).toBe('none');
+  });
+
+  test('onDelete removes preset from rendered list', async () => {
+    const preset = {
+      id: '3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c',
+      name: 'Stored Load', weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82,
+      savedAt: '2026-11-01T14:03:22.511Z',
+    };
+    localStorage.setItem('bv_customRounds', JSON.stringify([preset]));
+    await runInit();
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
+    document.querySelector('.preset-delete-btn').click();
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(0);
+    expect(document.getElementById('customPresetSection').hidden).toBe(true);
   });
 });

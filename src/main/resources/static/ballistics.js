@@ -2,6 +2,7 @@ import { Chart, LineController, LineElement, PointElement, LinearScale, Category
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
 import { decodeState, mergeIntoSearch } from './url-state.js';
+import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1095,6 +1096,40 @@ async function init() {
   });
   document.getElementById('runCustomBtn')?.addEventListener('click', () => { closeSidebar(); runCustom(); });
   document.getElementById('copyLinkBtn')?.addEventListener('click', copyLink);
+
+  const handlers = {
+    onLoad(p) {
+      document.getElementById('customName').value   = p.name;
+      document.getElementById('customWeight').value = p.weightG;
+      document.getElementById('customMV').value     = p.mvMps;
+      document.getElementById('customBC').value     = p.bc;
+      document.getElementById('customDia').value    = p.diaMm;
+      showCustomError('');
+    },
+    onDelete(id) {
+      renderPresetList(deletePreset(id), handlers);
+    },
+  };
+  document.getElementById('savePresetBtn')?.addEventListener('click', () => {
+    const name    = document.getElementById('customName').value;
+    const weightG = +document.getElementById('customWeight').value;
+    const mvMps   = +document.getElementById('customMV').value;
+    const bc      = +document.getElementById('customBC').value;
+    const diaMm   = +document.getElementById('customDia').value;
+    const result  = savePreset({ name, weightG, mvMps, bc, diaMm });
+    if (result.ok) {
+      showCustomError('');
+      renderPresetList(result.presets, handlers);
+      showToast(result.replaced ? 'Preset updated' : 'Preset saved');
+    } else if (result.error === 'full') {
+      showToast('Preset library full (20). Delete one to save another.');
+    } else if (result.error === 'invalid') {
+      showCustomError(result.message);
+    } else {
+      showToast("Couldn't save preset: browser storage unavailable");
+    }
+  });
+  renderPresetList(loadPresets(), handlers);
 
   // Mobile drawer: FAB opens sidebar; backdrop tap closes it
   document.getElementById('paramsToggle')?.addEventListener('click', openSidebar);

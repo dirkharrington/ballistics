@@ -22,7 +22,8 @@
     "collectCoverageFrom": [
       "src/main/resources/static/ballistics.js",
       "src/main/resources/static/tools.js",
-      "src/main/resources/static/url-state.js"
+      "src/main/resources/static/url-state.js",
+      "src/main/resources/static/custom-rounds.js"
     ],
     "transform": {
       "^.+\\.js$": "babel-jest"
