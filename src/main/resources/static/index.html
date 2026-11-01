@@ -135,13 +135,14 @@
         <button class="export-md-btn">Markdown</button>
       </div>
     </div>
+    <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
 
     <details class="custom-section">
       <summary>Custom Round <span class="chevron">▶</span></summary>
     <div class="custom-form" id="customForm">
       <div class="param-group">
         <label>Name</label>
-        <input type="text" id="customName" placeholder="My Load" style="width:100%">
+        <input type="text" id="customName" placeholder="My Load" maxlength="64" style="width:100%">
       </div>
       <div class="param-row">
         <div class="param-group">
@@ -167,6 +168,11 @@
       <button class="run-btn" id="runCustomBtn" style="margin:8px 0 0">
         <span>▶ COMPUTE CUSTOM</span>
       </button>
+      <button type="button" id="savePresetBtn" class="save-preset-btn">SAVE AS PRESET</button>
+      <div id="customPresetSection" hidden>
+        <div class="section-label">Saved presets</div>
+        <ul id="customPresetList" aria-label="Saved custom round presets"></ul>
+      </div>
     </div>
     </details>
 
@@ -235,18 +241,18 @@
           <thead>
             <tr>
               <th>Round</th>
-              <th>Range (m)</th>
-              <th>Drop (cm)</th>
-              <th>Velocity (m/s)</th>
-              <th>Energy (J)</th>
-              <th>Wind Drift (cm)</th>
-              <th>Time (s)</th>
-              <th>MOA</th>
-              <th>MRAD</th>
+              <th data-sort-key="range"><button class="sort-btn" type="button">Range (m)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="drop"><button class="sort-btn" type="button">Drop (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="velocity"><button class="sort-btn" type="button">Velocity (m/s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="energy"><button class="sort-btn" type="button">Energy (J)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind Drift (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
             </tr>
           </thead>
           <tbody id="tableBody">
-            <tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:40px; font-family:'Share Tech Mono',monospace; letter-spacing:2px; font-size:10px;">NO DATA — RUN SIMULATION</td></tr>
+            <tr><td colspan="9" style="text-align:center; color:var(--text-dim); padding:40px; font-family:'Share Tech Mono',monospace; letter-spacing:2px; font-size:10px;">NO DATA — RUN SIMULATION</td></tr>
           </tbody>
         </table>
       </div>
