@@ -76,7 +76,11 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
         ProblemDetail problem = ProblemDetail.forStatus(413);
         problem.setTitle("Content Too Large");
         problem.setDetail("Request body exceeds the " + props.maxRequestBodyBytes() + "-byte limit.");
-        problem.setInstance(URI.create(request.getRequestURI()));
+        try {
+            problem.setInstance(URI.create(request.getRequestURI()));
+        } catch (IllegalArgumentException ignored) {
+            problem.setInstance(URI.create("/api"));
+        }
 
         response.setStatus(413);
         response.setContentType("application/problem+json");

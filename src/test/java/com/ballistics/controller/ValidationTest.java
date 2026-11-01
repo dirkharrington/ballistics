@@ -111,6 +111,9 @@ class ValidationTest {
                 "sightHeightMm"),
             arguments("dragModel @Pattern — g7 (lowercase) rejected",
                 base.replace("\"temperatureC\":15}", "\"temperatureC\":15,\"dragModel\":\"g7\"}"),
+                "dragModel"),
+            arguments("dragModel @Pattern — G8 rejected",
+                base.replace("\"temperatureC\":15}", "\"temperatureC\":15,\"dragModel\":\"G8\"}"),
                 "dragModel")
         );
     }
