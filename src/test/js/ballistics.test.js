@@ -55,7 +55,22 @@ function buildDOM() {
       <button id="readoutPin">PIN</button>
       <table><tbody id="readoutBody"></tbody></table>
     </div>
-    <table><tbody id="tableBody"><tr><td colspan="9">NO DATA</td></tr></tbody></table>
+    <table id="dataTable">
+      <thead>
+        <tr>
+          <th>Round</th>
+          <th data-sort-key="range"><button class="sort-btn" type="button">Range (m)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="drop"><button class="sort-btn" type="button">Drop (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="velocity"><button class="sort-btn" type="button">Velocity (m/s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="energy"><button class="sort-btn" type="button">Energy (J)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind Drift (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"><tr><td colspan="9">NO DATA</td></tr></tbody>
+    </table>
     <div class="tab active" id="tab-charts"></div>
     <div class="tab"        id="tab-data"></div>
     <div class="tab"        id="tab-tools"></div>
@@ -3422,5 +3437,262 @@ describe('init() FE-2: preset library glue', () => {
     document.querySelector('.preset-delete-btn').click();
     expect(document.querySelectorAll('.preset-row')).toHaveLength(0);
     expect(document.getElementById('customPresetSection').hidden).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FE-3: Data table column sort
+// ─────────────────────────────────────────────────────────────────────────────
+describe('FE-3: SORTABLE_COLUMNS', () => {
+  const pt = { rangeMeters: 100, dropCm: -5.2, velocityMps: 750, energyJoules: 3000, windDriftCm: 2.1, timeOfFlightSec: 0.14 };
+  const adj = { moa: -1.9, mrad: -0.55 };
+
+  test('range accessor', () => { expect(mod.SORTABLE_COLUMNS.range(pt, adj)).toBe(100); });
+  test('drop accessor',  () => { expect(mod.SORTABLE_COLUMNS.drop(pt, adj)).toBe(-5.2); });
+  test('velocity accessor', () => { expect(mod.SORTABLE_COLUMNS.velocity(pt, adj)).toBe(750); });
+  test('energy accessor',   () => { expect(mod.SORTABLE_COLUMNS.energy(pt, adj)).toBe(3000); });
+  test('windDrift accessor', () => { expect(mod.SORTABLE_COLUMNS.windDrift(pt, adj)).toBe(2.1); });
+  test('time accessor',  () => { expect(mod.SORTABLE_COLUMNS.time(pt, adj)).toBe(0.14); });
+  test('moa accessor',   () => { expect(mod.SORTABLE_COLUMNS.moa(pt, adj)).toBe(-1.9); });
+  test('mrad accessor',  () => { expect(mod.SORTABLE_COLUMNS.mrad(pt, adj)).toBe(-0.55); });
+});
+
+describe('FE-3: _getSortState', () => {
+  test('returns default state before any sort', () => {
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+
+  test('returns updated state after onSortHeaderClick', () => {
+    const results = makeTableResults();
+    mod._setLastResults(results);
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
+  });
+});
+
+// Helper: minimal results fixture for table tests (2 rows, different rangeMeters)
+function makeTableResults() {
+  return [{
+    bullet: { id: '308-win-168gr', name: '.308 Win 168gr', muzzleVelocityMps: 807,
+              muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+    request: {},
+    points: [
+      { rangeMeters: 200, dropCm: -10, velocityMps: 700, energyJoules: 2800, windDriftCm: 3, timeOfFlightSec: 0.28 },
+      { rangeMeters: 100, dropCm: -3,  velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13 },
+    ],
+    maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
+  }];
+}
+
+describe('FE-3: onSortHeaderClick', () => {
+  test('no-op when tableResults is null', () => {
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+
+  test('no-op when key is not in SORTABLE_COLUMNS', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('bogus');
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+
+  test('first click sets column and asc direction', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
+  });
+
+  test('second click on same column toggles to desc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'desc' });
+  });
+
+  test('third click on same column toggles back to asc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    mod.onSortHeaderClick('range'); // desc
+    mod.onSortHeaderClick('range'); // back to asc
+    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
+  });
+
+  test('click on different column resets to asc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    mod.onSortHeaderClick('drop');
+    expect(mod._getSortState()).toEqual({ column: 'drop', direction: 'asc' });
+  });
+
+  test('re-renders table on valid sort', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const rows = document.querySelectorAll('#tableBody tr');
+    expect(rows.length).toBe(2);
+  });
+});
+
+describe('FE-3: renderTable sort logic', () => {
+  test('sorts asc by range — row with lower range comes first', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range'); // asc
+    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
+    expect(Number(cells[0].textContent)).toBe(100);
+    expect(Number(cells[1].textContent)).toBe(200);
+  });
+
+  test('sorts desc by range — row with higher range comes first', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range'); // asc
+    mod.onSortHeaderClick('range'); // desc
+    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
+    expect(Number(cells[0].textContent)).toBe(200);
+    expect(Number(cells[1].textContent)).toBe(100);
+  });
+
+  test('NaN values sort last', () => {
+    const resultsWithNaN = [{
+      bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: NaN,  dropCm: 0, velocityMps: 700, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: 100,  dropCm: 0, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0 },
+      ],
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+    }];
+    mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
+    // first row should be the finite one (100)
+    expect(Number(cells[0].textContent)).toBe(100);
+  });
+
+  test('both NaN values remain stable (return 0)', () => {
+    const resultsWithNaN = [{
+      bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: NaN, dropCm: 0, velocityMps: 700, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: NaN, dropCm: 0, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0 },
+      ],
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+    }];
+    mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(() => mod.onSortHeaderClick('range')).not.toThrow();
+    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(2);
+  });
+
+  test('finite value beats NaN (bFin false branch)', () => {
+    const resultsWithNaN = [{
+      bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 100, dropCm: 0, velocityMps: 700, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: NaN, dropCm: 0, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0 },
+      ],
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+    }];
+    mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
+    expect(Number(cells[0].textContent)).toBe(100);
+  });
+
+  test('renderResults resets sort state before rendering', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range'); // set a sort
+    expect(mod._getSortState().column).toBe('range');
+    // renderResults should reset it
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+});
+
+describe('FE-3: updateSortIndicators', () => {
+  test('sets aria-sort and ▲ on active column asc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
+    expect(th.getAttribute('aria-sort')).toBe('ascending');
+    expect(th.querySelector('.sort-indicator').textContent).toBe('▲');
+  });
+
+  test('sets aria-sort descending and ▼ on active column desc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    mod.onSortHeaderClick('range');
+    const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
+    expect(th.getAttribute('aria-sort')).toBe('descending');
+    expect(th.querySelector('.sort-indicator').textContent).toBe('▼');
+  });
+
+  test('inactive columns have no aria-sort and empty indicator', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const th = document.querySelector('#dataTable thead th[data-sort-key="drop"]');
+    expect(th.hasAttribute('aria-sort')).toBe(false);
+    expect(th.querySelector('.sort-indicator').textContent).toBe('');
+  });
+
+  test('all indicators cleared when no sort active', () => {
+    mod.updateSortIndicators();
+    document.querySelectorAll('#dataTable thead th[data-sort-key]').forEach(th => {
+      expect(th.hasAttribute('aria-sort')).toBe(false);
+      expect(th.querySelector('.sort-indicator').textContent).toBe('');
+    });
+  });
+});
+
+describe('FE-3: _resetState resets sort variables', () => {
+  test('resets sortColumn, sortDirection, tableResults', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('drop');
+    mod._resetState();
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+    // After reset, onSortHeaderClick should be a no-op (tableResults is null)
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+});
+
+describe('FE-3: init() thead click listener', () => {
+  async function runInit() {
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
+    await mod.init();
+  }
+
+  test('click on sort-key th calls onSortHeaderClick', async () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await runInit();
+    const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
+    th.click();
+    expect(mod._getSortState().column).toBe('range');
+  });
+
+  test('click on Round th (no data-sort-key) is a no-op', async () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await runInit();
+    const roundTh = document.querySelector('#dataTable thead th:not([data-sort-key])');
+    roundTh.click();
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
   });
 });

@@ -76,6 +76,10 @@ let retryTimer  = null;
 // Crosshair state (task 5)
 let crosshairIndex  = null;  // data-point index currently under the cursor
 let crosshairPinned = false; // true after user clicks a range to lock the readout
+// Table sort state (FE-3)
+let sortColumn    = null;   // string | null
+let sortDirection = 'asc';  // 'asc' | 'desc'
+let tableResults  = null;   // results last passed to renderTable
 
 // ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
 function getMockBullets() {
@@ -944,18 +948,53 @@ function renderResults(rawResults, req) {
     }
   });
 
+  sortColumn = null;
+  sortDirection = 'asc';
   renderTable(results);
 }
 
 // ── Data table ────────────────────────────────────────────────────────────────
+const SORTABLE_COLUMNS = Object.freeze({
+  range:     (p, adj) => p.rangeMeters,
+  drop:      (p, adj) => p.dropCm,
+  velocity:  (p, adj) => p.velocityMps,
+  energy:    (p, adj) => p.energyJoules,
+  windDrift: (p, adj) => p.windDriftCm,
+  time:      (p, adj) => p.timeOfFlightSec,
+  moa:       (p, adj) => adj.moa,
+  mrad:      (p, adj) => adj.mrad,
+});
+
 function renderTable(results) {
+  tableResults = results;
   const tbody = document.getElementById('tableBody');
-  const rows = [];
+
+  let rows = [];
   results.forEach(r => {
     r.points.forEach(p => {
-      const color = BULLET_COLORS[r.bullet.id] || '#4ADE80';
       const adj = computeAdjustments(p.dropCm, p.rangeMeters);
-      rows.push(`
+      rows.push({ r, p, adj });
+    });
+  });
+
+  if (sortColumn !== null) {
+    const getValue = SORTABLE_COLUMNS[sortColumn];
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+      const va = getValue(a.p, a.adj);
+      const vb = getValue(b.p, b.adj);
+      const aFin = Number.isFinite(va);
+      const bFin = Number.isFinite(vb);
+      if (!aFin && !bFin) return 0;
+      if (!aFin) return 1;
+      if (!bFin) return -1;
+      return dir * (va - vb);
+    });
+  }
+
+  const html = rows.map(({ r, p, adj }) => {
+    const color = BULLET_COLORS[r.bullet.id] || '#4ADE80';
+    return `
         <tr>
           <td><span class="bullet-tag" style="background:${color}"></span>${escapeHtml(r.bullet.name)}</td>
           <td>${p.rangeMeters}</td>
@@ -966,10 +1005,41 @@ function renderTable(results) {
           <td>${p.timeOfFlightSec}s</td>
           <td>${adj.moa > 0 ? '+' : ''}${adj.moa}</td>
           <td>${adj.mrad > 0 ? '+' : ''}${adj.mrad}</td>
-        </tr>`);
-    });
+        </tr>`;
   });
-  tbody.innerHTML = rows.join('');
+  tbody.innerHTML = html.join('');
+  updateSortIndicators();
+}
+
+function onSortHeaderClick(key) {
+  if (tableResults === null || !(key in SORTABLE_COLUMNS)) return;
+  if (sortColumn === key) {
+    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortColumn = key;
+    sortDirection = 'asc';
+  }
+  renderTable(tableResults);
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll('#dataTable thead th[data-sort-key]').forEach(th => {
+    const key = th.dataset.sortKey;
+    const indicator = th.querySelector('.sort-indicator');
+    if (key === sortColumn) {
+      th.setAttribute('aria-sort', sortDirection === 'asc' ? 'ascending' : 'descending');
+      /* istanbul ignore else -- sort-indicator is always present when data-sort-key is set */
+      if (indicator) indicator.textContent = sortDirection === 'asc' ? '▲' : '▼';
+    } else {
+      th.removeAttribute('aria-sort');
+      /* istanbul ignore else -- sort-indicator is always present when data-sort-key is set */
+      if (indicator) indicator.textContent = '';
+    }
+  });
+}
+
+function _getSortState() {
+  return { column: sortColumn, direction: sortDirection };
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -1131,6 +1201,11 @@ async function init() {
   });
   renderPresetList(loadPresets(), handlers);
 
+  document.querySelector('#dataTable thead')?.addEventListener('click', e => {
+    const th = e.target.closest('th[data-sort-key]');
+    if (th) onSortHeaderClick(th.dataset.sortKey);
+  });
+
   // Mobile drawer: FAB opens sidebar; backdrop tap closes it
   document.getElementById('paramsToggle')?.addEventListener('click', openSidebar);
   document.getElementById('sidebarBackdrop')?.addEventListener('click', closeSidebar);
@@ -1255,6 +1330,7 @@ function _resetState()   {
   bullets = []; selectedIds = new Set(); lastResults = []; charts = {};
   crosshairIndex = null; crosshairPinned = false;
   offlineMode = false;
+  sortColumn = null; sortDirection = 'asc'; tableResults = null;
   if (retryTimer !== null) { clearInterval(retryTimer); retryTimer = null; }
 }
 function _setBullets(b)      { bullets = b; }
@@ -1274,6 +1350,7 @@ export {
   renderBulletList, toggleBullet, updateBulletCards, runSimulation, streamCompare,
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
+  onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
   exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, setOfflineMode, probeServer, showToast,
   _downloadBlob,
   BULLET_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,

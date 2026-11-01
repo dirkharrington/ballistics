@@ -1180,3 +1180,21 @@ tr:hover td { background: var(--bg3); }
 }
 .preset-load-btn:hover   { border-color: var(--accent); color: var(--accent); }
 .preset-delete-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+.sort-btn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+}
+.sort-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+.sort-indicator { margin-left: 4px; }
