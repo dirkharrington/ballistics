@@ -70,6 +70,7 @@ function buildDOM() {
     <input id="customBC"     value="0.45" />
     <input id="customDia"    value="7.82" />
     <div   id="customError"  style="display:none"></div>
+    <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
   `;
 }
 
@@ -85,6 +86,8 @@ beforeEach(() => {
   mockChartUpdate.mockClear();
   global.fetch.mockReset();
   global.alert.mockClear();
+  // Reset URL so syncUrl side-effects from previous tests don't bleed into init()
+  history.replaceState(null, '', '/');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3150,5 +3153,143 @@ describe('auto-init guard', () => {
     // If the guard true-branch was entered, init() ran and issued the bullets fetch
     expect(global.fetch).toHaveBeenCalled();
     expect(freshMod).toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// currentState / syncUrl / copyLink (FE-1)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('currentState', () => {
+  test('returns sidebar input values and selectedIds', () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    const state = mod.currentState();
+    expect(state.bulletIds).toEqual(['308-win-168gr']);
+    expect(state.zero).toBe(100);
+    expect(state.dragModel).toBe('G1');
+  });
+
+  test('falls back to PREF_DEFAULTS when inputs are absent', () => {
+    document.getElementById('zeroRange').remove();
+    const state = mod.currentState();
+    expect(state.zero).toBe(mod.PREF_DEFAULTS.zero);
+  });
+});
+
+describe('syncUrl', () => {
+  test('calls history.replaceState with new query string', () => {
+    const spy = jest.spyOn(history, 'replaceState');
+    mod.syncUrl();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const url = spy.mock.calls[0][2];
+    expect(url).toContain('zero=');
+    spy.mockRestore();
+  });
+});
+
+describe('copyLink', () => {
+  test('clipboard.writeText success → toast "Link copied"', async () => {
+    const toastEl = document.getElementById('toast');
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText }, configurable: true, writable: true
+    });
+    await mod.copyLink();
+    expect(writeText).toHaveBeenCalled();
+    expect(toastEl.textContent).toBe('Link copied');
+    delete navigator.clipboard;
+  });
+
+  test('clipboard API missing → fallback toast', async () => {
+    const toastEl = document.getElementById('toast');
+    const origClip = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined, configurable: true, writable: true
+    });
+    await mod.copyLink();
+    expect(toastEl.textContent).toContain("Couldn't copy");
+    Object.defineProperty(navigator, 'clipboard', {
+      value: origClip, configurable: true, writable: true
+    });
+  });
+
+  test('clipboard.writeText rejects → fallback toast, no unhandled rejection', async () => {
+    const toastEl = document.getElementById('toast');
+    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText }, configurable: true, writable: true
+    });
+    await expect(mod.copyLink()).resolves.toBeUndefined();
+    expect(toastEl.textContent).toContain("Couldn't copy");
+    delete navigator.clipboard;
+  });
+});
+
+describe('init() with URL params (FE-1)', () => {
+  test('URL bullet IDs override saved prefs when they match the catalog', async () => {
+    const bullets = mod.getMockBullets();
+    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
+    history.replaceState(null, '', '/?b=308-win-168gr');
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => bullets });
+    await mod.init();
+    const { selectedIds } = mod._getState();
+    expect(selectedIds.has('308-win-168gr')).toBe(true);
+    expect(selectedIds.has('223-rem-55gr')).toBe(false);
+    history.replaceState(null, '', '/');
+  });
+
+  test('URL bullet IDs fall back to prefs when none match the catalog', async () => {
+    const bullets = mod.getMockBullets();
+    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
+    history.replaceState(null, '', '/?b=not-a-real-id');
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => bullets });
+    await mod.init();
+    const { selectedIds } = mod._getState();
+    expect(selectedIds.has('223-rem-55gr')).toBe(true);
+    history.replaceState(null, '', '/');
+  });
+
+  test('fromUrl.recognized → syncUrl called at end of init', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    history.replaceState(null, '', '/?zero=200');
+    const spy = jest.spyOn(history, 'replaceState');
+    await mod.init();
+    // replaceState called at least once (the syncUrl at end of init)
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+    history.replaceState(null, '', '/');
+  });
+
+  test('param input triggers syncUrl after savePrefs', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    const spy = jest.spyOn(history, 'replaceState');
+    const input = document.getElementById('zeroRange');
+    input.value = '300';
+    input.dispatchEvent(new Event('input'));
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test('copyLinkBtn click wired to copyLink in init', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText }, configurable: true, writable: true
+    });
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    document.getElementById('copyLinkBtn').click();
+    await Promise.resolve(); // flush microtasks
+    expect(writeText).toHaveBeenCalled();
+    delete navigator.clipboard;
+  });
+
+  test('toggleBullet calls syncUrl after savePrefs', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod.renderBulletList();
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    const spy = jest.spyOn(history, 'replaceState');
+    mod.toggleBullet('308-win-168gr');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

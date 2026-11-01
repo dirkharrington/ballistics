@@ -796,6 +796,24 @@ tr:hover td { background: var(--bg3); }
   background: var(--hover);
 }
 
+.copy-link-btn {
+  background: transparent;
+  border: 1px solid var(--dim);
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 2px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  text-transform: uppercase;
+  transition: all 0.15s;
+  width: calc(100% - 24px);
+  margin: 0 12px 8px;
+  display: block;
+}
+.copy-link-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 .custom-section {
   border-bottom: 1px solid var(--border);
 }
