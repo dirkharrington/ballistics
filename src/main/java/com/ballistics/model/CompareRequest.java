@@ -6,7 +6,7 @@ import java.util.List;
 
 public record CompareRequest(
     @Schema(description = "List of catalog bullet IDs to compare. Unknown IDs are silently filtered out.")
-    List<String> bulletIds,
+    @NotEmpty @Size(max = 20) List<String> bulletIds,
 
     @Schema(description = "Range at which sights are zeroed, in metres. Default 100 m.", example = "100")
     @Positive @Max(3000) double zeroRangeMeters,
@@ -25,4 +25,25 @@ public record CompareRequest(
 
     @Schema(description = "Ambient temperature in °C. Range −50 to 60.", example = "15")
     @Min(-50) @Max(60) double temperatureC
-) {}
+) {
+    /**
+     * Builds a {@link TrajectoryRequest} for the given bullet ID using this compare
+     * request's parameters. Compact-constructor defaults apply for sight height,
+     * angle, wind direction, and drag model.
+     */
+    public TrajectoryRequest toTrajectoryRequest(String bulletId) {
+        return new TrajectoryRequest(
+            bulletId,
+            zeroRangeMeters,
+            maxRangeMeters,
+            stepMeters,
+            windSpeedKph,
+            altitudeMeters,
+            temperatureC,
+            null,   // sight height: compact constructor defaults to 38.1 mm
+            null,   // angle: compact constructor defaults to 0.0 (flat fire)
+            null,   // windDirection: compact constructor defaults to 90.0 (right crosswind)
+            null    // dragModel: compact constructor defaults to "G1"
+        );
+    }
+}
