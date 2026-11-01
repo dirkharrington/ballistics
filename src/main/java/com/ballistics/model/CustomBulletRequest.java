@@ -6,7 +6,7 @@ import jakarta.validation.constraints.Pattern;
 
 public record CustomBulletRequest(
     @Schema(description = "Human-readable name for the custom load, e.g. \"175gr SMK handload\".")
-    @NotBlank String name,
+    @NotBlank @Size(max = 64) String name,
 
     @Schema(description = "Bullet weight in grams. Max 30 g (≈ 463 gr).", example = "11.34")
     @Positive @DecimalMax("30.0") double bulletWeightGrams,
@@ -57,5 +57,44 @@ public record CustomBulletRequest(
         if (shootingAngleDegrees == null) shootingAngleDegrees = 0.0;
         if (windDirectionDeg == null) windDirectionDeg = 90.0;
         if (dragModel == null) dragModel = "G1";
+    }
+
+    /**
+     * Constructs a {@link Bullet} from this request. Values are bit-identical to
+     * the inline construction previously in the controller.
+     */
+    public Bullet toBullet() {
+        return new Bullet(
+            "custom",
+            name,
+            "Custom",
+            bulletWeightGrams,
+            muzzleVelocityMps,
+            ballisticCoefficient,
+            bulletDiameterMm,
+            0.5 * (bulletWeightGrams / 1000.0) * muzzleVelocityMps * muzzleVelocityMps,
+            "User-defined custom load",
+            "#00d4ff"
+        );
+    }
+
+    /**
+     * Constructs a {@link TrajectoryRequest} for the custom bullet. Values are
+     * bit-identical to the inline construction previously in the controller.
+     */
+    public TrajectoryRequest toTrajectoryRequest() {
+        return new TrajectoryRequest(
+            "custom",
+            zeroRangeMeters,
+            maxRangeMeters,
+            stepMeters,
+            windSpeedKph,
+            altitudeMeters,
+            temperatureC,
+            null,   // sight height: compact constructor defaults to 38.1 mm
+            shootingAngleDegrees,
+            windDirectionDeg,
+            dragModel
+        );
     }
 }

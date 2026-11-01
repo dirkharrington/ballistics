@@ -248,7 +248,8 @@ class BallisticsControllerTest {
     }
 
     @Test
-    void compareTrajectories_emptyBulletList_returnsEmptyList() throws Exception {
+    void compareTrajectories_emptyBulletList_returns400() throws Exception {
+        // @NotEmpty on CompareRequest.bulletIds: empty list is now a validation error
         String body = """
             {
               "bulletIds": [],
@@ -264,8 +265,7 @@ class BallisticsControllerTest {
         mockMvc.perform(post("/api/trajectories/compare")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$", empty()));
+            .andExpect(status().isBadRequest());
     }
 
     // ── POST /api/trajectories/compare/stream ────────────────────────────────
@@ -302,7 +302,8 @@ class BallisticsControllerTest {
     }
 
     @Test
-    void compareStream_emptyBulletListCompletesImmediately() throws Exception {
+    void compareStream_emptyBulletListReturns400() throws Exception {
+        // @NotEmpty on CompareRequest.bulletIds: empty list is now a validation error
         String body = """
             {
               "bulletIds": [],
@@ -318,7 +319,7 @@ class BallisticsControllerTest {
         mockMvc.perform(post("/api/trajectories/compare/stream")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
-            .andExpect(status().isOk());
+            .andExpect(status().isBadRequest());
     }
 
     @Test
