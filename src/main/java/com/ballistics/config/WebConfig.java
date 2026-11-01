@@ -51,6 +51,7 @@ public class WebConfig implements WebMvcConfigurer {
             .allowedMethods("GET", "POST", "OPTIONS")
             // Item 9 — restrict to only the headers the API actually needs
             .allowedHeaders("Content-Type", "Accept")
+            .exposedHeaders("Deprecation", "Sunset", "Link", "Retry-After")
             .maxAge(3600);
     }
 

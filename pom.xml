@@ -20,6 +20,7 @@
     <properties>
         <java.version>21</java.version>
         <jmh.version>1.37</jmh.version>
+        <skip.npm.test>false</skip.npm.test>
     </properties>
 
     <dependencies>
@@ -131,6 +132,7 @@
                         <goals><goal>npm</goal></goals>
                         <phase>test</phase>
                         <configuration>
+                            <skip>${skip.npm.test}</skip>
                             <arguments>test -- --watchAll=false</arguments>
                         </configuration>
                     </execution>
