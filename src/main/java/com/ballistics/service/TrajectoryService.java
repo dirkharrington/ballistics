@@ -28,7 +28,7 @@ public class TrajectoryService {
 
     public TrajectoryService(BallisticsEngine engine,
                              Map<String, Bullet> bulletCatalog,
-                             @Qualifier("compareExecutor") ExecutorService executor) {
+                             @Qualifier("trajectoryExecutor") ExecutorService executor) {
         this.engine        = engine;
         this.bulletCatalog = bulletCatalog;
         this.executor      = executor;
