@@ -77,7 +77,7 @@ class TrajectoryServiceUnitTest {
         ids.add("308-win-168gr");
         ids.add(null);
         ids.add("308-win-168gr");
-        CompareRequest req = new CompareRequest(ids, 100, 200, 100, 0, 0, 15);
+        CompareRequest req = new CompareRequest(ids, 100, 200, 100, 0, 0, 15, null, null, null, null);
         // Should NOT throw; the null is silently skipped; duplicate uses same future
         List<CompletableFuture<TrajectoryResult>> futures = service.compareAsync(req);
         // 2 entries (both are "308-win-168gr", the null is dropped from output)
@@ -89,7 +89,7 @@ class TrajectoryServiceUnitTest {
     @Test
     void compareReturnsSingleResult() {
         CompareRequest req = new CompareRequest(
-            List.of("308-win-168gr"), 100, 200, 100, 0, 0, 15);
+            List.of("308-win-168gr"), 100, 200, 100, 0, 0, 15, null, null, null, null);
         List<TrajectoryResult> results = service.compare(req);
         assertThat(results).hasSize(1);
         assertThat(results.get(0).bullet().id()).isEqualTo("308-win-168gr");
