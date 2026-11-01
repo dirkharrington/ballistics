@@ -41,7 +41,7 @@ public class BallisticsController {
     }
 
     // ── POST /api/trajectory ──────────────────────────────────────────────────
-    @Operation(summary = "Compute trajectory for a single bullet")
+    @Operation(summary = "Compute trajectory for a single bullet", deprecated = true)
     @RateLimited(RateLimitTier.SINGLE)
     @PostMapping("/trajectory")
     public TrajectoryResult computeTrajectory(@Valid @RequestBody TrajectoryRequest request) {

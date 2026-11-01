@@ -8,6 +8,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -20,6 +21,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
+@TestPropertySource(properties = "app.ratelimit.enabled=false")
 class ValidationTest {
 
     @Autowired WebApplicationContext wac;
@@ -90,7 +92,26 @@ class ValidationTest {
                 "stepMeters"),
             arguments("temperatureC @Min(-50) — -51 rejected",
                 base.replace("\"temperatureC\":15", "\"temperatureC\":-51"),
-                "temperatureC")
+                "temperatureC"),
+            // new fields
+            arguments("shootingAngleDegrees @Max(45) — 46 rejected",
+                base.replace("\"temperatureC\":15}", "\"temperatureC\":15,\"shootingAngleDegrees\":46}"),
+                "shootingAngleDegrees"),
+            arguments("shootingAngleDegrees @Min(-45) — -46 rejected",
+                base.replace("\"temperatureC\":15}", "\"temperatureC\":15,\"shootingAngleDegrees\":-46}"),
+                "shootingAngleDegrees"),
+            arguments("windDirectionDeg @Max(360) — 361 rejected",
+                base.replace("\"temperatureC\":15}", "\"temperatureC\":15,\"windDirectionDeg\":361}"),
+                "windDirectionDeg"),
+            arguments("windDirectionDeg @Min(0) — -1 rejected",
+                base.replace("\"temperatureC\":15}", "\"temperatureC\":15,\"windDirectionDeg\":-1}"),
+                "windDirectionDeg"),
+            arguments("sightHeightMm @Max(150) — 151 rejected",
+                base.replace("\"temperatureC\":15}", "\"temperatureC\":15,\"sightHeightMm\":151}"),
+                "sightHeightMm"),
+            arguments("dragModel @Pattern — g7 (lowercase) rejected",
+                base.replace("\"temperatureC\":15}", "\"temperatureC\":15,\"dragModel\":\"g7\"}"),
+                "dragModel")
         );
     }
 
@@ -99,6 +120,18 @@ class ValidationTest {
     void compareConstraintReturns400WithFieldInDetail(String desc, String body, String field)
             throws Exception {
         mvc.perform(post("/api/trajectories/compare")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isBadRequest())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(jsonPath("$.detail", containsString(field)));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("compareConstraintViolations")
+    void compareStreamConstraintReturns400WithFieldInDetail(String desc, String body, String field)
+            throws Exception {
+        mvc.perform(post("/api/trajectories/compare/stream")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
             .andExpect(status().isBadRequest())
