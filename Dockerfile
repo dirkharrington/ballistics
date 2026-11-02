@@ -42,7 +42,7 @@ RUN jlink \
     --output /jre
 
 # ── Stage 4: runtime ─────────────────────────────────────────────────────────
-FROM alpine:3.21@sha256:f27cad9117495d32d067133afff942cb2dc745dfe9163e949f6bfe8a6a245339
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 
 RUN addgroup -S spring && adduser -S spring -G spring
 
