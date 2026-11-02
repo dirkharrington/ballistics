@@ -8,8 +8,8 @@ import java.util.concurrent.*;
 @Configuration
 public class ExecutorConfig {
 
-    @Bean(name = "compareExecutor", destroyMethod = "shutdown")
-    public ExecutorService compareExecutor() {
+    @Bean(name = "trajectoryExecutor", destroyMethod = "shutdown")
+    public ExecutorService trajectoryExecutor() {
         return new ThreadPoolExecutor(
             4, 8,
             60L, TimeUnit.SECONDS,
