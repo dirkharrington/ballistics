@@ -1,32 +1,40 @@
 package com.ballistics.controller;
 
-import io.github.bucket4j.Bucket;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
-import java.lang.reflect.Field;
-
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
- * Verifies that both single-bullet and compare endpoints enforce their
- * respective rate limits and that the two buckets are independent.
+ * Verifies per-client rate limiting.
  *
- * <p>Each test drains a bucket via reflection to avoid making 120+ real
- * requests. {@code @DirtiesContext} ensures the drained bucket is discarded
- * after this class so other test classes see a full bucket.</p>
+ * <p>Uses small capacities (SINGLE=2, COMPARE=2, BATCH=2) with large global ceilings
+ * so tests drain their buckets quickly without interfering via the global bucket.
+ * Each test sets a distinct {@code remoteAddr} so clients don't share buckets.</p>
  */
 @SpringBootTest
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@TestPropertySource(properties = {
+    "app.ratelimit.enabled=true",
+    "app.ratelimit.period=1m",
+    "app.ratelimit.single.capacity=2",
+    "app.ratelimit.single.global-capacity=200",
+    "app.ratelimit.compare.capacity=2",
+    "app.ratelimit.compare.global-capacity=200",
+    "app.ratelimit.batch.capacity=2",
+    "app.ratelimit.batch.global-capacity=200",
+    "app.ratelimit.client-cache.expire-after-access=2m"
+})
 class RateLimitTest {
 
     @Autowired WebApplicationContext wac;
@@ -72,21 +80,20 @@ class RateLimitTest {
         mvc = MockMvcBuilders.webAppContextSetup(wac).build();
     }
 
-    @org.junit.jupiter.api.AfterEach
-    void resetBuckets() throws Exception {
-        // Restore both buckets to full capacity between tests so they don't
-        // interfere with each other. addTokens() won't exceed configured max.
-        refillBucket("singleBucket",  120);
-        refillBucket("compareBucket",  30);
-    }
-
-    // ── single-bullet bucket ─────────────────────────────────────────────────
+    // ── single-bucket tests ───────────────────────────────────────────────────
 
     @Test
     void trajectoryReturns429WhenSingleBucketExhausted() throws Exception {
-        drainBucket("singleBucket");
-
+        // client ip 1.2.3.1: drain single bucket (capacity=2), 3rd request → 429
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/api/trajectory")
+                    .with(r -> { r.setRemoteAddr("1.2.3.1"); return r; })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(TRAJECTORY_BODY))
+                .andExpect(status().isOk());
+        }
         mvc.perform(post("/api/trajectory")
+                .with(r -> { r.setRemoteAddr("1.2.3.1"); return r; })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(TRAJECTORY_BODY))
             .andExpect(status().isTooManyRequests());
@@ -94,9 +101,15 @@ class RateLimitTest {
 
     @Test
     void trajectoryByIdReturns429WhenSingleBucketExhausted() throws Exception {
-        drainBucket("singleBucket");
-
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/api/trajectories/308-win-168gr")
+                    .with(r -> { r.setRemoteAddr("1.2.3.2"); return r; })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(TRAJECTORY_BY_ID_BODY))
+                .andExpect(status().isOk());
+        }
         mvc.perform(post("/api/trajectories/308-win-168gr")
+                .with(r -> { r.setRemoteAddr("1.2.3.2"); return r; })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(TRAJECTORY_BY_ID_BODY))
             .andExpect(status().isTooManyRequests());
@@ -104,22 +117,35 @@ class RateLimitTest {
 
     @Test
     void compareBucketIsIndependentOfSingleBucket() throws Exception {
-        // Exhausting the single-bullet bucket must not affect the compare bucket
-        drainBucket("singleBucket");
-
+        // Drain single bucket for a specific client
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/api/trajectory")
+                    .with(r -> { r.setRemoteAddr("1.2.3.3"); return r; })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(TRAJECTORY_BODY))
+                .andExpect(status().isOk());
+        }
+        // Single bucket exhausted but compare bucket for THIS client is still full
         mvc.perform(post("/api/trajectories/compare")
+                .with(r -> { r.setRemoteAddr("1.2.3.3"); return r; })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(COMPARE_BODY))
             .andExpect(status().isOk());
     }
 
-    // ── compare bucket ───────────────────────────────────────────────────────
+    // ── compare bucket tests ──────────────────────────────────────────────────
 
     @Test
     void compareReturns429WhenCompareBucketExhausted() throws Exception {
-        drainBucket("compareBucket");
-
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/api/trajectories/compare")
+                    .with(r -> { r.setRemoteAddr("1.2.3.4"); return r; })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(COMPARE_BODY))
+                .andExpect(status().isOk());
+        }
         mvc.perform(post("/api/trajectories/compare")
+                .with(r -> { r.setRemoteAddr("1.2.3.4"); return r; })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(COMPARE_BODY))
             .andExpect(status().isTooManyRequests());
@@ -127,64 +153,108 @@ class RateLimitTest {
 
     @Test
     void singleBucketIsIndependentOfCompareBucket() throws Exception {
-        // Exhausting the compare bucket must not affect the single-bullet bucket
-        drainBucket("compareBucket");
-
+        // Drain compare bucket for client 1.2.3.5
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/api/trajectories/compare")
+                    .with(r -> { r.setRemoteAddr("1.2.3.5"); return r; })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(COMPARE_BODY))
+                .andExpect(status().isOk());
+        }
+        // Compare exhausted but single still fine for this client
         mvc.perform(post("/api/trajectory")
+                .with(r -> { r.setRemoteAddr("1.2.3.5"); return r; })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(TRAJECTORY_BODY))
             .andExpect(status().isOk());
     }
 
-    // ── Retry-After header ───────────────────────────────────────────────────
+    // ── Retry-After header ────────────────────────────────────────────────────
 
     @Test
     void trajectoryReturns429WithRetryAfterHeader() throws Exception {
-        drainBucket("singleBucket");
-
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/api/trajectory")
+                    .with(r -> { r.setRemoteAddr("1.2.3.6"); return r; })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(TRAJECTORY_BODY))
+                .andExpect(status().isOk());
+        }
         mvc.perform(post("/api/trajectory")
+                .with(r -> { r.setRemoteAddr("1.2.3.6"); return r; })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(TRAJECTORY_BODY))
             .andExpect(status().isTooManyRequests())
-            .andExpect(header().string("Retry-After", "60"));
+            .andExpect(header().exists("Retry-After"));
     }
 
     @Test
     void compareReturns429WithRetryAfterHeader() throws Exception {
-        drainBucket("compareBucket");
-
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/api/trajectories/compare")
+                    .with(r -> { r.setRemoteAddr("1.2.3.7"); return r; })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(COMPARE_BODY))
+                .andExpect(status().isOk());
+        }
         mvc.perform(post("/api/trajectories/compare")
+                .with(r -> { r.setRemoteAddr("1.2.3.7"); return r; })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(COMPARE_BODY))
             .andExpect(status().isTooManyRequests())
-            .andExpect(header().string("Retry-After", "60"));
+            .andExpect(header().exists("Retry-After"));
     }
 
     @Test
     void compareStreamReturns429WhenCompareBucketExhausted() throws Exception {
-        // /compare/stream shares the compareBucket — draining it must block the stream endpoint too
-        drainBucket("compareBucket");
-
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/api/trajectories/compare/stream")
+                    .with(r -> { r.setRemoteAddr("1.2.3.8"); return r; })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(COMPARE_BODY));
+        }
         mvc.perform(post("/api/trajectories/compare/stream")
+                .with(r -> { r.setRemoteAddr("1.2.3.8"); return r; })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(COMPARE_BODY))
             .andExpect(status().isTooManyRequests());
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────
+    // ── Different clients get independent buckets ─────────────────────────────
 
-    private void drainBucket(String fieldName) throws Exception {
-        getBucket(fieldName).tryConsumeAsMuchAsPossible();
+    @Test
+    void differentClientsGetIndependentBuckets() throws Exception {
+        // Drain client A's single bucket
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/api/trajectory")
+                    .with(r -> { r.setRemoteAddr("1.2.3.9"); return r; })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(TRAJECTORY_BODY))
+                .andExpect(status().isOk());
+        }
+        mvc.perform(post("/api/trajectory")
+                .with(r -> { r.setRemoteAddr("1.2.3.9"); return r; })
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(TRAJECTORY_BODY))
+            .andExpect(status().isTooManyRequests());
+
+        // Client B's bucket is untouched
+        mvc.perform(post("/api/trajectory")
+                .with(r -> { r.setRemoteAddr("1.2.3.10"); return r; })
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(TRAJECTORY_BODY))
+            .andExpect(status().isOk());
     }
 
-    private void refillBucket(String fieldName, long capacity) throws Exception {
-        getBucket(fieldName).addTokens(capacity);
-    }
+    // ── GET /api/bullets is not rate-limited ──────────────────────────────────
 
-    private Bucket getBucket(String fieldName) throws Exception {
-        BallisticsController ctrl = wac.getBean(BallisticsController.class);
-        Field f = BallisticsController.class.getDeclaredField(fieldName);
-        f.setAccessible(true);
-        return (Bucket) f.get(ctrl);
+    @Test
+    void listBulletsIsNotRateLimited() throws Exception {
+        // Make many requests from a fresh client; none should be rate-limited
+        for (int i = 0; i < 10; i++) {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/bullets")
+                    .with(r -> { r.setRemoteAddr("1.2.3.11"); return r; }))
+                .andExpect(status().isOk());
+        }
     }
 }

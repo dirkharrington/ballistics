@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Stage 1: build ───────────────────────────────────────────────────────────
-FROM maven:3.9-eclipse-temurin-21-alpine@sha256:1f0b6a53c0fe010313e7509dfc9ce6fcf795025e74e94d9638d75f7b601b9586 AS build
+FROM maven:3-eclipse-temurin-26-alpine@sha256:232a4e81490a806193c71ba2d170fdbc467bae2549674853d8b84f44d06a9018 AS build
 
 WORKDIR /build
 
@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn package -DskipTests -q
 
 # ── Stage 2: extract layered JAR ─────────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine@sha256:089ffb495d17108fd0a9f3f05a87d20e4b37ceea2db3fb55c07d4283b9bebe7d AS extract
+FROM eclipse-temurin:25-jre-alpine@sha256:c707c0d18cb9e8556380719f80d96a7529d0746fbb42143893949b98ed2f8943 AS extract
 
 WORKDIR /extract
 COPY --from=build /build/target/*.jar app.jar
@@ -28,7 +28,7 @@ COPY --from=build /build/target/*.jar app.jar
 RUN java -Djarmode=layertools -jar app.jar extract --destination extracted
 
 # ── Stage 3: minimal JRE via jlink ───────────────────────────────────────────
-FROM eclipse-temurin:21-jdk-alpine@sha256:4153043cb70685b1c091be475fc68cf01b3f77564b9d30acaf0dd2c6d56eaec7 AS jlink
+FROM eclipse-temurin:25-jdk-alpine@sha256:30d9f87d702c2c1c601ed0d31e0c88ea1ea474ee7676cda7b7a59e759181c4dd AS jlink
 
 RUN jlink \
     --no-header-files \
@@ -42,7 +42,7 @@ RUN jlink \
     --output /jre
 
 # ── Stage 4: runtime ─────────────────────────────────────────────────────────
-FROM alpine:3.21@sha256:f27cad9117495d32d067133afff942cb2dc745dfe9163e949f6bfe8a6a245339
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 
 RUN addgroup -S spring && adduser -S spring -G spring
 
