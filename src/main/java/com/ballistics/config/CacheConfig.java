@@ -5,7 +5,7 @@ import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 
 @Configuration
 public class CacheConfig {
@@ -15,7 +15,7 @@ public class CacheConfig {
         CaffeineCacheManager mgr = new CaffeineCacheManager("trajectories");
         mgr.setCaffeine(Caffeine.newBuilder()
             .maximumSize(500)
-            .expireAfterWrite(5, TimeUnit.MINUTES)
+            .expireAfterWrite(Duration.ofMinutes(5))
             .recordStats());
         return mgr;
     }

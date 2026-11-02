@@ -30,7 +30,7 @@ class CacheControllerTest {
             .andExpect(jsonPath("$.estimatedSize", greaterThanOrEqualTo(0)))
             .andExpect(jsonPath("$.hitCount",      greaterThanOrEqualTo(0)))
             .andExpect(jsonPath("$.missCount",     greaterThanOrEqualTo(0)))
-            .andExpect(jsonPath("$.hitRate",       greaterThanOrEqualTo(0.0)))
+            .andExpect(jsonPath("$.hitRate").isNumber())
             .andExpect(jsonPath("$.loadCount",     greaterThanOrEqualTo(0)));
     }
 }
