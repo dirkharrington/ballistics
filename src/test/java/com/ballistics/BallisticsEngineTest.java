@@ -1,12 +1,14 @@
 package com.ballistics;
 
 import com.ballistics.model.*;
+import com.ballistics.physics.PhysicsTables;
+import com.ballistics.physics.PhysicsTablesLoader;
 import com.ballistics.service.BallisticsEngine;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ClassPathResource;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 import static org.assertj.core.api.Assertions.*;
@@ -17,7 +19,8 @@ class BallisticsEngineTest {
 
     @BeforeEach
     void setUp() {
-        engine = new BallisticsEngine(new SimpleMeterRegistry());
+        PhysicsTables tables = PhysicsTablesLoader.load(new ClassPathResource("physics-tables.yaml"));
+        engine = new BallisticsEngine(tables, new SimpleMeterRegistry());
     }
 
     // ── Core trajectory ───────────────────────────────────────────────────────
@@ -64,14 +67,12 @@ class BallisticsEngineTest {
         TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
-        // At the zero range the bore is angled upward, so the extended bore height exceeds
-        // the bullet's actual height (≈38mm), giving a small negative drop.
         result.points().stream()
             .filter(p -> Math.abs(p.rangeMeters() - 100) < 1)
             .findFirst()
             .ifPresent(p -> {
                 assertThat(p.dropCm()).isNegative();
-                assertThat(p.dropCm()).isGreaterThan(-13.0); // no more than ~5 inches
+                assertThat(p.dropCm()).isGreaterThan(-13.0);
             });
     }
 
@@ -111,7 +112,6 @@ class BallisticsEngineTest {
 
     @Test
     void supersonicLimitIsZeroWhenBulletStartsSubsonic() {
-        // 40 m/s ≈ 131 fps — well below speed of sound; supersonicLimit set at range 0
         Bullet slow = new Bullet("slow-test", "Slow", "test",
             50, 40, 0.1, 0.3, 5, "test", "#fff");
         TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15, null, null, null, null);
@@ -137,7 +137,6 @@ class BallisticsEngineTest {
 
     @Test
     void airDensityRatioViaReflection() throws Exception {
-        // Internal method still takes feet and Fahrenheit for physics accuracy
         Method m = BallisticsEngine.class.getDeclaredMethod(
             "airDensityRatio", double.class, double.class);
         m.setAccessible(true);
@@ -154,7 +153,7 @@ class BallisticsEngineTest {
         assertThat((double) m.invoke(engine, 3000.0, 70.0)).isGreaterThan(0);
     }
 
-    // ── G1 drag table interpolation (via generic interpolateTable) ────────────
+    // ── G1 drag table interpolation ───────────────────────────────────────────
 
     @Test
     void interpolateG1BoundaryValuesViaReflection() throws Exception {
@@ -162,14 +161,14 @@ class BallisticsEngineTest {
                 double.class, double[].class, double[].class);
         m.setAccessible(true);
 
-        // Retrieve the private G1 table arrays
-        Field velField = BallisticsEngine.class.getDeclaredField("G1_VELOCITIES");
+        // Retrieve instance fields g1Velocities and g1Coeffs
+        java.lang.reflect.Field velField = BallisticsEngine.class.getDeclaredField("g1Velocities");
         velField.setAccessible(true);
-        double[] g1V = (double[]) velField.get(null);
+        double[] g1V = (double[]) velField.get(engine);
 
-        Field coeffField = BallisticsEngine.class.getDeclaredField("G1_COEFFS");
+        java.lang.reflect.Field coeffField = BallisticsEngine.class.getDeclaredField("g1Coeffs");
         coeffField.setAccessible(true);
-        double[] g1C = (double[]) coeffField.get(null);
+        double[] g1C = (double[]) coeffField.get(engine);
 
         assertThat((double) m.invoke(engine,  0.0, g1V, g1C)).isEqualTo(0.1198);
         assertThat((double) m.invoke(engine, -5.0, g1V, g1C)).isEqualTo(0.1198);
@@ -187,7 +186,6 @@ class BallisticsEngineTest {
 
     @Test
     void hypervelocityBulletExercisesHighEndDragTable() {
-        // muzzleVelocityMps=4500 → ~14764 fps, triggers "≥ last entry" branch in interpolateG1
         Bullet fast = new Bullet("fast-test", "Hypervelocity", "test",
             55, 4500, 0.5, 5.56, 3000, "test", "#fff");
         TrajectoryRequest req = new TrajectoryRequest("fast-test", 100, 300, 50, 0, 0, 15, null, null, null, null);
@@ -197,7 +195,6 @@ class BallisticsEngineTest {
 
     @Test
     void verySlowBulletTriggersEarlyBreakConditions() {
-        // muzzleVelocityMps=40 → ~131 fps, below speed of sound → supersonicLimit=0
         Bullet slow = new Bullet("slow-test", "Slow", "test",
             50, 40, 0.1, 0.3, 5, "test", "#fff");
         TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15, null, null, null, null);
@@ -243,7 +240,6 @@ class BallisticsEngineTest {
         TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 0, 0, 0, 0, 0, 15, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
-        // default step=25m, maxRange=1000m → 40+ points
         assertThat(result.points().size()).isGreaterThan(20);
     }
 
@@ -252,7 +248,6 @@ class BallisticsEngineTest {
     @Test
     void sightHeightDefaultsTo38_1WhenNull() {
         Bullet bullet = findById("308-win-168gr");
-        // null in the compact constructor defaults to 38.1 mm (1.5 in)
         TrajectoryRequest withNull  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
         TrajectoryRequest with38_1  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, 38.1, null, null, null);
 
@@ -280,12 +275,10 @@ class BallisticsEngineTest {
 
     @Test
     void pointBeyondZeroHasPositiveAdjustment() {
-        // Beyond the zero range the bullet is below LoS: adjustment must be positive (click up)
         Bullet bullet = findById("308-win-168gr");
         TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
-        // find a point well past zero (drop should be clearly negative)
         TrajectoryPoint far = result.points().stream()
             .filter(p -> p.rangeMeters() > 300 && p.dropCm() < 0)
             .findFirst()
@@ -293,7 +286,6 @@ class BallisticsEngineTest {
 
         assertThat(far.moaAdjustment()).isPositive();
         assertThat(far.mradAdjustment()).isPositive();
-        // MRAD < MOA numerically for any realistic drop (1 MOA ≈ 2.909 MRAD)
         assertThat(far.moaAdjustment()).isGreaterThan(far.mradAdjustment());
     }
 
@@ -303,7 +295,6 @@ class BallisticsEngineTest {
         TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
-        // The zero-range point should have drop ≈ 0 and thus near-zero adjustments
         result.points().stream()
             .filter(p -> Math.abs(p.dropCm()) < 0.1)
             .forEach(p -> {
@@ -316,8 +307,6 @@ class BallisticsEngineTest {
 
     @Test
     void inclinedFireReducesApparentDropVsFlat() {
-        // Both uphill (+20°) and downhill (−20°) should produce less apparent drop
-        // at the same slant range than flat fire.  cos(20°) ≈ 0.940.
         Bullet bullet = findById("308-win-168gr");
 
         TrajectoryRequest flat   = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, 0.0, null, null);
@@ -328,20 +317,17 @@ class BallisticsEngineTest {
         TrajectoryResult uphillResult = engine.compute(bullet, uphill);
         TrajectoryResult downResult   = engine.compute(bullet, down);
 
-        // Pick a point well past zero where flat drop is clearly negative
         double flatDrop   = pointAt(flatResult,   500).dropCm();
         double uphillDrop = pointAt(uphillResult, 500).dropCm();
         double downDrop   = pointAt(downResult,   500).dropCm();
 
         assertThat(flatDrop).isNegative();
-        // |inclined drop| < |flat drop| — rifleman's rule cosine effect
         assertThat(Math.abs(uphillDrop)).isLessThan(Math.abs(flatDrop));
         assertThat(Math.abs(downDrop)).isLessThan(Math.abs(flatDrop));
     }
 
     @Test
     void zeroAngleMatchesFlatFireResult() {
-        // Explicit angle=0.0 should produce identical results to angle=null (defaults to 0)
         Bullet bullet = findById("308-win-168gr");
         TrajectoryRequest withNull  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
         TrajectoryRequest withZero  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, 0.0, null, null);
@@ -368,8 +354,6 @@ class BallisticsEngineTest {
             .findFirst()
             .orElseThrow(() -> new AssertionError("No point near " + rangeM + " m"));
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Bullet findById(String id) {
         return BulletCatalog.findById(id);
