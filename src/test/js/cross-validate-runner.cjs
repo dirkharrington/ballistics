@@ -4,6 +4,17 @@
 // Reads { bullet, req } JSON from stdin, runs the JS RK4 simulator, writes
 // the points array as JSON to stdout.  No npm dependencies — physics inline.
 
+const G7_TABLE = [
+  [0,0.1198],[400,0.1198],[500,0.1197],[600,0.1194],[700,0.1189],[800,0.1185],
+  [900,0.1183],[950,0.1183],[1000,0.1185],[1050,0.1200],[1100,0.1230],
+  [1150,0.1270],[1200,0.1318],[1250,0.1357],[1300,0.1386],[1350,0.1395],
+  [1400,0.1378],[1450,0.1335],[1500,0.1278],[1600,0.1163],[1700,0.1066],
+  [1800,0.0985],[1900,0.0920],[2000,0.0868],[2100,0.0826],[2200,0.0790],
+  [2300,0.0757],[2400,0.0728],[2500,0.0702],[2600,0.0680],[2700,0.0661],
+  [2800,0.0644],[2900,0.0630],[3000,0.0617],[3100,0.0604],[3200,0.0593],
+  [3300,0.0583],[3400,0.0573],[3500,0.0564],[3600,0.0555],[4000,0.0520]
+];
+
 const G1_TABLE = [
   [0,0.1198],[400,0.1198],[500,0.1197],[600,0.1196],[700,0.1194],[800,0.1193],
   [900,0.1194],[950,0.1202],[1000,0.1250],[1050,0.1315],[1100,0.1420],
@@ -31,17 +42,19 @@ const CM_PER_INCH = 2.54;
 const J_PER_FTLB  = 1.35582;
 const MPH_PER_KPH = 0.621371;
 
-function g1Drag(v) {
+function tableDrag(table, v) {
   v = Math.abs(v);
-  if (v <= G1_TABLE[0][0]) return G1_TABLE[0][1];
-  if (v >= G1_TABLE[G1_TABLE.length - 1][0]) return G1_TABLE[G1_TABLE.length - 1][1];
-  for (let i = 1; i < G1_TABLE.length; i++) {
-    if (v <= G1_TABLE[i][0]) {
-      const t = (v - G1_TABLE[i - 1][0]) / (G1_TABLE[i][0] - G1_TABLE[i - 1][0]);
-      return G1_TABLE[i - 1][1] + t * (G1_TABLE[i][1] - G1_TABLE[i - 1][1]);
+  if (v <= table[0][0]) return table[0][1];
+  if (v >= table[table.length - 1][0]) return table[table.length - 1][1];
+  for (let i = 1; i < table.length; i++) {
+    if (v <= table[i][0]) {
+      const t = (v - table[i - 1][0]) / (table[i][0] - table[i - 1][0]);
+      return table[i - 1][1] + t * (table[i][1] - table[i - 1][1]);
     }
   }
 }
+
+function g1Drag(v) { return tableDrag(G1_TABLE, v); }
 
 function airDensityRatio(altFt, tempF) {
   const stdTemp    = 59 - 3.5 * (altFt / 1000);
@@ -58,9 +71,10 @@ function simulate(bullet, req) {
   const maxRangeYd = req.maxRangeMeters / M_PER_YARD;
   const stepYd     = req.stepMeters / M_PER_YARD;
   const rho = airDensityRatio(req.altitudeMeters * FT_PER_M, req.temperatureC * 9 / 5 + 32);
+  const dragTable  = (req.dragModel === 'G7') ? G7_TABLE : G1_TABLE;
 
   const deriv = (vx, vy, vel) => {
-    const drag = g1Drag(Math.abs(vel)) * rho / bc;
+    const drag = tableDrag(dragTable, Math.abs(vel)) * rho / bc;
     return [-(vx / vel) * drag, -(vy / vel) * drag - G_FPS2];
   };
 
