@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.0.9</version>
+        <version>4.1.1</version>
         <relativePath/>
     </parent>
 
@@ -21,13 +21,15 @@
         <java.version>21</java.version>
         <jmh.version>1.37</jmh.version>
         <skip.npm.test>false</skip.npm.test>
-        <!-- Security: patch CVEs in Spring Boot 4.0.6 managed dependencies -->
+        <!-- Security pins: Boot 4.1.1 natively manages older versions; keep until Boot ships ≥ pinned value -->
+        <!-- CVE-2026-47884/47885/47892 — Boot 4.1.1 native: 7.0.9 -->
         <spring-framework.version>7.0.10</spring-framework.version>
+        <!-- CVE-2026-66422/65905/43512 — Boot 4.1.1 native: 11.0.24 -->
         <tomcat.version>11.0.27</tomcat.version>
+        <!-- CVE-2026-54512/54513 — Boot 4.1.1 native: 3.1.5 -->
         <jackson-bom.version>3.2.4</jackson-bom.version>
+        <!-- CVE-2026-42154 — Boot 4.1.1 native: 1.17.1 -->
         <micrometer.version>1.17.2</micrometer.version>
-        <!-- prometheus-client 1.7.0 required by micrometer 1.17.x (1.4.3 shipped by Boot 4.0.6 is missing ExpositionFormats.init) -->
-        <prometheus-client.version>1.7.0</prometheus-client.version>
     </properties>
 
     <!-- Force com.fasterxml.jackson 2.x (pulled by logstash-logback-encoder) to a CVE-free version -->
