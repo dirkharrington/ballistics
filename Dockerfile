@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn package -DskipTests -q
 
 # ── Stage 2: extract layered JAR ─────────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine@sha256:089ffb495d17108fd0a9f3f05a87d20e4b37ceea2db3fb55c07d4283b9bebe7d AS extract
+FROM eclipse-temurin:25-jre-alpine@sha256:c707c0d18cb9e8556380719f80d96a7529d0746fbb42143893949b98ed2f8943 AS extract
 
 WORKDIR /extract
 COPY --from=build /build/target/*.jar app.jar
@@ -28,7 +28,7 @@ COPY --from=build /build/target/*.jar app.jar
 RUN java -Djarmode=layertools -jar app.jar extract --destination extracted
 
 # ── Stage 3: minimal JRE via jlink ───────────────────────────────────────────
-FROM eclipse-temurin:21-jdk-alpine@sha256:4153043cb70685b1c091be475fc68cf01b3f77564b9d30acaf0dd2c6d56eaec7 AS jlink
+FROM eclipse-temurin:25-jdk-alpine@sha256:30d9f87d702c2c1c601ed0d31e0c88ea1ea474ee7676cda7b7a59e759181c4dd AS jlink
 
 RUN jlink \
     --no-header-files \
