@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -63,7 +63,7 @@ jobs:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -71,7 +71,7 @@ jobs:
           node-version: '22.14.0'
 
       - name: Cache npm download cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
@@ -100,6 +100,11 @@ jobs:
   # Item 3 — Static analysis for Java and JavaScript.
   # Runs in parallel with the build job; results appear in the GitHub
   # Security → Code scanning tab and block PRs on new findings.
+  #
+  # PREREQUISITE — disable GitHub's Default Setup before enabling this workflow:
+  #   Settings → Security → Code scanning → Default setup → Disable
+  # Running both Default Setup and this advanced workflow at the same time causes
+  # SARIF upload conflicts that fail the upload-sarif step.
   codeql:
     name: CodeQL SAST
     runs-on: ubuntu-latest
@@ -118,7 +123,7 @@ jobs:
 
       - name: Set up JDK 21
         if: matrix.language == 'java'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -134,7 +139,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
-          language: ${{ matrix.language }}
+          languages: ${{ matrix.language }}
           # Use the security-extended query suite for broader coverage
           queries: security-extended
 
@@ -165,7 +170,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -211,7 +216,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -227,7 +232,7 @@ jobs:
         run: mvn --batch-mode package -DskipTests -Dskip.npm.test=true
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -236,6 +241,7 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '1'
           ignore-unfixed: true
+          version: v0.76.1
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always()

@@ -56,9 +56,11 @@ function initTools() {
     const drop  = parseFloat(document.getElementById('toolDrop').value)  || 0;
     const range = parseFloat(document.getElementById('toolRange').value) || 100;
     const { moa, mrad } = calcMoaMrad(drop, range);
-    document.getElementById('toolResults').innerHTML =
-      `<span class="tool-label">MOA</span><span class="tool-value">${moa}</span>` +
-      `<span class="tool-label">MRAD</span><span class="tool-value">${mrad}</span>`;
+    const moaLabel  = document.createElement('span'); moaLabel.className  = 'tool-label'; moaLabel.textContent  = 'MOA';
+    const moaValue  = document.createElement('span'); moaValue.className  = 'tool-value'; moaValue.textContent  = moa;
+    const mradLabel = document.createElement('span'); mradLabel.className = 'tool-label'; mradLabel.textContent = 'MRAD';
+    const mradValue = document.createElement('span'); mradValue.className = 'tool-value'; mradValue.textContent = mrad;
+    document.getElementById('toolResults').replaceChildren(moaLabel, moaValue, mradLabel, mradValue);
   });
 
   unitBtn?.addEventListener('click', () => {
@@ -66,9 +68,18 @@ function initTools() {
     const from   = document.getElementById('unitFrom').value;
     const to     = document.getElementById('unitTo').value;
     const result = convertUnit(value, from, to);
-    document.getElementById('unitResults').innerHTML = result !== null
-      ? `<span class="tool-label">${to}</span><span class="tool-value">${result}</span>`
-      : `<span class="tool-value" style="color:var(--warn)">Unsupported conversion</span>`;
+    const container = document.getElementById('unitResults');
+    if (result !== null) {
+      const label = document.createElement('span'); label.className = 'tool-label'; label.textContent = to;
+      const val   = document.createElement('span'); val.className   = 'tool-value'; val.textContent   = result;
+      container.replaceChildren(label, val);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'tool-value';
+      span.style.color = 'var(--warn)';
+      span.textContent = 'Unsupported conversion';
+      container.replaceChildren(span);
+    }
   });
 }
 
