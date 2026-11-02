@@ -9,7 +9,11 @@ import org.springframework.core.io.ClassPathResource;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 
@@ -93,6 +97,32 @@ class TrajectoryServiceUnitTest {
         List<TrajectoryResult> results = service.compare(req);
         assertThat(results).hasSize(1);
         assertThat(results.get(0).bullet().id()).isEqualTo("308-win-168gr");
+    }
+
+    // ── joinUnwrapped — RuntimeException path ────────────────────────────────
+
+    @Test
+    void joinUnwrappedRethrowsRuntimeException() throws Exception {
+        Method m = TrajectoryService.class.getDeclaredMethod("joinUnwrapped", CompletableFuture.class);
+        m.setAccessible(true);
+        RuntimeException original = new IllegalStateException("boom");
+        CompletableFuture<?> f = CompletableFuture.failedFuture(new CompletionException(original));
+        assertThatThrownBy(() -> {
+            try { m.invoke(null, f); }
+            catch (InvocationTargetException e) { throw e.getCause(); }
+        }).isSameAs(original);
+    }
+
+    @Test
+    void joinUnwrappedWrapsCheckedExceptionInRuntimeException() throws Exception {
+        Method m = TrajectoryService.class.getDeclaredMethod("joinUnwrapped", CompletableFuture.class);
+        m.setAccessible(true);
+        IOException cause = new IOException("checked");
+        CompletableFuture<?> f = CompletableFuture.failedFuture(new CompletionException(cause));
+        assertThatThrownBy(() -> {
+            try { m.invoke(null, f); }
+            catch (InvocationTargetException e) { throw e.getCause(); }
+        }).isInstanceOf(RuntimeException.class).hasCause(cause);
     }
 
     // ── batch — unknown id throws before any futures ──────────────────────────

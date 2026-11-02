@@ -187,6 +187,15 @@ class PhysicsTablesLoaderTest {
     // ── Table structure: non-list and non-mapping row ─────────────────────────
 
     @Test
+    void atmosphereNotAMappingThrows() {
+        // atmosphere key exists but is a scalar, not a mapping →
+        // exercises the `!(raw instanceof Map)` true branch in parseAtmosphere
+        String badAtm = "atmosphere: scalar_value\n";
+        String yaml = buildYaml(validG1(), validG7(), badAtm);
+        assertThrows(yaml, "atmosphere must be a YAML mapping");
+    }
+
+    @Test
     void g1TableNotAListThrows() {
         // g1Table is a scalar, not a list → "must be a YAML list"
         String yaml = "g1Table: scalar_value\n" + validG7() + validAtm();
@@ -249,6 +258,41 @@ class PhysicsTablesLoaderTest {
         assertThat(a.hashCode()).isEqualTo(b.hashCode());
         assertThat(a).isNotEqualTo(c);
         assertThat(a.toString()).contains("size=2");
+    }
+
+    // ── Resource overload: IOException and PhysicsTablesLoadException re-throw ─
+
+    @Test
+    void resourceGetInputStreamIOExceptionWrapped() {
+        // Exercises the IOException catch in load(Resource) → PhysicsTablesLoadException
+        org.springframework.core.io.Resource resource = new org.springframework.core.io.AbstractResource() {
+            @Override public boolean exists() { return true; }
+            @Override public String getDescription() { return "test-io-fail"; }
+            @Override public java.io.InputStream getInputStream() throws java.io.IOException {
+                throw new java.io.IOException("simulated I/O failure");
+            }
+        };
+        assertThatThrownBy(() -> PhysicsTablesLoader.load(resource))
+            .isInstanceOf(PhysicsTablesLoadException.class)
+            .hasMessageContaining("could not open resource");
+    }
+
+    @Test
+    void resourceReturnsPhysicsTablesLoadExceptionRethrown() {
+        // Exercises the `catch (PhysicsTablesLoadException e) { throw e; }` re-throw in load(Resource).
+        // A Resource that returns non-map YAML triggers PhysicsTablesLoadException inside load(InputStream),
+        // which is then re-thrown through the catch-rethrow without wrapping.
+        byte[] nonMapYaml = "- item1\n- item2\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        org.springframework.core.io.Resource resource = new org.springframework.core.io.AbstractResource() {
+            @Override public boolean exists() { return true; }
+            @Override public String getDescription() { return "test-nonmap"; }
+            @Override public java.io.InputStream getInputStream() {
+                return new java.io.ByteArrayInputStream(nonMapYaml);
+            }
+        };
+        assertThatThrownBy(() -> PhysicsTablesLoader.load(resource))
+            .isInstanceOf(PhysicsTablesLoadException.class)
+            .hasMessageContaining("root must be a YAML mapping");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

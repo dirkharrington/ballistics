@@ -117,6 +117,49 @@ class RateLimitPropertiesTest {
           .hasMessageContaining("expire-after-access must be >= period");
     }
 
+    // ── Compact-constructor branch coverage ────────────────────────────────────
+
+    @Test
+    void periodLessThan1sFails() {
+        // period != null && period < 1s → true branch → throws
+        assertThatThrownBy(() -> new RateLimitProperties(
+            true,
+            Duration.ofMillis(500),
+            new RateLimitProperties.Tier(120, 1200),
+            new RateLimitProperties.Tier(30, 300),
+            new RateLimitProperties.Tier(10, 100),
+            new RateLimitProperties.ClientCache(10000, Duration.ofMinutes(1)),
+            64
+        )).isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("must be >= 1s");
+    }
+
+    @Test
+    void nullPeriodIsAccepted() {
+        // period == null → false-branch short-circuits both conditions
+        assertThatNoException().isThrownBy(() -> new RateLimitProperties(
+            true, null,
+            new RateLimitProperties.Tier(120, 1200),
+            new RateLimitProperties.Tier(30, 300),
+            new RateLimitProperties.Tier(10, 100),
+            new RateLimitProperties.ClientCache(10000, Duration.ofMinutes(2)),
+            64
+        ));
+    }
+
+    @Test
+    void nullClientCacheIsAccepted() {
+        // clientCache == null → false-branch short-circuits the clientCache check
+        assertThatNoException().isThrownBy(() -> new RateLimitProperties(
+            true, Duration.ofMinutes(1),
+            new RateLimitProperties.Tier(120, 1200),
+            new RateLimitProperties.Tier(30, 300),
+            new RateLimitProperties.Tier(10, 100),
+            null, // clientCache null
+            64
+        ));
+    }
+
     // ── helper ─────────────────────────────────────────────────────────────────
 
     private RateLimitProperties bind(Map<String, String> properties) {

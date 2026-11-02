@@ -109,6 +109,23 @@ class RequestBodySizeLimitFilterTest {
     // ── Unit: bounded-read rejection ─────────────────────────────────────────
 
     @Test
+    void boundedReadPathRejectsBodyWhenContentLengthAbsent() throws Exception {
+        // In Spring Framework 7, setContent() sets contentLength, so
+        // boundedReadRejectsBodyOverMax would take the fast path instead.
+        // Here we override getContentLengthLong() to return -1 explicitly so
+        // the fast-path check is skipped and the bounded-read path fires.
+        RequestBodySizeLimitFilter filter = makeFilter(10);
+        byte[] bodyBytes = new byte[11];
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/trajectory") {
+            @Override public long getContentLengthLong() { return -1L; }
+        };
+        request.setContent(bodyBytes);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, resp) -> {});
+        assertThat(response.getStatus()).isEqualTo(413);
+    }
+
+    @Test
     void boundedReadRejectsBodyOverMax() throws Exception {
         RequestBodySizeLimitFilter filter = makeFilter(10);
 
@@ -224,6 +241,22 @@ class RequestBodySizeLimitFilterTest {
                     {"zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":50,
                      "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15}"""))
             .andExpect(status().isOk());
+    }
+
+    // ── Unit: reject413 falls back to "/api" for URI with illegal chars ──────
+
+    @Test
+    void reject413WithInvalidUriFallsBackToApiRoot() throws Exception {
+        RequestBodySizeLimitFilter filter = makeFilter(10);
+        byte[] bodyBytes = new byte[11];
+        // "{" is an illegal character in a URI path → URI.create throws IAE →
+        // catch block sets instance to "/api" instead
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/{invalid}");
+        request.setContent(bodyBytes);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, resp) -> {});
+        assertThat(response.getStatus()).isEqualTo(413);
+        assertThat(response.getContentType()).contains("application/problem+json");
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────

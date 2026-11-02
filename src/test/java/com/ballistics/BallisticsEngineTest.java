@@ -355,6 +355,54 @@ class BallisticsEngineTest {
             .orElseThrow(() -> new AssertionError("No point near " + rangeM + " m"));
     }
 
+    // ── Coverage: dropCmSI == 0.0 branch (sign = 0.0 path in line 218) ──────────
+
+    @Test
+    void dropCmSignZeroCaseAtOneMetreStep() {
+        // At 1 m from the muzzle the bullet is so close to the bore line that
+        // the rounded dropCm value is exactly 0.0, exercising the sign==0 branch.
+        Bullet bullet = findById("308-win-168gr"); // fast bullet, mv ≈ 820 m/s
+        TrajectoryRequest req = new TrajectoryRequest(
+            bullet.id(), 100, 100, 1, 0, 0, 15, null, null, null, null);
+        TrajectoryResult result = engine.compute(bullet, req);
+
+        assertThat(result.points()).isNotEmpty();
+        // The 1 m point's drop rounds to 0.0 before the zero range
+        result.points().stream()
+            .filter(p -> Math.abs(p.rangeMeters() - 1.0) < 0.6)
+            .findFirst()
+            .ifPresent(p -> assertThat(p.dropCm()).isEqualTo(0.0));
+    }
+
+    // ── Coverage: velocity < MIN_VELOCITY_FPS break (line 242) ───────────────
+
+    @Test
+    void ultraLowBcBulletTriggersMinVelocityBreak() {
+        // BC=0.001 → 100× more drag than a typical 0.1-BC bullet → decelerates
+        // below MIN_VELOCITY_FPS (100 fps) within ~20 m, exercising the break.
+        Bullet ultraLow = new Bullet("ultra-low-bc-mvbreak", "Ultra Low BC", "test",
+            50, 50.0, 0.001, 10.0, 62.5, "test", "#fff");
+        TrajectoryRequest req = new TrajectoryRequest(
+            "ultra-low-bc-mvbreak", 100, 50, 5, 0, 0, 15, null, null, null, null);
+        TrajectoryResult result = engine.compute(ultraLow, req);
+        assertThat(result).isNotNull();
+    }
+
+    // ── Coverage: simulateY velocity guard < 50 fps (line 332) ──────────────
+
+    @Test
+    void ultraLowBcBulletTriggersSimulateYVelocityGuard() {
+        // zeroRange=200 m → simulateY targets 218 yd, but the ultra-low-BC bullet
+        // decelerates below 50 fps within a few feet, exercising the break in
+        // simulateY that guards against near-zero-velocity bisection.
+        Bullet ultraLow = new Bullet("ultra-low-bc-simY", "Ultra Low BC SimY", "test",
+            50, 50.0, 0.001, 10.0, 62.5, "test", "#fff");
+        TrajectoryRequest req = new TrajectoryRequest(
+            "ultra-low-bc-simY", 200, 50, 50, 0, 0, 15, null, null, null, null);
+        TrajectoryResult result = engine.compute(ultraLow, req);
+        assertThat(result).isNotNull();
+    }
+
     private static Bullet findById(String id) {
         return BulletCatalog.findById(id);
     }
