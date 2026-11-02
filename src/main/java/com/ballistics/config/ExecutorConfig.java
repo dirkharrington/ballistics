@@ -10,8 +10,9 @@ public class ExecutorConfig {
 
     @Bean(name = "trajectoryExecutor", destroyMethod = "shutdown")
     public ExecutorService trajectoryExecutor() {
+        int cpus = Runtime.getRuntime().availableProcessors();
         return new ThreadPoolExecutor(
-            4, 8,
+            cpus, cpus * 2,
             60L, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(100),
             new ThreadPoolExecutor.CallerRunsPolicy()

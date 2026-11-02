@@ -25,13 +25,14 @@ import java.util.concurrent.CompletableFuture;
 @RequestMapping("/api")
 public class BallisticsController {
 
-    @Value("${app.sse.timeout-ms:30000}")
-    private long sseTimeoutMs;
-
     private final TrajectoryService trajectoryService;
+    private final long sseTimeoutMs;
 
-    public BallisticsController(TrajectoryService trajectoryService) {
+    public BallisticsController(
+            TrajectoryService trajectoryService,
+            @Value("${app.sse.timeout-ms:30000}") long sseTimeoutMs) {
         this.trajectoryService = trajectoryService;
+        this.sseTimeoutMs = sseTimeoutMs;
     }
 
     // ── GET /api/bullets ──────────────────────────────────────────────────────
