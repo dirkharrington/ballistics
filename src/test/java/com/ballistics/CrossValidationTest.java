@@ -115,6 +115,33 @@ class CrossValidationTest {
         }
     }
 
+    // ── G7 cross-validation ───────────────────────────────────────────────────
+
+    @Test
+    void g7JavaAndJsDropValuesAgreeWithin2cm() throws Exception {
+        for (Bullet bullet : BulletCatalog.load()) {
+            TrajectoryRequest req = new TrajectoryRequest(
+                bullet.id(), 100, 800, 25, 0, 0, 15, 38.1, null, null, "G7"
+            );
+            List<Map<String, Object>> javaPoints = fetchJavaPointsG7(bullet.id(), req);
+            List<Map<String, Object>> jsPoints   = fetchJsPointsG7(bullet, req);
+
+            assertThat(javaPoints).as("G7 Java produced no points for %s", bullet.id()).isNotEmpty();
+            assertThat(jsPoints)  .as("G7 JS produced no points for %s",   bullet.id()).isNotEmpty();
+
+            for (Map<String, Object> jp : javaPoints) {
+                double range = toDouble(jp.get("rangeMeters"));
+                if (range > 800) break;
+                double javaDrop = toDouble(jp.get("dropCm"));
+                double jsDrop   = findFieldAt(jsPoints, range, "dropCm");
+                if (Double.isNaN(jsDrop)) continue;
+                assertThat(javaDrop)
+                    .as("G7 drop at %.0f m disagrees for bullet %s", range, bullet.id())
+                    .isCloseTo(jsDrop, within(2.0));
+            }
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
@@ -160,6 +187,72 @@ class CrossValidationTest {
                 "altitudeMeters",  req.altitudeMeters(),
                 "temperatureC",    req.temperatureC(),
                 "sightHeightMm",   req.sightHeightMm()
+            )
+        );
+
+        ProcessBuilder pb = new ProcessBuilder("node", "src/test/js/cross-validate-runner.cjs");
+        pb.directory(new File(System.getProperty("user.dir")));
+        pb.redirectErrorStream(false);
+        Process process = pb.start();
+
+        process.getOutputStream().write(mapper.writeValueAsBytes(payload));
+        process.getOutputStream().close();
+
+        byte[] output = process.getInputStream().readAllBytes();
+        int exitCode  = process.waitFor();
+        assertThat(exitCode)
+            .as("Node cross-validate-runner failed for bullet %s", bullet.id())
+            .isEqualTo(0);
+
+        return mapper.readValue(output,
+            mapper.getTypeFactory().constructCollectionType(List.class, Map.class));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> fetchJavaPointsG7(String bulletId, TrajectoryRequest req)
+            throws Exception {
+        String body = mapper.writeValueAsString(Map.of(
+            "bulletId",        bulletId,
+            "zeroRangeMeters", req.zeroRangeMeters(),
+            "maxRangeMeters",  req.maxRangeMeters(),
+            "stepMeters",      req.stepMeters(),
+            "windSpeedKph",    req.windSpeedKph(),
+            "altitudeMeters",  req.altitudeMeters(),
+            "temperatureC",    req.temperatureC(),
+            "sightHeightMm",   req.sightHeightMm(),
+            "dragModel",       req.dragModel()
+        ));
+
+        String responseBody = mockMvc.perform(
+                post("/api/trajectory")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        Map<?, ?> result = mapper.readValue(responseBody, Map.class);
+        return (List<Map<String, Object>>) result.get("points");
+    }
+
+    private List<Map<String, Object>> fetchJsPointsG7(Bullet bullet, TrajectoryRequest req)
+            throws Exception {
+        Map<String, Object> payload = Map.of(
+            "bullet", Map.of(
+                "ballisticCoefficient", bullet.ballisticCoefficient(),
+                "muzzleVelocityMps",    bullet.muzzleVelocityMps(),
+                "bulletWeightGrams",    bullet.bulletWeightGrams()
+            ),
+            "req", Map.of(
+                "zeroRangeMeters", req.zeroRangeMeters(),
+                "maxRangeMeters",  req.maxRangeMeters(),
+                "stepMeters",      req.stepMeters(),
+                "windSpeedKph",    req.windSpeedKph(),
+                "altitudeMeters",  req.altitudeMeters(),
+                "temperatureC",    req.temperatureC(),
+                "sightHeightMm",   req.sightHeightMm(),
+                "dragModel",       req.dragModel() != null ? req.dragModel() : "G1"
             )
         );
 

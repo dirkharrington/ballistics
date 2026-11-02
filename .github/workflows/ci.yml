@@ -5,10 +5,20 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}   # cancel superseded PR runs only; never cancel main
+
 jobs:
-  # ── Build & test ─────────────────────────────────────────────────────────────
-  build:
+  # ── Java build & test ────────────────────────────────────────────────────────
+  java-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
 
     steps:
       - uses: actions/checkout@v4
@@ -26,31 +36,60 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
-      - name: Cache Node runtime and npm modules
+      - name: Cache frontend-maven-plugin Node + modules
         uses: actions/cache@v4
         with:
           path: |
             node
             node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-node-
+          key: ${{ runner.os }}-fmp-${{ hashFiles('pom.xml', 'package-lock.json') }}
+          restore-keys: ${{ runner.os }}-fmp-
 
-      # Item 2 — npm audit: fail on high or critical JS dependency vulnerabilities.
-      # npm audit reads package-lock.json directly; no install required (npm ≥ 7).
-      - name: npm audit
-        run: npm audit --audit-level=high
+      - name: Build and verify
+        run: mvn --batch-mode verify -Dskip.npm.test=true
 
-      - name: Build and test
-        run: mvn --batch-mode test
-
-      - name: Upload JaCoCo coverage report
+      - name: Upload JaCoCo report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: target/site/jacoco/
 
-      - name: Upload JS coverage report
+  # ── Frontend build & test ────────────────────────────────────────────────────
+  frontend-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+
+      - name: Cache npm download cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-npm-
+
+      - name: Install
+        run: npm ci
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test -- --ci
+
+      - name: Upload JS coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -160,7 +199,7 @@ jobs:
   # ── Trivy container scan ─────────────────────────────────────────────────────
   # Item 5 — Scans the built JAR's base image for OS and library CVEs.
   # Results appear in GitHub Security → Code scanning tab (SARIF upload).
-  # Fails on CRITICAL vulnerabilities; HIGH findings are reported but non-blocking.
+  # Fails on CRITICAL vulnerabilities; High findings are reported but non-blocking.
   trivy:
     name: Trivy Container Scan
     runs-on: ubuntu-latest
@@ -188,7 +227,7 @@ jobs:
         run: mvn --batch-mode package -DskipTests -Dskip.npm.test=true
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: fs
           scan-ref: .
