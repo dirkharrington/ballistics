@@ -127,14 +127,23 @@
     <button class="run-btn" id="runBtn">
       <span>▶ COMPUTE TRAJECTORIES</span>
     </button>
-    <button class="export-csv-btn">⬇ EXPORT CSV</button>
+    <div id="simulationError" class="simulation-error" hidden aria-live="assertive" role="alert"></div>
+    <div class="export-dropdown">
+      <button class="export-toggle">⬇ EXPORT ▾</button>
+      <div class="export-menu">
+        <button class="export-csv-btn">CSV</button>
+        <button class="export-json-btn">JSON</button>
+        <button class="export-md-btn">Markdown</button>
+      </div>
+    </div>
+    <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
 
     <details class="custom-section">
       <summary>Custom Round <span class="chevron">▶</span></summary>
     <div class="custom-form" id="customForm">
       <div class="param-group">
         <label>Name</label>
-        <input type="text" id="customName" placeholder="My Load" style="width:100%">
+        <input type="text" id="customName" placeholder="My Load" maxlength="64" style="width:100%">
       </div>
       <div class="param-row">
         <div class="param-group">
@@ -160,6 +169,11 @@
       <button class="run-btn" id="runCustomBtn" style="margin:8px 0 0">
         <span>▶ COMPUTE CUSTOM</span>
       </button>
+      <button type="button" id="savePresetBtn" class="save-preset-btn">SAVE AS PRESET</button>
+      <div id="customPresetSection" hidden>
+        <div class="section-label">Saved presets</div>
+        <ul id="customPresetList" aria-label="Saved custom round presets"></ul>
+      </div>
     </div>
     </details>
 
@@ -172,6 +186,7 @@
     <div class="tabs">
       <div class="tab active" id="tab-charts">Trajectory Charts</div>
       <div class="tab" id="tab-data">Data Table</div>
+      <div class="tab" id="tab-tools">Tools</div>
     </div>
 
     <!-- CHARTS PANEL -->
@@ -227,20 +242,78 @@
           <thead>
             <tr>
               <th>Round</th>
-              <th>Range (m)</th>
-              <th>Drop (cm)</th>
-              <th>Velocity (m/s)</th>
-              <th>Energy (J)</th>
-              <th>Wind Drift (cm)</th>
-              <th>Time (s)</th>
-              <th>MOA</th>
-              <th>MRAD</th>
+              <th data-sort-key="range"><button class="sort-btn" type="button">Range (m)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="drop"><button class="sort-btn" type="button">Drop (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="velocity"><button class="sort-btn" type="button">Velocity (m/s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="energy"><button class="sort-btn" type="button">Energy (J)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind Drift (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
             </tr>
           </thead>
           <tbody id="tableBody">
-            <tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:40px; font-family:'Share Tech Mono',monospace; letter-spacing:2px; font-size:10px;">NO DATA — RUN SIMULATION</td></tr>
+            <tr><td colspan="9" style="text-align:center; color:var(--text-dim); padding:40px; font-family:'Share Tech Mono',monospace; letter-spacing:2px; font-size:10px;">NO DATA — RUN SIMULATION</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <div id="toolsPanel" class="tools-panel">
+      <div class="tools-grid">
+
+        <!-- MOA / MRAD calculator -->
+        <div class="tool-card">
+          <h3 class="tool-title">MOA / MRAD Calculator</h3>
+          <div class="tool-row">
+            <label>Drop (cm)</label>
+            <input type="number" id="toolDrop" value="0" step="0.1">
+          </div>
+          <div class="tool-row">
+            <label>Range (m)</label>
+            <input type="number" id="toolRange" value="100" step="1" min="1">
+          </div>
+          <button class="tool-calc-btn" id="toolCalcBtn">Calculate</button>
+          <div class="tool-results" id="toolResults"></div>
+        </div>
+
+        <!-- Unit converter -->
+        <div class="tool-card">
+          <h3 class="tool-title">Unit Converter</h3>
+          <div class="tool-row">
+            <label>Value</label>
+            <input type="number" id="unitValue" value="1" step="any">
+          </div>
+          <div class="tool-row">
+            <label>From</label>
+            <select id="unitFrom">
+              <option value="mps">m/s</option>
+              <option value="fps">ft/s</option>
+              <option value="kph">km/h</option>
+              <option value="mph">mph</option>
+              <option value="cm">cm</option>
+              <option value="in">in</option>
+              <option value="m">m</option>
+              <option value="yd">yd</option>
+            </select>
+          </div>
+          <div class="tool-row">
+            <label>To</label>
+            <select id="unitTo">
+              <option value="fps">ft/s</option>
+              <option value="mps">m/s</option>
+              <option value="kph">km/h</option>
+              <option value="mph">mph</option>
+              <option value="in">in</option>
+              <option value="cm">cm</option>
+              <option value="yd">yd</option>
+              <option value="m">m</option>
+            </select>
+          </div>
+          <button class="tool-calc-btn" id="unitCalcBtn">Convert</button>
+          <div class="tool-results" id="unitResults"></div>
+        </div>
+
       </div>
     </div>
 
@@ -252,5 +325,9 @@
 <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
 
 <script type="module" src="./ballistics.js"></script>
+<script type="module">
+  import { initTools } from './tools.js';
+  document.addEventListener('DOMContentLoaded', initTools);
+</script>
 </body>
 </html>
