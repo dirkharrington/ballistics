@@ -74,4 +74,11 @@ public record TrajectoryRequest(
         if (windDirectionDeg == null) windDirectionDeg = 90.0;
         if (dragModel == null) dragModel = "G1";
     }
+
+    /** Returns a copy of this request with bulletId replaced; all other components unchanged. */
+    public TrajectoryRequest withBulletId(String newBulletId) {
+        return new TrajectoryRequest(newBulletId, zeroRangeMeters, maxRangeMeters, stepMeters,
+            windSpeedKph, altitudeMeters, temperatureC, sightHeightMm,
+            shootingAngleDegrees, windDirectionDeg, dragModel);
+    }
 }
