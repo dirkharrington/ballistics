@@ -44,6 +44,7 @@ function buildDOM() {
     <button id="paramsToggle" class="fab-params">☰ PARAMS</button>
     <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
     <button id="runBtn" class="run-btn"><span>▶ COMPUTE TRAJECTORIES</span></button>
+    <div id="simulationError" class="simulation-error" hidden aria-live="assertive" role="alert"></div>
     <button id="runCustomBtn" class="run-btn"><span>▶ COMPUTE CUSTOM</span></button>
     <div id="chartsPanel" class="charts-panel active"></div>
     <div id="dataPanel"   class="data-panel"></div>
@@ -55,9 +56,26 @@ function buildDOM() {
       <button id="readoutPin">PIN</button>
       <table><tbody id="readoutBody"></tbody></table>
     </div>
-    <table><tbody id="tableBody"><tr><td colspan="9">NO DATA</td></tr></tbody></table>
+    <table id="dataTable">
+      <thead>
+        <tr>
+          <th>Round</th>
+          <th data-sort-key="range"><button class="sort-btn" type="button">Range (m)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="drop"><button class="sort-btn" type="button">Drop (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="velocity"><button class="sort-btn" type="button">Velocity (m/s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="energy"><button class="sort-btn" type="button">Energy (J)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind Drift (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"><tr><td colspan="9">NO DATA</td></tr></tbody>
+    </table>
     <div class="tab active" id="tab-charts"></div>
     <div class="tab"        id="tab-data"></div>
+    <div class="tab"        id="tab-tools"></div>
+    <div id="toolsPanel" class="tools-panel"></div>
     <span class="status-pill status-live" id="statusPill">● READY</span>
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
     <button id="retryBtn" style="display:none">↺ RETRY</button>
@@ -68,6 +86,10 @@ function buildDOM() {
     <input id="customBC"     value="0.45" />
     <input id="customDia"    value="7.82" />
     <div   id="customError"  style="display:none"></div>
+    <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
+    <button type="button" id="savePresetBtn">SAVE AS PRESET</button>
+    <div id="customPresetSection" hidden></div>
+    <ul id="customPresetList" aria-label="Saved custom round presets"></ul>
   `;
 }
 
@@ -83,6 +105,8 @@ beforeEach(() => {
   mockChartUpdate.mockClear();
   global.fetch.mockReset();
   global.alert.mockClear();
+  // Reset URL so syncUrl side-effects from previous tests don't bleed into init()
+  history.replaceState(null, '', '/');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -749,6 +773,15 @@ describe('switchTab', () => {
     expect(tabCharts.classList.contains('active')).toBe(false);
     expect(tabData.classList.contains('active')).toBe(true);
   });
+
+  test('switching to tools activates toolsPanel', () => {
+    const el = document.getElementById('tab-tools');
+    mod.switchTab('tools', el);
+    expect(document.getElementById('toolsPanel').classList.contains('active')).toBe(true);
+    expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(false);
+    expect(document.getElementById('dataPanel').classList.contains('active')).toBe(false);
+    expect(el.classList.contains('active')).toBe(true);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1080,6 +1113,22 @@ describe('renderResults', () => {
     expect(html).toContain('#4ADE80');
     expect(html).not.toContain('undefined');
   });
+
+  test('renderStatCards silently skips results missing bullet property', () => {
+    const mixedResults = [
+      { points: [], maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0 },
+      {
+        bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP',
+                  muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+                  ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+        request: {},
+        points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+        maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
+      }
+    ];
+    expect(() => mod.renderResults(mixedResults, req)).not.toThrow();
+    expect(document.getElementById('chartContainer').innerHTML).toContain('.308 Win 168gr BTHP');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1230,6 +1279,280 @@ describe('runSimulation', () => {
   test('streamCompare throws when response is not ok', async () => {
     global.fetch.mockResolvedValue({ ok: false, status: 429 });
     await expect(mod.streamCompare({}, () => {})).rejects.toThrow('HTTP 429');
+  });
+
+  test('batch compare ok:true path — renders results and clears offline mode', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    mod.setOfflineMode(true);
+
+    global.fetch.mockImplementation(async (url) => {
+      if (url.includes('stream')) return { ok: false, status: 503 };
+      return { ok: true, json: async () => mockApiResults };
+    });
+
+    await mod.runSimulation();
+
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+    expect(mod._getState().offlineMode).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FE-R1: runSimulation error-handling refactor
+// ─────────────────────────────────────────────────────────────────────────────
+describe('runSimulation — FE-R1 error handling', () => {
+  const mockApiResults = [
+    {
+      bullet: {
+        id: '308-win-168gr', name: '.308 Win 168gr BTHP',
+        muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+        ballisticCoefficient: 0.475, bulletWeightGrams: 10.89
+      },
+      request: {},
+      points: [
+        { rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }
+      ],
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
+    }
+  ];
+
+  function makeRejectionResponse({ status, detail, retryAfter }) {
+    return {
+      ok: false,
+      status,
+      headers: {
+        get(name) {
+          if (name === 'Content-Type') return 'application/problem+json';
+          if (name === 'Retry-After') return retryAfter ?? null;
+          return null;
+        }
+      },
+      json: async () => ({ detail })
+    };
+  }
+
+  function makeStreamFailThenBatch(batchResponse) {
+    return global.fetch.mockImplementation(async (url) => {
+      if (url.includes('/stream')) return { ok: false, status: 503 };
+      return batchResponse;
+    });
+  }
+
+  test('400 with problem+json → error banner shown, OFFLINE not set, computeClientSide not called', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 400, detail: 'Wind speed too high.' }));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(false);
+    expect(banner.textContent).toContain('Wind speed too high.');
+    expect(mod._getState().offlineMode).toBe(false);
+    expect(document.getElementById('resultsContainer').style.display).not.toBe('flex');
+  });
+
+  test('429 with Retry-After header → message contains retry seconds', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 429, detail: 'Rate limit exceeded.', retryAfter: '15' }));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(false);
+    expect(banner.textContent).toContain('Retry after 15 s.');
+    expect(mod._getState().offlineMode).toBe(false);
+  });
+
+  test('429 without Retry-After → message does not contain "Retry after"', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 429, detail: 'Rate limit exceeded.' }));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.textContent).not.toContain('Retry after');
+  });
+
+  test('TypeError from fetch → OFFLINE fallback, error banner not shown', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(true);
+    expect(mod._getState().offlineMode).toBe(true);
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('500 → OFFLINE fallback, error banner not shown', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch({
+      ok: false, status: 500,
+      headers: { get: () => null },
+      json: async () => ({})
+    });
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(true);
+    expect(mod._getState().offlineMode).toBe(true);
+  });
+
+  test('413 with problem+json → error banner shown, OFFLINE not set', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 413, detail: 'Request too large.' }));
+
+    await mod.runSimulation();
+
+    const banner = document.getElementById('simulationError');
+    expect(banner.hasAttribute('hidden')).toBe(false);
+    expect(banner.textContent).toContain('Request too large.');
+    expect(mod._getState().offlineMode).toBe(false);
+  });
+
+  test('second runSimulation clears previously displayed error banner', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    // First call: server rejects
+    makeStreamFailThenBatch(makeRejectionResponse({ status: 400, detail: 'Too fast.' }));
+    await mod.runSimulation();
+    expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(false);
+
+    // Second call: server succeeds
+    global.fetch.mockImplementation(async (url) => {
+      if (url.includes('/stream')) return { ok: false, status: 503 };
+      return { ok: true, json: async () => mockApiResults };
+    });
+    await mod.runSimulation();
+    expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FE-R1: _parseRejection unit tests
+// ─────────────────────────────────────────────────────────────────────────────
+describe('_parseRejection', () => {
+  test('returns detail from body and retryAfterSeconds from header', async () => {
+    const res = {
+      status: 429,
+      headers: { get: (n) => n === 'Retry-After' ? '30' : null },
+      json: async () => ({ detail: 'Too many requests.' })
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.detail).toBe('Too many requests.');
+    expect(result.retryAfterSeconds).toBe(30);
+    expect(result.status).toBe(429);
+  });
+
+  test('malformed JSON body → fallback detail, no exception thrown', async () => {
+    const res = {
+      status: 400,
+      headers: { get: () => null },
+      json: async () => { throw new SyntaxError('Unexpected token'); }
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.detail).toBe('Server rejected the request.');
+    expect(result.retryAfterSeconds).toBe(0);
+  });
+
+  test('missing Retry-After header → retryAfterSeconds is 0', async () => {
+    const res = {
+      status: 400,
+      headers: { get: () => null },
+      json: async () => ({ detail: 'Bad input.' })
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.retryAfterSeconds).toBe(0);
+  });
+
+  test('non-numeric Retry-After → retryAfterSeconds is 0', async () => {
+    const res = {
+      status: 429,
+      headers: { get: (n) => n === 'Retry-After' ? 'soon' : null },
+      json: async () => ({})
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.retryAfterSeconds).toBe(0);
+  });
+
+  test('body without detail field → fallback detail', async () => {
+    const res = {
+      status: 400,
+      headers: { get: () => null },
+      json: async () => ({ title: 'Bad Request' })
+    };
+    const result = await mod._parseRejection(res);
+    expect(result.detail).toBe('Server rejected the request.');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FE-R2: savePrefs / loadPrefs map-driven loop
+// ─────────────────────────────────────────────────────────────────────────────
+describe('FE-R2: savePrefs loop', () => {
+  test('sets all 10 non-selectedIds keys with correct DOM values', () => {
+    document.getElementById('zeroRange').value     = '200';
+    document.getElementById('maxRange').value      = '900';
+    document.getElementById('windSpeed').value     = '5';
+    document.getElementById('windDir').value       = '0';
+    document.getElementById('altitude').value      = '1500';
+    document.getElementById('temperature').value   = '10';
+    document.getElementById('step').value          = '10';
+    document.getElementById('sightHeight').value   = '50';
+    document.getElementById('shootingAngle').value = '5';
+    document.getElementById('dragModel').value     = 'G7';
+
+    mod.savePrefs();
+
+    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('200');
+    expect(localStorage.getItem(mod.PREF_KEYS.maxRange)).toBe('900');
+    expect(localStorage.getItem(mod.PREF_KEYS.wind)).toBe('5');
+    expect(localStorage.getItem(mod.PREF_KEYS.windDir)).toBe('0');
+    expect(localStorage.getItem(mod.PREF_KEYS.altitude)).toBe('1500');
+    expect(localStorage.getItem(mod.PREF_KEYS.temp)).toBe('10');
+    expect(localStorage.getItem(mod.PREF_KEYS.step)).toBe('10');
+    expect(localStorage.getItem(mod.PREF_KEYS.sightHeight)).toBe('50');
+    expect(localStorage.getItem(mod.PREF_KEYS.angle)).toBe('5');
+    expect(localStorage.getItem(mod.PREF_KEYS.dragModel)).toBe('G7');
+  });
+});
+
+describe('FE-R2: loadPrefs loop', () => {
+  test('empty storage returns same keys/values as { ...PREF_DEFAULTS } with selectedIds null', () => {
+    const prefs = mod.loadPrefs();
+    const defaults = { ...mod.PREF_DEFAULTS };
+    defaults.selectedIds = null;
+    expect(prefs).toEqual(defaults);
+  });
+
+  test('with all keys in storage returns numeric for numbers and string for dragModel', () => {
+    localStorage.setItem(mod.PREF_KEYS.zero,        '150');
+    localStorage.setItem(mod.PREF_KEYS.maxRange,    '800');
+    localStorage.setItem(mod.PREF_KEYS.wind,        '20');
+    localStorage.setItem(mod.PREF_KEYS.windDir,     '270');
+    localStorage.setItem(mod.PREF_KEYS.altitude,    '500');
+    localStorage.setItem(mod.PREF_KEYS.temp,        '22');
+    localStorage.setItem(mod.PREF_KEYS.step,        '50');
+    localStorage.setItem(mod.PREF_KEYS.sightHeight, '40');
+    localStorage.setItem(mod.PREF_KEYS.angle,       '10');
+    localStorage.setItem(mod.PREF_KEYS.dragModel,   'G7');
+
+    const prefs = mod.loadPrefs();
+
+    expect(typeof prefs.zero).toBe('number');
+    expect(prefs.zero).toBe(150);
+    expect(typeof prefs.dragModel).toBe('string');
+    expect(prefs.dragModel).toBe('G7');
   });
 });
 
@@ -2079,6 +2402,159 @@ describe('exportCSV', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// _downloadBlob
+// ─────────────────────────────────────────────────────────────────────────────
+describe('_downloadBlob', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('creates an anchor with the given filename and revokes the URL after click', () => {
+    const blob = new Blob(['test'], { type: 'text/plain' });
+    mod._downloadBlob(blob, 'test.txt');
+    expect(createObjectURL).toHaveBeenCalledWith(blob);
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// exportJSON
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportJSON', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    global.Blob = jest.fn((parts) => ({ parts }));
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('returns early without creating a Blob when lastResults is empty', () => {
+    mod._resetState();
+    mod.exportJSON();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  test('creates a JSON blob with all result data and triggers download', () => {
+    const bullet = mod.getMockBullets()[0];
+    const result = mod.simulateBullet(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    mod._setLastResults([result]);
+    mod.exportJSON();
+
+    expect(global.Blob).toHaveBeenCalledTimes(1);
+    const jsonContent = global.Blob.mock.calls[0][0][0];
+    const parsed = JSON.parse(jsonContent);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed[0].bullet.name).toBe(bullet.name);
+    expect(parsed[0].points).toBeDefined();
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// exportMarkdown
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportMarkdown', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    global.Blob = jest.fn((parts) => ({ parts }));
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('returns early without creating a Blob when lastResults is empty', () => {
+    mod._resetState();
+    mod.exportMarkdown();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  test('creates Markdown with table headers and bullet name heading', () => {
+    const bullet = mod.getMockBullets()[0];
+    const result = mod.simulateBullet(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    mod._setLastResults([result]);
+    mod.exportMarkdown();
+
+    expect(global.Blob).toHaveBeenCalledTimes(1);
+    const md = global.Blob.mock.calls[0][0][0];
+    expect(md).toContain(`## ${bullet.name}`);
+    expect(md).toContain('| Range (m)');
+    expect(md).toContain('| MOA |');
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// export dropdown wiring
+// ─────────────────────────────────────────────────────────────────────────────
+describe('export dropdown toggle', () => {
+  beforeEach(() => {
+    buildDOM();
+    // Append the export dropdown elements to the existing DOM
+    const dropdown = document.createElement('div');
+    dropdown.className = 'export-dropdown';
+    dropdown.innerHTML = `
+      <button class="export-toggle">EXPORT ▾</button>
+      <div class="export-menu">
+        <button class="export-csv-btn">CSV</button>
+        <button class="export-json-btn">JSON</button>
+        <button class="export-md-btn">Markdown</button>
+      </div>`;
+    document.body.appendChild(dropdown);
+    global.fetch.mockResolvedValue({ json: () => Promise.resolve(mod.getMockBullets()) });
+  });
+
+  test('clicking .export-toggle adds "open" class to .export-dropdown', async () => {
+    await mod.init();
+    document.querySelector('.export-toggle').click();
+    expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(true);
+  });
+
+  test('clicking outside the dropdown removes "open" class', async () => {
+    await mod.init();
+    document.querySelector('.export-toggle').click();
+    expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(true);
+    document.getElementById('runBtn').click();
+    expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // exportPNG
 // ─────────────────────────────────────────────────────────────────────────────
 describe('exportPNG', () => {
@@ -2153,6 +2629,16 @@ describe('runCustom server success', () => {
 
     expect(mod._getState().lastResults).toHaveLength(1);
     expect(mod._getState().lastResults[0]).toEqual(serverResult);
+  });
+
+  test('falls back to offline simulation when server returns non-ok response', async () => {
+    setValidCustomInputs();
+    global.fetch.mockResolvedValueOnce({ ok: false, status: 422 });
+    await mod.runCustom();
+    const result = mod._getState().lastResults[0];
+    expect(result).toBeDefined();
+    expect(result.bullet).toBeDefined();
+    expect(result.bullet.id).toBe('custom');
   });
 });
 
@@ -2346,6 +2832,14 @@ describe('tab click listeners wired by init()', () => {
     await mod.init();
     document.getElementById('tab-data').click();
     expect(document.getElementById('dataPanel').classList.contains('active')).toBe(true);
+  });
+
+  test('clicking #tab-tools switches to tools panel', async () => {
+    global.fetch.mockResolvedValueOnce({ json: async () => mod.getMockBullets() });
+    await mod.init();
+    document.getElementById('tab-tools').click();
+    expect(document.getElementById('toolsPanel').classList.contains('active')).toBe(true);
+    expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(false);
   });
 });
 
@@ -2936,5 +3430,528 @@ describe('auto-init guard', () => {
     // If the guard true-branch was entered, init() ran and issued the bullets fetch
     expect(global.fetch).toHaveBeenCalled();
     expect(freshMod).toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// currentState / syncUrl / copyLink (FE-1)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('currentState', () => {
+  test('returns sidebar input values and selectedIds', () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    const state = mod.currentState();
+    expect(state.bulletIds).toEqual(['308-win-168gr']);
+    expect(state.zero).toBe(100);
+    expect(state.dragModel).toBe('G1');
+  });
+
+  test('falls back to PREF_DEFAULTS when inputs are absent', () => {
+    document.getElementById('zeroRange').remove();
+    const state = mod.currentState();
+    expect(state.zero).toBe(mod.PREF_DEFAULTS.zero);
+  });
+});
+
+describe('syncUrl', () => {
+  test('calls history.replaceState with new query string', () => {
+    const spy = jest.spyOn(history, 'replaceState');
+    mod.syncUrl();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const url = spy.mock.calls[0][2];
+    expect(url).toContain('zero=');
+    spy.mockRestore();
+  });
+});
+
+describe('copyLink', () => {
+  test('clipboard.writeText success → toast "Link copied"', async () => {
+    const toastEl = document.getElementById('toast');
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText }, configurable: true, writable: true
+    });
+    await mod.copyLink();
+    expect(writeText).toHaveBeenCalled();
+    expect(toastEl.textContent).toBe('Link copied');
+    delete navigator.clipboard;
+  });
+
+  test('clipboard API missing → fallback toast', async () => {
+    const toastEl = document.getElementById('toast');
+    const origClip = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined, configurable: true, writable: true
+    });
+    await mod.copyLink();
+    expect(toastEl.textContent).toContain("Couldn't copy");
+    Object.defineProperty(navigator, 'clipboard', {
+      value: origClip, configurable: true, writable: true
+    });
+  });
+
+  test('clipboard.writeText rejects → fallback toast, no unhandled rejection', async () => {
+    const toastEl = document.getElementById('toast');
+    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText }, configurable: true, writable: true
+    });
+    await expect(mod.copyLink()).resolves.toBeUndefined();
+    expect(toastEl.textContent).toContain("Couldn't copy");
+    delete navigator.clipboard;
+  });
+});
+
+describe('init() with URL params (FE-1)', () => {
+  test('URL bullet IDs override saved prefs when they match the catalog', async () => {
+    const bullets = mod.getMockBullets();
+    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
+    history.replaceState(null, '', '/?b=308-win-168gr');
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => bullets });
+    await mod.init();
+    const { selectedIds } = mod._getState();
+    expect(selectedIds.has('308-win-168gr')).toBe(true);
+    expect(selectedIds.has('223-rem-55gr')).toBe(false);
+    history.replaceState(null, '', '/');
+  });
+
+  test('URL bullet IDs fall back to prefs when none match the catalog', async () => {
+    const bullets = mod.getMockBullets();
+    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
+    history.replaceState(null, '', '/?b=not-a-real-id');
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => bullets });
+    await mod.init();
+    const { selectedIds } = mod._getState();
+    expect(selectedIds.has('223-rem-55gr')).toBe(true);
+    history.replaceState(null, '', '/');
+  });
+
+  test('fromUrl.recognized → syncUrl called at end of init', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    history.replaceState(null, '', '/?zero=200');
+    const spy = jest.spyOn(history, 'replaceState');
+    await mod.init();
+    // replaceState called at least once (the syncUrl at end of init)
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+    history.replaceState(null, '', '/');
+  });
+
+  test('param input triggers syncUrl after savePrefs', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    const spy = jest.spyOn(history, 'replaceState');
+    const input = document.getElementById('zeroRange');
+    input.value = '300';
+    input.dispatchEvent(new Event('input'));
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test('copyLinkBtn click wired to copyLink in init', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText }, configurable: true, writable: true
+    });
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    document.getElementById('copyLinkBtn').click();
+    await Promise.resolve(); // flush microtasks
+    expect(writeText).toHaveBeenCalled();
+    delete navigator.clipboard;
+  });
+
+  test('toggleBullet calls syncUrl after savePrefs', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod.renderBulletList();
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    const spy = jest.spyOn(history, 'replaceState');
+    mod.toggleBullet('308-win-168gr');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// init() FE-2: preset library glue
+// ─────────────────────────────────────────────────────────────────────────────
+describe('init() FE-2: preset library glue', () => {
+  const VALID_FIELDS = {
+    customName:   'Test Load',
+    customWeight: '11.34',
+    customMV:     '800',
+    customBC:     '0.505',
+    customDia:    '7.82',
+  };
+
+  function fillForm(fields = VALID_FIELDS) {
+    Object.entries(fields).forEach(([id, val]) => {
+      document.getElementById(id).value = val;
+    });
+  }
+
+  async function runInit() {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+  }
+
+  test('init() calls renderPresetList with stored presets on startup', async () => {
+    // Store one preset so the section becomes visible
+    const preset = {
+      id: '3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c',
+      name: 'Stored Load',
+      weightG: 11.34, mvMps: 800, bc: 0.505, diaMm: 7.82,
+      savedAt: '2026-11-01T14:03:22.511Z',
+    };
+    localStorage.setItem('bv_customRounds', JSON.stringify([preset]));
+    await runInit();
+    expect(document.getElementById('customPresetSection').hidden).toBe(false);
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
+  });
+
+  test('savePresetBtn saves preset and shows toast "Preset saved"', async () => {
+    await runInit();
+    fillForm();
+    const toastEl = document.getElementById('toast');
+    document.getElementById('savePresetBtn').click();
+    expect(toastEl.textContent).toBe('Preset saved');
+    expect(document.getElementById('customPresetSection').hidden).toBe(false);
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
+  });
+
+  test('savePresetBtn replaces preset with same name and shows "Preset updated"', async () => {
+    await runInit();
+    fillForm();
+    document.getElementById('savePresetBtn').click(); // first save
+    document.getElementById('customWeight').value = '12';
+    document.getElementById('savePresetBtn').click(); // replace
+    expect(document.getElementById('toast').textContent).toBe('Preset updated');
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
+  });
+
+  test('savePresetBtn shows full toast when library is full', async () => {
+    // Fill with 20 presets
+    const presets = Array.from({ length: 20 }, (_, i) => ({
+      id: `3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a${String(i).padStart(4, '0')}`,
+      name: `Load ${i}`,
+      weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82,
+      savedAt: '2026-11-01T14:03:22.511Z',
+    }));
+    localStorage.setItem('bv_customRounds', JSON.stringify(presets));
+    await runInit();
+    fillForm({ ...VALID_FIELDS, customName: 'New Load' });
+    document.getElementById('savePresetBtn').click();
+    expect(document.getElementById('toast').textContent).toContain('full');
+  });
+
+  test('savePresetBtn shows custom error when field is invalid', async () => {
+    await runInit();
+    fillForm({ ...VALID_FIELDS, customWeight: '0' });
+    document.getElementById('savePresetBtn').click();
+    const errEl = document.getElementById('customError');
+    expect(errEl.style.display).toBe('block');
+    expect(errEl.textContent).toContain('Weight');
+  });
+
+  test('savePresetBtn shows storage toast on localStorage failure', async () => {
+    await runInit();
+    fillForm();
+    const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new Error('QuotaExceededError');
+    });
+    document.getElementById('savePresetBtn').click();
+    expect(document.getElementById('toast').textContent).toContain("Couldn't save preset");
+    spy.mockRestore();
+  });
+
+  test('onLoad fills form fields and clears custom error', async () => {
+    const preset = {
+      id: '3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c',
+      name: 'Stored Load', weightG: 9.5, mvMps: 900, bc: 0.45, diaMm: 6.0,
+      savedAt: '2026-11-01T14:03:22.511Z',
+    };
+    localStorage.setItem('bv_customRounds', JSON.stringify([preset]));
+    await runInit();
+    // Trigger a custom error first
+    document.getElementById('customError').style.display = 'block';
+    document.getElementById('customError').textContent = 'some error';
+    // Click the Load button
+    document.querySelector('.preset-load-btn').click();
+    expect(document.getElementById('customName').value).toBe('Stored Load');
+    expect(document.getElementById('customWeight').value).toBe('9.5');
+    expect(document.getElementById('customMV').value).toBe('900');
+    expect(document.getElementById('customBC').value).toBe('0.45');
+    expect(document.getElementById('customDia').value).toBe('6');
+    expect(document.getElementById('customError').style.display).toBe('none');
+  });
+
+  test('onDelete removes preset from rendered list', async () => {
+    const preset = {
+      id: '3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c',
+      name: 'Stored Load', weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82,
+      savedAt: '2026-11-01T14:03:22.511Z',
+    };
+    localStorage.setItem('bv_customRounds', JSON.stringify([preset]));
+    await runInit();
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
+    document.querySelector('.preset-delete-btn').click();
+    expect(document.querySelectorAll('.preset-row')).toHaveLength(0);
+    expect(document.getElementById('customPresetSection').hidden).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FE-3: Data table column sort
+// ─────────────────────────────────────────────────────────────────────────────
+describe('FE-3: SORTABLE_COLUMNS', () => {
+  const pt = { rangeMeters: 100, dropCm: -5.2, velocityMps: 750, energyJoules: 3000, windDriftCm: 2.1, timeOfFlightSec: 0.14 };
+  const adj = { moa: -1.9, mrad: -0.55 };
+
+  test('range accessor', () => { expect(mod.SORTABLE_COLUMNS.range(pt, adj)).toBe(100); });
+  test('drop accessor',  () => { expect(mod.SORTABLE_COLUMNS.drop(pt, adj)).toBe(-5.2); });
+  test('velocity accessor', () => { expect(mod.SORTABLE_COLUMNS.velocity(pt, adj)).toBe(750); });
+  test('energy accessor',   () => { expect(mod.SORTABLE_COLUMNS.energy(pt, adj)).toBe(3000); });
+  test('windDrift accessor', () => { expect(mod.SORTABLE_COLUMNS.windDrift(pt, adj)).toBe(2.1); });
+  test('time accessor',  () => { expect(mod.SORTABLE_COLUMNS.time(pt, adj)).toBe(0.14); });
+  test('moa accessor',   () => { expect(mod.SORTABLE_COLUMNS.moa(pt, adj)).toBe(-1.9); });
+  test('mrad accessor',  () => { expect(mod.SORTABLE_COLUMNS.mrad(pt, adj)).toBe(-0.55); });
+});
+
+describe('FE-3: _getSortState', () => {
+  test('returns default state before any sort', () => {
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+
+  test('returns updated state after onSortHeaderClick', () => {
+    const results = makeTableResults();
+    mod._setLastResults(results);
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
+  });
+});
+
+// Helper: minimal results fixture for table tests (2 rows, different rangeMeters)
+function makeTableResults() {
+  return [{
+    bullet: { id: '308-win-168gr', name: '.308 Win 168gr', muzzleVelocityMps: 807,
+              muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+    request: {},
+    points: [
+      { rangeMeters: 200, dropCm: -10, velocityMps: 700, energyJoules: 2800, windDriftCm: 3, timeOfFlightSec: 0.28 },
+      { rangeMeters: 100, dropCm: -3,  velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13 },
+    ],
+    maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
+  }];
+}
+
+describe('FE-3: onSortHeaderClick', () => {
+  test('no-op when tableResults is null', () => {
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+
+  test('no-op when key is not in SORTABLE_COLUMNS', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('bogus');
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+
+  test('first click sets column and asc direction', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
+  });
+
+  test('second click on same column toggles to desc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'desc' });
+  });
+
+  test('third click on same column toggles back to asc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    mod.onSortHeaderClick('range'); // desc
+    mod.onSortHeaderClick('range'); // back to asc
+    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
+  });
+
+  test('click on different column resets to asc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    mod.onSortHeaderClick('drop');
+    expect(mod._getSortState()).toEqual({ column: 'drop', direction: 'asc' });
+  });
+
+  test('re-renders table on valid sort', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const rows = document.querySelectorAll('#tableBody tr');
+    expect(rows.length).toBe(2);
+  });
+});
+
+describe('FE-3: renderTable sort logic', () => {
+  test('sorts asc by range — row with lower range comes first', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range'); // asc
+    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
+    expect(Number(cells[0].textContent)).toBe(100);
+    expect(Number(cells[1].textContent)).toBe(200);
+  });
+
+  test('sorts desc by range — row with higher range comes first', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range'); // asc
+    mod.onSortHeaderClick('range'); // desc
+    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
+    expect(Number(cells[0].textContent)).toBe(200);
+    expect(Number(cells[1].textContent)).toBe(100);
+  });
+
+  test('NaN values sort last', () => {
+    const resultsWithNaN = [{
+      bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: NaN,  dropCm: 0, velocityMps: 700, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: 100,  dropCm: 0, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0 },
+      ],
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+    }];
+    mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
+    // first row should be the finite one (100)
+    expect(Number(cells[0].textContent)).toBe(100);
+  });
+
+  test('both NaN values remain stable (return 0)', () => {
+    const resultsWithNaN = [{
+      bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: NaN, dropCm: 0, velocityMps: 700, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: NaN, dropCm: 0, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0 },
+      ],
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+    }];
+    mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(() => mod.onSortHeaderClick('range')).not.toThrow();
+    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(2);
+  });
+
+  test('finite value beats NaN (bFin false branch)', () => {
+    const resultsWithNaN = [{
+      bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 100, dropCm: 0, velocityMps: 700, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: NaN, dropCm: 0, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0 },
+      ],
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+    }];
+    mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
+    expect(Number(cells[0].textContent)).toBe(100);
+  });
+
+  test('renderResults resets sort state before rendering', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range'); // set a sort
+    expect(mod._getSortState().column).toBe('range');
+    // renderResults should reset it
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+});
+
+describe('FE-3: updateSortIndicators', () => {
+  test('sets aria-sort and ▲ on active column asc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
+    expect(th.getAttribute('aria-sort')).toBe('ascending');
+    expect(th.querySelector('.sort-indicator').textContent).toBe('▲');
+  });
+
+  test('sets aria-sort descending and ▼ on active column desc', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    mod.onSortHeaderClick('range');
+    const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
+    expect(th.getAttribute('aria-sort')).toBe('descending');
+    expect(th.querySelector('.sort-indicator').textContent).toBe('▼');
+  });
+
+  test('inactive columns have no aria-sort and empty indicator', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('range');
+    const th = document.querySelector('#dataTable thead th[data-sort-key="drop"]');
+    expect(th.hasAttribute('aria-sort')).toBe(false);
+    expect(th.querySelector('.sort-indicator').textContent).toBe('');
+  });
+
+  test('all indicators cleared when no sort active', () => {
+    mod.updateSortIndicators();
+    document.querySelectorAll('#dataTable thead th[data-sort-key]').forEach(th => {
+      expect(th.hasAttribute('aria-sort')).toBe(false);
+      expect(th.querySelector('.sort-indicator').textContent).toBe('');
+    });
+  });
+});
+
+describe('FE-3: _resetState resets sort variables', () => {
+  test('resets sortColumn, sortDirection, tableResults', () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.onSortHeaderClick('drop');
+    mod._resetState();
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+    // After reset, onSortHeaderClick should be a no-op (tableResults is null)
+    mod.onSortHeaderClick('range');
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+});
+
+describe('FE-3: init() thead click listener', () => {
+  async function runInit() {
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
+    await mod.init();
+  }
+
+  test('click on sort-key th calls onSortHeaderClick', async () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await runInit();
+    const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
+    th.click();
+    expect(mod._getSortState().column).toBe('range');
+  });
+
+  test('click on Round th (no data-sort-key) is a no-op', async () => {
+    const results = makeTableResults();
+    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await runInit();
+    const roundTh = document.querySelector('#dataTable thead th:not([data-sort-key])');
+    roundTh.click();
+    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
   });
 });
