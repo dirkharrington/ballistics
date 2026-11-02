@@ -1,6 +1,8 @@
 import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from 'chart.js';
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
+import { decodeState, mergeIntoSearch } from './url-state.js';
+import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -74,6 +76,10 @@ let retryTimer  = null;
 // Crosshair state (task 5)
 let crosshairIndex  = null;  // data-point index currently under the cursor
 let crosshairPinned = false; // true after user clicks a range to lock the readout
+// Table sort state (FE-3)
+let sortColumn    = null;   // string | null
+let sortDirection = 'asc';  // 'asc' | 'desc'
+let tableResults  = null;   // results last passed to renderTable
 
 // ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
 function getMockBullets() {
@@ -294,6 +300,7 @@ function toggleBullet(id) {
   else selectedIds.add(id);
   updateBulletCards();
   savePrefs();
+  syncUrl();
 }
 
 function updateBulletCards() {
@@ -336,9 +343,36 @@ async function streamCompare(req, onResult) {
   }
 }
 
+// ── Error handling helpers ────────────────────────────────────────────────────
+
+/** Returns {status, detail, retryAfterSeconds} from a fetch Response. Never throws. */
+async function _parseRejection(res) {
+  let body = null;
+  try { body = await res.json(); } catch (_) {}
+  const detail = body?.detail ?? 'Server rejected the request.';
+  const retryAfterParsed = parseInt(res.headers.get('Retry-After') ?? '0', 10);
+  const retryAfterSeconds = Number.isFinite(retryAfterParsed) ? retryAfterParsed : 0;
+  return { status: res.status, detail, retryAfterSeconds };
+}
+
+/** Shows or hides the inline simulation error banner. */
+function _setSimulationError(message) {
+  const el = document.getElementById('simulationError');
+  /* istanbul ignore next -- #simulationError is always present in the app shell */
+  if (!el) return;
+  if (message) {
+    el.textContent = message;
+    el.removeAttribute('hidden');
+  } else {
+    el.setAttribute('hidden', '');
+    el.textContent = '';
+  }
+}
+
 // ── Simulation ────────────────────────────────────────────────────────────────
 async function runSimulation() {
   if (selectedIds.size === 0) { alert('Select at least one round.'); return; }
+  _setSimulationError(null);
   const btn   = document.getElementById('runBtn');
   btn.classList.add('loading');
 
@@ -376,18 +410,38 @@ async function runSimulation() {
     } catch (_streamErr) {
       /* istanbul ignore else -- partial-results path requires a stream that delivers some events then fails; not exercised in unit tests */
       if (results.length === 0) {
+        let res;
         try {
-          const res = await fetch(`${API_BASE}/trajectories/compare`, {
+          res = await fetch(`${API_BASE}/trajectories/compare`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(req)
           });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          (await res.json()).forEach(r => results.push(r));
-          setOfflineMode(false);
-        } catch (_batchErr) {
+        } catch (networkErr) {
+          // Network/DNS/CORS errors → OFFLINE fallback
           computeClientSide(req).forEach(r => results.push(r));
           setOfflineMode(true);
+          renderResults(results, req);
+          lastResults = results;
+          return;
+        }
+
+        if (!res.ok) {
+          const ct = res.headers?.get('Content-Type') ?? '';
+          if (res.status < 500 && ct.includes('problem+json')) {
+            const { detail, retryAfterSeconds } = await _parseRejection(res);
+            const msg = retryAfterSeconds > 0
+              ? `${detail} Retry after ${retryAfterSeconds} s.`
+              : detail;
+            _setSimulationError(msg);
+            return;
+          }
+          // 4xx non-JSON or 5xx → existing OFFLINE fallback
+          computeClientSide(req).forEach(r => results.push(r));
+          setOfflineMode(true);
+        } else {
+          (await res.json()).forEach(r => results.push(r));
+          setOfflineMode(false);
         }
         renderResults(results, req);
       }
@@ -941,18 +995,53 @@ function renderResults(rawResults, req) {
     }
   });
 
+  sortColumn = null;
+  sortDirection = 'asc';
   renderTable(results);
 }
 
 // ── Data table ────────────────────────────────────────────────────────────────
+const SORTABLE_COLUMNS = Object.freeze({
+  range:     (p, adj) => p.rangeMeters,
+  drop:      (p, adj) => p.dropCm,
+  velocity:  (p, adj) => p.velocityMps,
+  energy:    (p, adj) => p.energyJoules,
+  windDrift: (p, adj) => p.windDriftCm,
+  time:      (p, adj) => p.timeOfFlightSec,
+  moa:       (p, adj) => adj.moa,
+  mrad:      (p, adj) => adj.mrad,
+});
+
 function renderTable(results) {
+  tableResults = results;
   const tbody = document.getElementById('tableBody');
-  const rows = [];
+
+  let rows = [];
   results.forEach(r => {
     r.points.forEach(p => {
-      const color = BULLET_COLORS[r.bullet.id] || '#4ADE80';
       const adj = computeAdjustments(p.dropCm, p.rangeMeters);
-      rows.push(`
+      rows.push({ r, p, adj });
+    });
+  });
+
+  if (sortColumn !== null) {
+    const getValue = SORTABLE_COLUMNS[sortColumn];
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+      const va = getValue(a.p, a.adj);
+      const vb = getValue(b.p, b.adj);
+      const aFin = Number.isFinite(va);
+      const bFin = Number.isFinite(vb);
+      if (!aFin && !bFin) return 0;
+      if (!aFin) return 1;
+      if (!bFin) return -1;
+      return dir * (va - vb);
+    });
+  }
+
+  const html = rows.map(({ r, p, adj }) => {
+    const color = BULLET_COLORS[r.bullet.id] || '#4ADE80';
+    return `
         <tr>
           <td><span class="bullet-tag" style="background:${color}"></span>${escapeHtml(r.bullet.name)}</td>
           <td>${p.rangeMeters}</td>
@@ -963,10 +1052,41 @@ function renderTable(results) {
           <td>${p.timeOfFlightSec}s</td>
           <td>${adj.moa > 0 ? '+' : ''}${adj.moa}</td>
           <td>${adj.mrad > 0 ? '+' : ''}${adj.mrad}</td>
-        </tr>`);
-    });
+        </tr>`;
   });
-  tbody.innerHTML = rows.join('');
+  tbody.innerHTML = html.join('');
+  updateSortIndicators();
+}
+
+function onSortHeaderClick(key) {
+  if (tableResults === null || !(key in SORTABLE_COLUMNS)) return;
+  if (sortColumn === key) {
+    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortColumn = key;
+    sortDirection = 'asc';
+  }
+  renderTable(tableResults);
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll('#dataTable thead th[data-sort-key]').forEach(th => {
+    const key = th.dataset.sortKey;
+    const indicator = th.querySelector('.sort-indicator');
+    if (key === sortColumn) {
+      th.setAttribute('aria-sort', sortDirection === 'asc' ? 'ascending' : 'descending');
+      /* istanbul ignore else -- sort-indicator is always present when data-sort-key is set */
+      if (indicator) indicator.textContent = sortDirection === 'asc' ? '▲' : '▼';
+    } else {
+      th.removeAttribute('aria-sort');
+      /* istanbul ignore else -- sort-indicator is always present when data-sort-key is set */
+      if (indicator) indicator.textContent = '';
+    }
+  });
+}
+
+function _getSortState() {
+  return { column: sortColumn, direction: sortDirection };
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -978,21 +1098,66 @@ function switchTab(name, el) {
   document.getElementById('toolsPanel')?.classList.toggle('active', name === 'tools');
 }
 
+// ── URL state sharing ─────────────────────────────────────────────────────────
+/** Snapshot of the sidebar: reads the 10 inputs and [...selectedIds]. */
+function currentState() {
+  const get = id => document.getElementById(id);
+  /* istanbul ignore next -- each element is always present in the app shell */
+  return {
+    bulletIds:   [...selectedIds],
+    zero:        +(get('zeroRange')?.value     ?? PREF_DEFAULTS.zero),
+    maxRange:    +(get('maxRange')?.value      ?? PREF_DEFAULTS.maxRange),
+    wind:        +(get('windSpeed')?.value     ?? PREF_DEFAULTS.wind),
+    windDir:     +(get('windDir')?.value       ?? PREF_DEFAULTS.windDir),
+    altitude:    +(get('altitude')?.value      ?? PREF_DEFAULTS.altitude),
+    temp:        +(get('temperature')?.value   ?? PREF_DEFAULTS.temp),
+    step:        +(get('step')?.value          ?? PREF_DEFAULTS.step),
+    sightHeight: +(get('sightHeight')?.value   ?? PREF_DEFAULTS.sightHeight),
+    angle:       +(get('shootingAngle')?.value ?? PREF_DEFAULTS.angle),
+    dragModel:     get('dragModel')?.value     ?? PREF_DEFAULTS.dragModel,
+  };
+}
+
+/** Update the address bar via replaceState. Never pushState. */
+function syncUrl() {
+  const qs = mergeIntoSearch(location.search, currentState());
+  /* istanbul ignore next -- qs is always non-empty (encodeState always emits 10 keys) */
+  const url = location.pathname + (qs ? '?' + qs : '') + location.hash;
+  history.replaceState(history.state, '', url);
+}
+
+/** Click handler for #copyLinkBtn. Returns the promise for tests. */
+async function copyLink() {
+  syncUrl();
+  const url = location.origin + location.pathname + '?' + mergeIntoSearch(location.search, currentState());
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+      showToast('Link copied');
+    } else {
+      showToast("Couldn't copy. Use the link in the address bar.");
+    }
+  } catch {
+    showToast("Couldn't copy. Use the link in the address bar.");
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  // Load saved preferences and apply to inputs before fetching bullets
-  const prefs = loadPrefs();
+  // Load saved preferences and URL params; URL takes per-key precedence over localStorage
+  const fromUrl = decodeState(window.location.search);
+  const merged  = { ...loadPrefs(), ...fromUrl.params };
   const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-  setVal('zeroRange',     prefs.zero);
-  setVal('maxRange',      prefs.maxRange);
-  setVal('windSpeed',     prefs.wind);
-  setVal('windDir',       prefs.windDir);
-  setVal('altitude',      prefs.altitude);
-  setVal('temperature',   prefs.temp);
-  setVal('step',          prefs.step);
-  setVal('sightHeight',   prefs.sightHeight);
-  setVal('shootingAngle', prefs.angle);
-  setVal('dragModel',     prefs.dragModel);
+  setVal('zeroRange',     merged.zero);
+  setVal('maxRange',      merged.maxRange);
+  setVal('windSpeed',     merged.wind);
+  setVal('windDir',       merged.windDir);
+  setVal('altitude',      merged.altitude);
+  setVal('temperature',   merged.temp);
+  setVal('step',          merged.step);
+  setVal('sightHeight',   merged.sightHeight);
+  setVal('shootingAngle', merged.angle);
+  setVal('dragModel',     merged.dragModel);
 
   try {
     const res = await fetch(`${API_BASE}/bullets`);
@@ -1004,20 +1169,31 @@ async function init() {
   }
   renderBulletList();
 
-  // Restore bullet selection: null = first visit → select all; otherwise restore saved set
-  if (prefs.selectedIds !== null) {
-    // Only restore IDs that still exist in the catalog (handles catalog changes gracefully)
+  // Restore bullet selection: URL params take precedence over saved prefs
+  {
     const validIds = new Set(bullets.map(b => b.id));
-    selectedIds = new Set(prefs.selectedIds.filter(id => validIds.has(id)));
-  } else {
-    bullets.forEach(b => selectedIds.add(b.id));
+    let usedUrlBullets = false;
+    if (fromUrl.bulletIds !== null) {
+      const filtered = fromUrl.bulletIds.filter(id => validIds.has(id));
+      if (filtered.length > 0) {
+        selectedIds = new Set(filtered);
+        usedUrlBullets = true;
+      }
+    }
+    if (!usedUrlBullets) {
+      if (merged.selectedIds !== null) {
+        selectedIds = new Set(merged.selectedIds.filter(id => validIds.has(id)));
+      } else {
+        bullets.forEach(b => selectedIds.add(b.id));
+      }
+    }
   }
   updateBulletCards();
 
-  // Persist parameter changes automatically
+  // Persist parameter changes automatically and sync URL
   const paramInputIds = ['zeroRange','maxRange','windSpeed','windDir','altitude','temperature','step','sightHeight','shootingAngle','dragModel'];
   paramInputIds.forEach(id => {
-    document.getElementById(id)?.addEventListener('input', savePrefs);
+    document.getElementById(id)?.addEventListener('input', () => { savePrefs(); syncUrl(); });
   });
 
   // Wire up static event listeners (replaces window.* globals and onclick attrs)
@@ -1036,6 +1212,46 @@ async function init() {
     }
   });
   document.getElementById('runCustomBtn')?.addEventListener('click', () => { closeSidebar(); runCustom(); });
+  document.getElementById('copyLinkBtn')?.addEventListener('click', copyLink);
+
+  const handlers = {
+    onLoad(p) {
+      document.getElementById('customName').value   = p.name;
+      document.getElementById('customWeight').value = p.weightG;
+      document.getElementById('customMV').value     = p.mvMps;
+      document.getElementById('customBC').value     = p.bc;
+      document.getElementById('customDia').value    = p.diaMm;
+      showCustomError('');
+    },
+    onDelete(id) {
+      renderPresetList(deletePreset(id), handlers);
+    },
+  };
+  document.getElementById('savePresetBtn')?.addEventListener('click', () => {
+    const name    = document.getElementById('customName').value;
+    const weightG = +document.getElementById('customWeight').value;
+    const mvMps   = +document.getElementById('customMV').value;
+    const bc      = +document.getElementById('customBC').value;
+    const diaMm   = +document.getElementById('customDia').value;
+    const result  = savePreset({ name, weightG, mvMps, bc, diaMm });
+    if (result.ok) {
+      showCustomError('');
+      renderPresetList(result.presets, handlers);
+      showToast(result.replaced ? 'Preset updated' : 'Preset saved');
+    } else if (result.error === 'full') {
+      showToast('Preset library full (20). Delete one to save another.');
+    } else if (result.error === 'invalid') {
+      showCustomError(result.message);
+    } else {
+      showToast("Couldn't save preset: browser storage unavailable");
+    }
+  });
+  renderPresetList(loadPresets(), handlers);
+
+  document.querySelector('#dataTable thead')?.addEventListener('click', e => {
+    const th = e.target.closest('th[data-sort-key]');
+    if (th) onSortHeaderClick(th.dataset.sortKey);
+  });
 
   // Mobile drawer: FAB opens sidebar; backdrop tap closes it
   document.getElementById('paramsToggle')?.addEventListener('click', openSidebar);
@@ -1043,6 +1259,9 @@ async function init() {
   document.getElementById('tab-charts')?.addEventListener('click', function() { switchTab('charts', this); });
   document.getElementById('tab-data')?.addEventListener('click', function() { switchTab('data', this); });
   document.getElementById('tab-tools')?.addEventListener('click', function() { switchTab('tools', this); });
+
+  // Normalize address bar if URL had recognized params
+  if (fromUrl.recognized) syncUrl();
 
   // Pin button toggles crosshair lock (chart onClick also toggles)
   document.getElementById('readoutPin')?.addEventListener('click', () => {
@@ -1095,24 +1314,34 @@ const PREF_DEFAULTS = {
   dragModel:   'G1',  // G1 = standard flat-base/spitzer; G7 = boat-tail long-range
 };
 
+/** Maps PREF_DEFAULTS keys to their DOM input element IDs (selectedIds has no input). */
+const DOM_ID_FOR_PREF = {
+  zero:        'zeroRange',
+  maxRange:    'maxRange',
+  wind:        'windSpeed',
+  windDir:     'windDir',
+  altitude:    'altitude',
+  temp:        'temperature',
+  step:        'step',
+  sightHeight: 'sightHeight',
+  angle:       'shootingAngle',
+  dragModel:   'dragModel',
+};
+
 /**
  * Persist current parameter inputs and selected bullet IDs to localStorage.
  * Wrapped in try/catch: silently degrades in private-browsing or when quota is full.
  */
 function savePrefs() {
   try {
-    const get = id => document.getElementById(id)?.value;
     localStorage.setItem(PREF_KEYS.selectedIds, JSON.stringify([...selectedIds]));
-    localStorage.setItem(PREF_KEYS.zero,        get('zeroRange')     ?? String(PREF_DEFAULTS.zero));
-    localStorage.setItem(PREF_KEYS.maxRange,    get('maxRange')      ?? String(PREF_DEFAULTS.maxRange));
-    localStorage.setItem(PREF_KEYS.wind,        get('windSpeed')     ?? String(PREF_DEFAULTS.wind));
-    localStorage.setItem(PREF_KEYS.windDir,     get('windDir')       ?? String(PREF_DEFAULTS.windDir));
-    localStorage.setItem(PREF_KEYS.altitude,    get('altitude')      ?? String(PREF_DEFAULTS.altitude));
-    localStorage.setItem(PREF_KEYS.temp,        get('temperature')   ?? String(PREF_DEFAULTS.temp));
-    localStorage.setItem(PREF_KEYS.step,        get('step')          ?? String(PREF_DEFAULTS.step));
-    localStorage.setItem(PREF_KEYS.sightHeight, get('sightHeight')   ?? String(PREF_DEFAULTS.sightHeight));
-    localStorage.setItem(PREF_KEYS.angle,       get('shootingAngle') ?? String(PREF_DEFAULTS.angle));
-    localStorage.setItem(PREF_KEYS.dragModel,   get('dragModel')     ?? PREF_DEFAULTS.dragModel);
+    for (const k of Object.keys(PREF_DEFAULTS).filter(k => k !== 'selectedIds')) {
+      const domId = DOM_ID_FOR_PREF[k];
+      /* istanbul ignore next -- null branch only reached when a pref has no DOM element */
+      const value = (domId ? document.getElementById(domId)?.value : null)
+                    ?? String(PREF_DEFAULTS[k]);
+      localStorage.setItem(PREF_KEYS[k], value);
+    }
   } catch (e) {
     console.warn('localStorage unavailable — preferences not saved', e);
   }
@@ -1130,22 +1359,16 @@ function loadPrefs() {
     try {
       savedIds = raw !== null ? JSON.parse(raw) : null;
       if (!Array.isArray(savedIds)) savedIds = null;
-    } catch (_) {
-      savedIds = null;
+    } catch (_) { savedIds = null; }
+
+    const prefs = { selectedIds: savedIds };
+    for (const k of Object.keys(PREF_DEFAULTS).filter(k => k !== 'selectedIds')) {
+      const stored = localStorage.getItem(PREF_KEYS[k]);
+      prefs[k] = typeof PREF_DEFAULTS[k] === 'number'
+        ? +(stored ?? PREF_DEFAULTS[k])
+        : (stored ?? PREF_DEFAULTS[k]);
     }
-    return {
-      selectedIds: savedIds,
-      zero:        +(localStorage.getItem(PREF_KEYS.zero)        ?? PREF_DEFAULTS.zero),
-      maxRange:    +(localStorage.getItem(PREF_KEYS.maxRange)    ?? PREF_DEFAULTS.maxRange),
-      wind:        +(localStorage.getItem(PREF_KEYS.wind)        ?? PREF_DEFAULTS.wind),
-      windDir:     +(localStorage.getItem(PREF_KEYS.windDir)     ?? PREF_DEFAULTS.windDir),
-      altitude:    +(localStorage.getItem(PREF_KEYS.altitude)    ?? PREF_DEFAULTS.altitude),
-      temp:        +(localStorage.getItem(PREF_KEYS.temp)        ?? PREF_DEFAULTS.temp),
-      step:        +(localStorage.getItem(PREF_KEYS.step)        ?? PREF_DEFAULTS.step),
-      sightHeight: +(localStorage.getItem(PREF_KEYS.sightHeight) ?? PREF_DEFAULTS.sightHeight),
-      angle:       +(localStorage.getItem(PREF_KEYS.angle)       ?? PREF_DEFAULTS.angle),
-      dragModel:     localStorage.getItem(PREF_KEYS.dragModel)   ?? PREF_DEFAULTS.dragModel,
-    };
+    return prefs;
   } catch (e) {
     console.warn('localStorage unavailable — using defaults', e);
     return { ...PREF_DEFAULTS };
@@ -1158,6 +1381,7 @@ function _resetState()   {
   bullets = []; selectedIds = new Set(); lastResults = []; charts = {};
   crosshairIndex = null; crosshairPinned = false;
   offlineMode = false;
+  sortColumn = null; sortDirection = 'asc'; tableResults = null;
   if (retryTimer !== null) { clearInterval(retryTimer); retryTimer = null; }
 }
 function _setBullets(b)      { bullets = b; }
@@ -1177,11 +1401,14 @@ export {
   renderBulletList, toggleBullet, updateBulletCards, runSimulation, streamCompare,
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
+  onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
   exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, setOfflineMode, probeServer, showToast,
   _downloadBlob,
   BULLET_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
   drawVLine, drawHLine, annotationPlugin, windChartSubtitle,
   savePrefs, loadPrefs, PREF_KEYS, PREF_DEFAULTS,
   openSidebar, closeSidebar,
+  currentState, syncUrl, copyLink,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
+  _parseRejection, _setSimulationError,
 };
