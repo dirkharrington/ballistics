@@ -6,10 +6,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 
+import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 
@@ -93,6 +96,42 @@ class TrajectoryServiceUnitTest {
         List<TrajectoryResult> results = service.compare(req);
         assertThat(results).hasSize(1);
         assertThat(results.get(0).bullet().id()).isEqualTo("308-win-168gr");
+    }
+
+    // ── joinUnwrapped — RuntimeException cause rethrown directly ─────────────
+
+    @Test
+    void joinUnwrappedRuntimeExceptionIsRethrownDirectly() throws Exception {
+        Method m = TrajectoryService.class.getDeclaredMethod("joinUnwrapped", CompletableFuture.class);
+        m.setAccessible(true);
+
+        // Wrap a RuntimeException in CompletionException — exercises the `throw re` branch
+        // (cause instanceof RuntimeException re is TRUE → re is rethrown directly)
+        RuntimeException cause = new RuntimeException("direct runtime");
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        future.completeExceptionally(new CompletionException(cause));
+
+        assertThatThrownBy(() -> m.invoke(service, future))
+            .cause()  // invoke() wraps in InvocationTargetException
+            .isSameAs(cause);
+    }
+
+    // ── joinUnwrapped — checked exception wrapped in RuntimeException ─────────
+
+    @Test
+    void joinUnwrappedCheckedExceptionIsWrappedInRuntimeException() throws Exception {
+        Method m = TrajectoryService.class.getDeclaredMethod("joinUnwrapped", CompletableFuture.class);
+        m.setAccessible(true);
+
+        // Wrap a checked exception (IOException) in CompletionException — exercises the
+        // `throw new RuntimeException(cause)` branch (cause is not a RuntimeException)
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        future.completeExceptionally(new CompletionException(new IOException("checked")));
+
+        assertThatThrownBy(() -> m.invoke(service, future))
+            .cause()  // invoke() wraps in InvocationTargetException
+            .isInstanceOf(RuntimeException.class)
+            .hasCauseInstanceOf(IOException.class);
     }
 
     // ── batch — unknown id throws before any futures ──────────────────────────

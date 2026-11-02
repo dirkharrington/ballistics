@@ -104,6 +104,44 @@ class RateLimitPropertiesTest {
     }
 
     @Test
+    void periodLessThan1sFails() {
+        assertThatThrownBy(() -> new RateLimitProperties(
+            true,
+            Duration.ofMillis(100),
+            new RateLimitProperties.Tier(120, 1200),
+            new RateLimitProperties.Tier(30, 300),
+            new RateLimitProperties.Tier(10, 100),
+            new RateLimitProperties.ClientCache(10000, Duration.ofMinutes(2)),
+            64
+        )).isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("app.ratelimit.period must be >= 1s");
+    }
+
+    @Test
+    void nullPeriodSkipsAllPeriodChecks() {
+        // period == null → first if is false; second if's period!=null is also false → no throws
+        assertThatCode(() -> new RateLimitProperties(
+            true, null,
+            new RateLimitProperties.Tier(1, 1),
+            new RateLimitProperties.Tier(1, 1),
+            new RateLimitProperties.Tier(1, 1),
+            new RateLimitProperties.ClientCache(10000, Duration.ofMinutes(2)), 64
+        )).doesNotThrowAnyException();
+    }
+
+    @Test
+    void nullClientCacheSkipsExpireAfterAccessCheck() {
+        // clientCache == null → second if's first condition is false → no throws
+        assertThatCode(() -> new RateLimitProperties(
+            true, Duration.ofMinutes(1),
+            new RateLimitProperties.Tier(1, 1),
+            new RateLimitProperties.Tier(1, 1),
+            new RateLimitProperties.Tier(1, 1),
+            null, 64
+        )).doesNotThrowAnyException();
+    }
+
+    @Test
     void expireAfterAccessLessThanPeriodFails() {
         assertThatThrownBy(() -> new RateLimitProperties(
             true,
