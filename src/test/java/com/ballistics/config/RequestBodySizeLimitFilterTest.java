@@ -123,6 +123,46 @@ class RequestBodySizeLimitFilterTest {
         assertThat(response.getStatus()).isEqualTo(413);
     }
 
+    // ── Unit: body-read path rejection (Content-Length unknown, body read and exceeds max) ──
+
+    @Test
+    void bodyReadPathRejectsBodyOverMax() throws Exception {
+        RequestBodySizeLimitFilter filter = makeFilter(10);
+
+        byte[] bodyBytes = new byte[11];
+        // Override getContentLengthLong() to -1 so fast-path is skipped;
+        // body is then read and found to exceed the limit
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/trajectory") {
+            @Override public long getContentLengthLong() { return -1L; }
+        };
+        request.setContent(bodyBytes);
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, resp) -> {});
+
+        assertThat(response.getStatus()).isEqualTo(413);
+    }
+
+    // ── Unit: reject413 with malformed URI (IllegalArgumentException catch) ───
+
+    @Test
+    void reject413SetsFallbackInstanceOnMalformedUri() throws Exception {
+        RequestBodySizeLimitFilter filter = makeFilter(10);
+
+        byte[] bodyBytes = new byte[11];
+        // URI.create("{bad}") throws IllegalArgumentException — exercises the catch block
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/{bad}") {
+            @Override public long getContentLengthLong() { return -1L; }
+            @Override public String getRequestURI()      { return "/api/{bad}"; }
+        };
+        request.setContent(bodyBytes);
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, resp) -> {});
+
+        assertThat(response.getStatus()).isEqualTo(413);
+    }
+
     // ── Unit: body within limit passes through ────────────────────────────────
 
     @Test

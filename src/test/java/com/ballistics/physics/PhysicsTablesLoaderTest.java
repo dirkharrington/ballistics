@@ -2,11 +2,15 @@ package com.ballistics.physics;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Covers every validation rule in the contract's Validation table.
@@ -249,6 +253,55 @@ class PhysicsTablesLoaderTest {
         assertThat(a.hashCode()).isEqualTo(b.hashCode());
         assertThat(a).isNotEqualTo(c);
         assertThat(a.toString()).contains("size=2");
+    }
+
+    // ── Atmosphere not a map ──────────────────────────────────────────────────
+
+    @Test
+    void atmosphereAsScalarThrows() {
+        // atmosphere: scalar_value — not a Map → "atmosphere must be a YAML mapping"
+        String yaml = validG1() + validG7() + "atmosphere: scalar_value\n";
+        assertThrows(yaml, "atmosphere must be a YAML mapping");
+    }
+
+    // ── Resource IOException ──────────────────────────────────────────────────
+
+    @Test
+    void resourceGetInputStreamIoExceptionThrows() throws Exception {
+        Resource resource = mock(Resource.class);
+        when(resource.getDescription()).thenReturn("mock-resource");
+        when(resource.exists()).thenReturn(true);
+        when(resource.getInputStream()).thenThrow(new IOException("disk error"));
+
+        assertThatThrownBy(() -> PhysicsTablesLoader.load(resource))
+            .isInstanceOf(PhysicsTablesLoadException.class)
+            .hasMessageContaining("could not open resource");
+    }
+
+    // ── Resource with bad YAML rethrows PhysicsTablesLoadException ──────────────
+
+    @Test
+    void loadResourceWithBadYamlRethrowsPhysicsTablesLoadException() throws Exception {
+        // resource exists and is readable, but inner load(InputStream) throws
+        // PhysicsTablesLoadException — exercises the `catch (PhysicsTablesLoadException e) { throw e; }` rethrow
+        Resource resource = mock(Resource.class);
+        when(resource.getDescription()).thenReturn("bad-yaml-resource");
+        when(resource.exists()).thenReturn(true);
+        // Return a stream with invalid YAML (g1Table must be a list, not a scalar)
+        when(resource.getInputStream()).thenReturn(
+            new ByteArrayInputStream("g1Table: not_a_list\ng7Table: []\natmosphere: {}\n".getBytes()));
+
+        assertThatThrownBy(() -> PhysicsTablesLoader.load(resource))
+            .isInstanceOf(PhysicsTablesLoadException.class);
+    }
+
+    // ── PhysicsTablesLoadException getters ────────────────────────────────────
+
+    @Test
+    void loadExceptionGettersReturnConstructorValues() {
+        PhysicsTablesLoadException ex = new PhysicsTablesLoadException("src-desc", "bad-thing");
+        assertThat(ex.source()).isEqualTo("src-desc");
+        assertThat(ex.problem()).isEqualTo("bad-thing");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
