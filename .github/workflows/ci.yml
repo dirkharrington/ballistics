@@ -173,6 +173,9 @@ jobs:
   dependency-check:
     name: OWASP Dependency-Check
     runs-on: ubuntu-latest
+    # NVD infrastructure is unreliable; Trivy (below) is the hard CVE gate.
+    continue-on-error: true
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -195,6 +198,19 @@ jobs:
           path: ~/.m2/repository
           key: ${{ runner.os }}-m2-owasp-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
+
+      - name: Get current week (for NVD cache key)
+        id: date
+        run: echo "week=$(date +'%Y-%U')" >> $GITHUB_OUTPUT
+
+      - name: Cache NVD data
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          # Weekly key: reuses the NVD database within a week instead of
+          # re-downloading 418K records on every run (old key used run_id).
+          key: ${{ runner.os }}-nvd-${{ steps.date.outputs.week }}
+          restore-keys: ${{ runner.os }}-nvd-
 
       - name: Run OWASP Dependency-Check
         run: |
