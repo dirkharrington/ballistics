@@ -140,14 +140,21 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          # Use the security-extended query suite for broader coverage
           queries: security-extended
+          config: |
+            paths-ignore:
+              - '**/node_modules/**'
+              - 'target/**'
 
-      # Java: compile so CodeQL can intercept javac and trace data flow.
-      # Skip tests and frontend build — CodeQL only needs compiled classes.
-      - name: Build Java (CodeQL intercepts javac)
+      # Java: mvn compile traces javac so CodeQL can map data flow.
+      # Pass -Dfrontend-maven-plugin.phase=none to unbind the npm install/build
+      # executions from the Maven lifecycle for this CodeQL-only compile.
+      - name: Build Java (CodeQL traces javac)
         if: matrix.language == 'java'
-        run: mvn --batch-mode compile -Dskip.npm.test=true
+        run: |
+          mvn --batch-mode compile \
+            -Dskip.npm.test=true \
+            -Dfrontend-maven-plugin.phase=none
 
       # JavaScript: CodeQL analyses source files directly — no build needed.
 
@@ -157,14 +164,21 @@ jobs:
           category: /language:${{ matrix.language }}
 
   # ── OWASP Dependency-Check ───────────────────────────────────────────────────
-  # Item 4 — Fails on any dependency with CVSS ≥ 7 (high or critical).
-  # Runs in parallel with build and codeql jobs.
-  # Set the NVD_API_KEY secret in repo Settings → Secrets to avoid NVD rate-limits.
+  # Item 4 — Fails on any dependency with CVSS >= 7 (high or critical).
+  # Results appear in GitHub Security -> Code scanning tab (SARIF upload).
+  #
+  # Data sources: NVD (primary) + Sonatype OSS Index (secondary).
+  # NVD_API_KEY secret must be set in GitHub repo settings (nvd.nist.gov).
+  # New keys take up to 24 h to activate.
   dependency-check:
     name: OWASP Dependency-Check
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      security-events: write
+
+    env:
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
 
     steps:
       - uses: actions/checkout@v6
@@ -182,31 +196,37 @@ jobs:
           key: ${{ runner.os }}-m2-owasp-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
-      - name: Cache NVD data
-        uses: actions/cache@v5
-        with:
-          path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: ${{ runner.os }}-nvd-${{ github.run_id }}
-          restore-keys: ${{ runner.os }}-nvd-
-
       - name: Run OWASP Dependency-Check
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: mvn --batch-mode dependency-check:check -DskipTests
+        run: |
+          mvn --batch-mode dependency-check:check \
+            -DskipTests \
+            -DfailOnError=true \
+            -DnvdAnalyzerEnabled=true \
+            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
+            -DossindexAnalyzerEnabled=true \
+            -Dformat=SARIF \
+            -DsuppressionFile=owasp-suppressions.xml
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: target/dependency-check-report.sarif
+          category: dependency-check
 
       - name: Upload Dependency-Check report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
-          path: target/dependency-check-report.html
+          path: target/dependency-check-report.*
 
-  # ── Trivy container scan ─────────────────────────────────────────────────────
-  # Item 5 — Scans the built JAR's base image for OS and library CVEs.
-  # Results appear in GitHub Security → Code scanning tab (SARIF upload).
-  # Fails on CRITICAL vulnerabilities; High findings are reported but non-blocking.
+  # ── Trivy filesystem scan ─────────────────────────────────────────────────────
+  # Item 5 — Scans source-tree dependency manifests (pom.xml, package-lock.json)
+  # for CVEs and secrets.  Results appear in GitHub Security -> Code scanning tab.
+  # Fails on CRITICAL or HIGH unfixed vulnerabilities.
   trivy:
-    name: Trivy Container Scan
+    name: Trivy Dependency Scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -216,7 +236,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -225,23 +245,29 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-trivy-${{ hashFiles('**/pom.xml') }}
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
-      - name: Build JAR (skip tests and frontend)
-        run: mvn --batch-mode package -DskipTests -Dskip.npm.test=true
+      - name: Populate Maven local cache
+        # Trivy resolves Maven metadata from ~/.m2; without this it fetches POMs from
+        # Maven Central and hits 429 rate-limits on shared GitHub Actions runner IPs.
+        run: mvn --batch-mode dependency:resolve -DskipTests -Dfrontend-maven-plugin.phase=none
 
       - name: Run Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
+          scanners: vuln,secret
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           exit-code: '1'
           ignore-unfixed: true
           version: v0.76.1
+          # Skip build output and vendored dependency copies; Trivy already reads
+          # the lock files (pom.xml, package-lock.json) for the authoritative list.
+          skip-dirs: 'target,node_modules'
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always()
