@@ -214,6 +214,10 @@
                                 <!-- findZeroAngle bisection: iter==64 loop-exit branch is structurally
                                      unreachable — bisection always converges in ≤27 of 64 iterations -->
                                 <exclude>com/ballistics/service/BallisticsEngine.class</exclude>
+                                <!-- OpenAPI schema stubs: doc-only inner classes whose default constructors
+                                     are never invoked — they exist solely for @Schema annotations -->
+                                <exclude>com/ballistics/controller/JsonRpcController$JsonRpcRequestSchema.class</exclude>
+                                <exclude>com/ballistics/controller/JsonRpcController$JsonRpcBatchSchema.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>
