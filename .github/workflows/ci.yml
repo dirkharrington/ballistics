@@ -167,21 +167,18 @@ jobs:
   # Item 4 — Fails on any dependency with CVSS >= 7 (high or critical).
   # Results appear in GitHub Security -> Code scanning tab (SARIF upload).
   #
-  # Data source: Sonatype OSS Index (no API key required, covers Maven + npm).
-  # NVD (National Vulnerability Database) is disabled here because the project's
-  # NVD_API_KEY secret has expired.  To re-enable NVD scanning after the key is
-  # rotated (nvd.nist.gov), add to the mvn command:
-  #   -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
-  #   -DnvdAnalyzerEnabled=true
-  # and restore:
-  #   env:
-  #     NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+  # Data sources: NVD (primary) + Sonatype OSS Index (secondary).
+  # NVD_API_KEY secret must be set in GitHub repo settings (nvd.nist.gov).
+  # New keys take up to 24 h to activate.
   dependency-check:
     name: OWASP Dependency-Check
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
+
+    env:
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
 
     steps:
       - uses: actions/checkout@v6
@@ -199,12 +196,13 @@ jobs:
           key: ${{ runner.os }}-m2-owasp-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
-      - name: Run OWASP Dependency-Check (OSS Index)
+      - name: Run OWASP Dependency-Check
         run: |
           mvn --batch-mode dependency-check:check \
             -DskipTests \
             -DfailOnError=true \
-            -DnvdAnalyzerEnabled=false \
+            -DnvdAnalyzerEnabled=true \
+            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
             -DossindexAnalyzerEnabled=true \
             -Dformat=SARIF \
             -DsuppressionFile=owasp-suppressions.xml
