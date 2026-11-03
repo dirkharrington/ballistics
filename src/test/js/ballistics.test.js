@@ -1560,18 +1560,21 @@ describe('FE-R2: loadPrefs loop', () => {
 // init
 // ─────────────────────────────────────────────────────────────────────────────
 describe('init', () => {
-  test('fetches bullets from API and renders list', async () => {
+  test('fetches bullets from API via JSON-RPC and renders list', async () => {
     const apiBullets = mod.getMockBullets();
-    global.fetch.mockResolvedValue({ json: () => Promise.resolve(apiBullets) });
+    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: apiBullets, id: 1 }) });
 
     await mod.init();
 
-    expect(global.fetch).toHaveBeenCalledWith('/api/bullets');
+    expect(global.fetch).toHaveBeenCalledWith('/api/rpc', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'bullets.list', id: 1 }),
+    }));
     expect(document.querySelectorAll('.bullet-card')).toHaveLength(10);
   });
 
   test('selects all bullets by default after init', async () => {
-    global.fetch.mockResolvedValue({ json: () => Promise.resolve(mod.getMockBullets()) });
+    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
     await mod.init();
     const { selectedIds } = mod._getState();
     expect(selectedIds.size).toBe(10);
@@ -1590,8 +1593,17 @@ describe('init', () => {
     expect(selectedIds.size).toBe(10);
   });
 
+  test('falls back to mock bullets on JSON-RPC error response', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', error: { code: -32601, message: 'Method not found' }, id: 1 }),
+    });
+    await mod.init();
+    expect(document.querySelectorAll('.bullet-card')).toHaveLength(10);
+  });
+
   test('readoutPin click wired by init toggles crosshairPinned', async () => {
-    global.fetch.mockResolvedValueOnce({ json: async () => mod.getMockBullets() });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
     await mod.init();
     const pinBtn = document.getElementById('readoutPin');
     pinBtn.click();
@@ -1600,7 +1612,7 @@ describe('init', () => {
   });
 
   test('readoutPin second click unpins and clears crosshair state', async () => {
-    global.fetch.mockResolvedValueOnce({ json: async () => mod.getMockBullets() });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
     await mod.init();
     const pinBtn = document.getElementById('readoutPin');
     pinBtn.click();  // pin
@@ -2183,17 +2195,20 @@ describe('offline retry', () => {
     expect(mod._getState().retryTimer).toBe(firstTimer);
   });
 
-  test('probeServer calls fetch on /api/bullets', async () => {
+  test('probeServer calls fetch on /api/rpc with bullets.list', async () => {
     global.fetch.mockRejectedValueOnce(new Error('still down'));
     await mod.probeServer();
-    expect(global.fetch).toHaveBeenCalledWith('/api/bullets');
+    expect(global.fetch).toHaveBeenCalledWith('/api/rpc', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'bullets.list', id: 1 }),
+    }));
   });
 
   test('probeServer on success calls setOfflineMode(false)', async () => {
     const mockBullets = mod.getMockBullets();
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => mockBullets
+      json: async () => ({ jsonrpc: '2.0', result: mockBullets, id: 1 }),
     });
     mod.setOfflineMode(true);
     mod._setBullets(mockBullets);
@@ -2205,11 +2220,21 @@ describe('offline retry', () => {
     const mockBullets = mod.getMockBullets();
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => mockBullets
+      json: async () => ({ jsonrpc: '2.0', result: mockBullets, id: 1 }),
     });
     mod._setBullets(mockBullets);
     await mod.probeServer();
     expect(document.getElementById('toast').textContent).toBe('Reconnected to server');
+  });
+
+  test('probeServer on JSON-RPC error does not call setOfflineMode(false)', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', error: { code: -32601 }, id: 1 }),
+    });
+    mod.setOfflineMode(true);
+    await mod.probeServer();
+    expect(mod._getState().offlineMode).toBe(true);
   });
 
   test('probeServer on failure does not change offlineMode', async () => {
@@ -2230,7 +2255,7 @@ describe('offline retry', () => {
     const mockBullets = mod.getMockBullets();
     global.fetch.mockResolvedValue({
       ok: true,
-      json: async () => mockBullets
+      json: async () => ({ jsonrpc: '2.0', result: mockBullets, id: 1 }),
     });
     mod._setBullets(mockBullets);
     mod.setOfflineMode(true);
@@ -2536,7 +2561,7 @@ describe('export dropdown toggle', () => {
         <button class="export-md-btn">Markdown</button>
       </div>`;
     document.body.appendChild(dropdown);
-    global.fetch.mockResolvedValue({ json: () => Promise.resolve(mod.getMockBullets()) });
+    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
   });
 
   test('clicking .export-toggle adds "open" class to .export-dropdown', async () => {
@@ -2821,21 +2846,21 @@ describe('updateReadout edge cases', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('tab click listeners wired by init()', () => {
   test('clicking #tab-charts switches to charts panel', async () => {
-    global.fetch.mockResolvedValueOnce({ json: async () => mod.getMockBullets() });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
     await mod.init();
     document.getElementById('tab-charts').click();
     expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(true);
   });
 
   test('clicking #tab-data switches to data panel', async () => {
-    global.fetch.mockResolvedValueOnce({ json: async () => mod.getMockBullets() });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
     await mod.init();
     document.getElementById('tab-data').click();
     expect(document.getElementById('dataPanel').classList.contains('active')).toBe(true);
   });
 
   test('clicking #tab-tools switches to tools panel', async () => {
-    global.fetch.mockResolvedValueOnce({ json: async () => mod.getMockBullets() });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
     await mod.init();
     document.getElementById('tab-tools').click();
     expect(document.getElementById('toolsPanel').classList.contains('active')).toBe(true);
@@ -2849,7 +2874,7 @@ describe('tab click listeners wired by init()', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('readoutPin unpin with populated charts (L815 forEach arrow fn)', () => {
   test('second pin-click calls update() on every active chart', async () => {
-    global.fetch.mockResolvedValueOnce({ json: async () => mod.getMockBullets() });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
     await mod.init();
 
     // Populate charts by running a simulation
@@ -3063,7 +3088,7 @@ describe('init with saved preferences', () => {
   test('restores saved bullet selection (subset of catalog)', async () => {
     const bullets = mod.getMockBullets();
     localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['308-win-168gr']));
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => bullets });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
 
     await mod.init();
 
@@ -3086,7 +3111,7 @@ describe('init with saved preferences', () => {
     const bullets = mod.getMockBullets();
     localStorage.setItem(mod.PREF_KEYS.selectedIds,
       JSON.stringify(['308-win-168gr', 'deleted-bullet-id']));
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => bullets });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
 
     await mod.init();
 
@@ -3506,7 +3531,7 @@ describe('init() with URL params (FE-1)', () => {
     const bullets = mod.getMockBullets();
     localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
     history.replaceState(null, '', '/?b=308-win-168gr');
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => bullets });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
     await mod.init();
     const { selectedIds } = mod._getState();
     expect(selectedIds.has('308-win-168gr')).toBe(true);
@@ -3518,7 +3543,7 @@ describe('init() with URL params (FE-1)', () => {
     const bullets = mod.getMockBullets();
     localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
     history.replaceState(null, '', '/?b=not-a-real-id');
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => bullets });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
     await mod.init();
     const { selectedIds } = mod._getState();
     expect(selectedIds.has('223-rem-55gr')).toBe(true);
@@ -3933,7 +3958,7 @@ describe('FE-3: _resetState resets sort variables', () => {
 
 describe('FE-3: init() thead click listener', () => {
   async function runInit() {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: [], id: 1 }) });
     await mod.init();
   }
 

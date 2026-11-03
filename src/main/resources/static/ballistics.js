@@ -605,9 +605,15 @@ function setOfflineMode(isOffline) {
 // Probe the server; on success reload bullets, clear offline mode, show toast.
 async function probeServer() {
   try {
-    const res = await fetch(`${API_BASE}/bullets`);
+    const res = await fetch(`${API_BASE}/rpc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'bullets.list', id: 1 }),
+    });
     if (!res.ok) throw new Error(`status ${res.status}`);
-    bullets = await res.json();
+    const data = await res.json();
+    if (data.error) throw new Error('RPC error');
+    bullets = data.result;
     setOfflineMode(false);
     renderBulletList();
     updateBulletCards();
@@ -1160,8 +1166,14 @@ async function init() {
   setVal('dragModel',     merged.dragModel);
 
   try {
-    const res = await fetch(`${API_BASE}/bullets`);
-    bullets = await res.json();
+    const res = await fetch(`${API_BASE}/rpc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'bullets.list', id: 1 }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error('RPC error');
+    bullets = data.result;
   } catch (e) {
     console.warn('API offline — using mock data for preview');
     bullets = getMockBullets();

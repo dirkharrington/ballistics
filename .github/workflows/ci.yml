@@ -173,6 +173,12 @@ jobs:
   dependency-check:
     name: OWASP Dependency-Check
     runs-on: ubuntu-latest
+    # NVD infrastructure is unreliable; Trivy (below) is the hard CVE gate.
+    # continue-on-error prevents a CVE hit from blocking the PR.
+    # No job-level timeout-minutes: a job timeout emits "cancelled" (not
+    # "failure"), which bypasses continue-on-error and still blocks the PR.
+    # The shell timeout below converts a slow-NVD exit into exit 0 instead.
+    continue-on-error: true
     permissions:
       contents: read
       security-events: write
@@ -196,19 +202,41 @@ jobs:
           key: ${{ runner.os }}-m2-owasp-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
+      - name: Get current week (for NVD cache key)
+        id: date
+        run: echo "week=$(date +'%Y-%U')" >> $GITHUB_OUTPUT
+
+      - name: Cache NVD data
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          # Weekly key: reuses the NVD database within a week instead of
+          # re-downloading 418K records on every run (old key used run_id).
+          key: ${{ runner.os }}-nvd-${{ steps.date.outputs.week }}
+          restore-keys: ${{ runner.os }}-nvd-
+
       - name: Run OWASP Dependency-Check
         run: |
-          mvn --batch-mode dependency-check:check \
+          timeout 50m mvn --batch-mode dependency-check:check \
             -DskipTests \
             -DfailOnError=true \
             -DnvdAnalyzerEnabled=true \
             -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
             -DossindexAnalyzerEnabled=true \
             -Dformat=SARIF \
-            -DsuppressionFile=owasp-suppressions.xml
+            -DsuppressionFile=owasp-suppressions.xml || {
+              rc=$?
+              if [ $rc -eq 124 ]; then
+                echo "OWASP scan timed out after 50 min — NVD download too slow."
+                echo "Trivy (job 'trivy') is the hard CVE gate; this result is advisory."
+                exit 0
+              fi
+              exit $rc
+            }
 
       - name: Upload SARIF to GitHub Security tab
-        if: always()
+        # Skip when no report was produced (e.g. scan timed out before generating output).
+        if: always() && hashFiles('target/dependency-check-report.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: target/dependency-check-report.sarif
