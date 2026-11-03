@@ -140,14 +140,21 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          # Use the security-extended query suite for broader coverage
           queries: security-extended
+          config: |
+            paths-ignore:
+              - '**/node_modules/**'
+              - 'target/**'
 
-      # Java: compile so CodeQL can intercept javac and trace data flow.
-      # Skip tests and frontend build — CodeQL only needs compiled classes.
-      - name: Build Java (CodeQL intercepts javac)
+      # Java: mvn compile traces javac so CodeQL can map data flow.
+      # Pass -Dfrontend-maven-plugin.phase=none to unbind the npm install/build
+      # executions from the Maven lifecycle for this CodeQL-only compile.
+      - name: Build Java (CodeQL traces javac)
         if: matrix.language == 'java'
-        run: mvn --batch-mode compile -Dskip.npm.test=true
+        run: |
+          mvn --batch-mode compile \
+            -Dskip.npm.test=true \
+            -Dfrontend-maven-plugin.phase=none
 
       # JavaScript: CodeQL analyses source files directly — no build needed.
 
@@ -157,56 +164,20 @@ jobs:
           category: /language:${{ matrix.language }}
 
   # ── OWASP Dependency-Check ───────────────────────────────────────────────────
-  # Item 4 — Fails on any dependency with CVSS ≥ 7 (high or critical).
-  # Runs in parallel with build and codeql jobs.
-  # Set the NVD_API_KEY secret in repo Settings → Secrets to avoid NVD rate-limits.
+  # Item 4 — Fails on any dependency with CVSS >= 7 (high or critical).
+  # Results appear in GitHub Security -> Code scanning tab (SARIF upload).
+  #
+  # Data source: Sonatype OSS Index (no API key required, covers Maven + npm).
+  # NVD (National Vulnerability Database) is disabled here because the project's
+  # NVD_API_KEY secret has expired.  To re-enable NVD scanning after the key is
+  # rotated (nvd.nist.gov), add to the mvn command:
+  #   -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
+  #   -DnvdAnalyzerEnabled=true
+  # and restore:
+  #   env:
+  #     NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
   dependency-check:
     name: OWASP Dependency-Check
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-
-      - name: Cache Maven repository
-        uses: actions/cache@v5
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-owasp-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2-
-
-      - name: Cache NVD data
-        uses: actions/cache@v5
-        with:
-          path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: ${{ runner.os }}-nvd-${{ github.run_id }}
-          restore-keys: ${{ runner.os }}-nvd-
-
-      - name: Run OWASP Dependency-Check
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: mvn --batch-mode dependency-check:check -DskipTests
-
-      - name: Upload Dependency-Check report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-check-report
-          path: target/dependency-check-report.html
-
-  # ── Trivy container scan ─────────────────────────────────────────────────────
-  # Item 5 — Scans the built JAR's base image for OS and library CVEs.
-  # Results appear in GitHub Security → Code scanning tab (SARIF upload).
-  # Fails on CRITICAL vulnerabilities; High findings are reported but non-blocking.
-  trivy:
-    name: Trivy Container Scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -225,23 +196,62 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-trivy-${{ hashFiles('**/pom.xml') }}
+          key: ${{ runner.os }}-m2-owasp-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
-      - name: Build JAR (skip tests and frontend)
-        run: mvn --batch-mode package -DskipTests -Dskip.npm.test=true
+      - name: Run OWASP Dependency-Check (OSS Index)
+        run: |
+          mvn --batch-mode dependency-check:check \
+            -DskipTests \
+            -DfailOnError=true \
+            -DnvdAnalyzerEnabled=false \
+            -DossindexAnalyzerEnabled=true \
+            -Dformat=SARIF \
+            -DsuppressionFile=owasp-suppressions.xml
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: target/dependency-check-report.sarif
+          category: dependency-check
+
+      - name: Upload Dependency-Check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: target/dependency-check-report.*
+
+  # ── Trivy filesystem scan ─────────────────────────────────────────────────────
+  # Item 5 — Scans source-tree dependency manifests (pom.xml, package-lock.json)
+  # for CVEs and secrets.  Results appear in GitHub Security -> Code scanning tab.
+  # Fails on CRITICAL or HIGH unfixed vulnerabilities.
+  trivy:
+    name: Trivy Dependency Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v6
 
       - name: Run Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
+          scanners: vuln,secret
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           exit-code: '1'
           ignore-unfixed: true
           version: v0.76.1
+          # Skip build output and vendored dependency copies; Trivy already reads
+          # the lock files (pom.xml, package-lock.json) for the authoritative list.
+          skip-dirs: 'target,node_modules'
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always()
