@@ -235,7 +235,8 @@ jobs:
             }
 
       - name: Upload SARIF to GitHub Security tab
-        if: always()
+        # Skip when no report was produced (e.g. scan timed out before generating output).
+        if: always() && hashFiles('target/dependency-check-report.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: target/dependency-check-report.sarif
