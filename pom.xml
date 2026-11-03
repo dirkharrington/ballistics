@@ -33,6 +33,7 @@
     </properties>
 
     <!-- Force com.fasterxml.jackson 2.x (pulled by logstash-logback-encoder) to a CVE-free version -->
+    <!-- Force swagger-ui webjar to patch DOMPurify CVE-2026-116803/116804 (CVSS 10.0, fixed in DOMPurify 3.4.17) -->
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -41,6 +42,11 @@
                 <version>2.22.4</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.webjars</groupId>
+                <artifactId>swagger-ui</artifactId>
+                <version>5.34.1</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
