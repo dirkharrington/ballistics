@@ -1333,14 +1333,17 @@ function renderSweepCharts(sweepResultsList, sweepParam) {
       <div class="chart-panel">
         <div class="chart-header">
           <div>
-            <div class="chart-title">${def.title}</div>
-            <div class="chart-subtitle">${sweepParam} sweep (${values.join(', ')} ${unit})</div>
+            <div class="chart-title"></div>
+            <div class="chart-subtitle"></div>
           </div>
           <button class="export-btn" data-chart-id="${def.id}">PNG</button>
         </div>
         <div class="chart-wrap"><canvas id="${def.id}"></canvas></div>
       </div>`);
-    cc.querySelector('.chart-panel:last-child .export-btn')
+    const panel = cc.querySelector('.chart-panel:last-child');
+    panel.querySelector('.chart-title').textContent = def.title;
+    panel.querySelector('.chart-subtitle').textContent = `${sweepParam} sweep (${values.join(', ')} ${unit})`;
+    panel.querySelector('.export-btn')
       ?.addEventListener('click', () => exportPNG(def.id));
 
     const datasets = sweepResultsList.map((r, i) => ({
