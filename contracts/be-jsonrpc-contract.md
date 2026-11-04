@@ -1,6 +1,6 @@
 # Interface Contract: JSON-RPC 2.0
 
-Version: 1.0.0 — 2026-11-02  
+Version: 1.1.0 — 2026-11-03  
 Design: [`be-jsonrpc.md`](./be-jsonrpc.md)
 
 Builders implement this contract exactly. To change it, propose the change to the
@@ -32,7 +32,13 @@ defaults in the Java record.
     "sightHeightMm":        { "type": "number", "maximum": 150, "default": 38.1, "description": "Scope/sight height above bore in mm" },
     "shootingAngleDegrees": { "type": "number", "minimum": -45, "maximum": 45, "default": 0 },
     "windDirectionDeg":     { "type": "number", "minimum": 0, "maximum": 360, "default": 90 },
-    "dragModel":            { "type": "string", "enum": ["G1", "G7"], "default": "G1" }
+    "dragModel":            { "type": "string", "enum": ["G1", "G7"], "default": "G1" },
+    "twistRateInchesPerTurn": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 100,
+      "description": "Barrel twist rate in inches per turn. When provided, gyroscopic spin drift is computed and returned as spinDriftCm on each TrajectoryPoint. Omit to disable."
+    }
   },
   "additionalProperties": false
 }
@@ -43,14 +49,15 @@ defaults in the Java record.
 ```json
 {
   "type": "object",
-  "required": ["bullet", "request", "points", "maxOrdinateCm", "maxOrdinateRangeMeters", "supersonicLimitMeters"],
+  "required": ["bullet", "request", "points", "maxOrdinateCm", "maxOrdinateRangeMeters", "supersonicLimitMeters", "densityAltitudeMeters"],
   "properties": {
     "bullet":                  { "$ref": "#/Bullet" },
     "request":                 { "$ref": "#/TrajectoryParams" },
     "points":                  { "type": "array", "items": { "$ref": "#/TrajectoryPoint" } },
     "maxOrdinateCm":           { "type": "number", "description": "Peak height above line of sight in cm" },
     "maxOrdinateRangeMeters":  { "type": "number", "description": "Range at which peak occurs in m" },
-    "supersonicLimitMeters":   { "type": "number", "description": "Range where velocity drops below ~343 m/s" }
+    "supersonicLimitMeters":   { "type": "number", "description": "Range where velocity drops below ~343 m/s" },
+    "densityAltitudeMeters":   { "type": "number", "description": "Density altitude in metres derived from altitudeMeters and temperatureC. Negative = denser than standard air." }
   }
 }
 ```
@@ -83,7 +90,7 @@ defaults in the Java record.
 {
   "type": "object",
   "required": ["rangeMeters","dropCm","velocityMps","energyJoules",
-               "windDriftCm","timeOfFlightSec","moaAdjustment","mradAdjustment"],
+               "windDriftCm","timeOfFlightSec","moaAdjustment","mradAdjustment","spinDriftCm"],
   "properties": {
     "rangeMeters":      { "type": "number", "description": "Horizontal distance downrange in m" },
     "dropCm":           { "type": "number", "description": "Drop below line of sight in cm (negative = below LoS)" },
@@ -92,7 +99,8 @@ defaults in the Java record.
     "windDriftCm":      { "type": "number", "description": "Lateral wind drift in cm" },
     "timeOfFlightSec":  { "type": "number", "description": "Time of flight from muzzle in s" },
     "moaAdjustment":    { "type": "number", "description": "Scope elevation adjustment in MOA" },
-    "mradAdjustment":   { "type": "number", "description": "Scope elevation adjustment in MRAD" }
+    "mradAdjustment":   { "type": "number", "description": "Scope elevation adjustment in MRAD" },
+    "spinDriftCm":      { "type": "number", "description": "Gyroscopic spin drift in cm. Positive = rightward (right-hand twist). 0.0 when twistRateInchesPerTurn not provided." }
   }
 }
 ```
