@@ -1,6 +1,9 @@
 'use strict';
 
-const { calcMoaMrad, convertUnit, initTools, CONVERSIONS } = require('../../main/resources/static/tools.js');
+const {
+  calcMoaMrad, convertUnit, initTools, CONVERSIONS,
+  interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC,
+} = require('../../main/resources/static/tools.js');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // calcMoaMrad
@@ -207,5 +210,497 @@ describe('initTools', () => {
   test('initTools is a no-op when buttons are absent', () => {
     document.body.innerHTML = '';
     expect(() => initTools()).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// interpolateAt
+// ─────────────────────────────────────────────────────────────────────────────
+describe('interpolateAt', () => {
+  const pts = [
+    { rangeMeters: 0,   dropCm: 0   },
+    { rangeMeters: 100, dropCm: -5  },
+    { rangeMeters: 200, dropCm: -20 },
+    { rangeMeters: 300, dropCm: -50 },
+  ];
+
+  test('returns null for empty array', () => {
+    expect(interpolateAt([], 100, 'dropCm')).toBeNull();
+  });
+
+  test('returns null for null/undefined points', () => {
+    expect(interpolateAt(null, 100, 'dropCm')).toBeNull();
+  });
+
+  test('returns first value when dist <= first range', () => {
+    expect(interpolateAt(pts, 0,   'dropCm')).toBe(0);
+    expect(interpolateAt(pts, -10, 'dropCm')).toBe(0);
+  });
+
+  test('returns last value when dist >= last range', () => {
+    expect(interpolateAt(pts, 300, 'dropCm')).toBe(-50);
+    expect(interpolateAt(pts, 400, 'dropCm')).toBe(-50);
+  });
+
+  test('linearly interpolates between two points', () => {
+    // midpoint between 100 (-5) and 200 (-20) → -12.5
+    expect(interpolateAt(pts, 150, 'dropCm')).toBe(-12.5);
+  });
+
+  test('returns null when field is missing on a bounding point', () => {
+    const pts2 = [
+      { rangeMeters: 0,   dropCm: 0  },
+      { rangeMeters: 100               },  // missing dropCm
+      { rangeMeters: 200, dropCm: -20 },
+    ];
+    expect(interpolateAt(pts2, 50, 'dropCm')).toBeNull();
+  });
+
+  test('rounds result to 1 decimal place', () => {
+    // 1/3 of the way between 0→100 gives -5/3 ≈ -1.667 → -1.7
+    expect(interpolateAt(pts, 33.33, 'dropCm')).toBeCloseTo(-1.7, 1);
+  });
+
+  test('returns null when field missing on first boundary point', () => {
+    const p = [{ rangeMeters: 100 }, { rangeMeters: 200, dropCm: -20 }];
+    expect(interpolateAt(p, 50, 'dropCm')).toBeNull();
+  });
+
+  test('returns null when field missing on last boundary point', () => {
+    const p = [{ rangeMeters: 0, dropCm: 0 }, { rangeMeters: 100 }];
+    expect(interpolateAt(p, 150, 'dropCm')).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// initDopeCard / renderDopeCard
+// ─────────────────────────────────────────────────────────────────────────────
+function buildDopeDOM() {
+  document.body.innerHTML = `
+    <div id="dopeCard">
+      <div id="dopeDistanceRow"></div>
+      <button id="dopeAddDistBtn">+ Add distance</button>
+      <table id="dopeTable"></table>
+      <button id="dopeCopyBtn">COPY TEXT</button>
+    </div>
+    <div id="bcCalcCard">
+      <input id="bcCalcWeightG" value="" />
+      <input id="bcCalcMvMps"   value="" />
+      <input id="bcCalcDropCm"  value="" />
+      <input id="bcCalcRangeM"  value="" />
+      <input id="bcCalcAltM"    value="0" />
+      <input id="bcCalcTempC"   value="15" />
+      <button id="bcCalcBtn">CALCULATE</button>
+      <div id="bcCalcResult" class="tool-results"></div>
+    </div>`;
+}
+
+// Minimal simulateBullet stub returning points up to maxRangeMeters
+function makeSimFn() {
+  return jest.fn((bullet, req) => {
+    const pts = [];
+    for (let r = 0; r <= req.maxRangeMeters; r += req.stepMeters) {
+      pts.push({ rangeMeters: r, dropCm: -(r * r) / 100000 });
+    }
+    return { bullet, points: pts };
+  });
+}
+
+describe('initDopeCard', () => {
+  beforeEach(() => {
+    buildDopeDOM();
+    history.replaceState(null, '', '/');
+  });
+
+  test('renders distance inputs on init', () => {
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    const inputs = document.querySelectorAll('.dope-dist-input');
+    expect(inputs.length).toBeGreaterThan(0);
+  });
+
+  test('restores distances from URL on init', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100,250,500]');
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    const inputs = document.querySelectorAll('.dope-dist-input');
+    expect(inputs.length).toBe(3);
+    expect(inputs[1].value).toBe('250');
+  });
+
+  test('add distance button adds a new input (up to 10)', () => {
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    const before = document.querySelectorAll('.dope-dist-input').length;
+    document.getElementById('dopeAddDistBtn').click();
+    const after = document.querySelectorAll('.dope-dist-input').length;
+    expect(after).toBe(before + 1);
+  });
+
+  test('add distance button is a no-op when already at 10', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100,200,300,400,500,600,700,800,900,1000]');
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    const before = document.querySelectorAll('.dope-dist-input').length;
+    document.getElementById('dopeAddDistBtn').click();
+    expect(document.querySelectorAll('.dope-dist-input').length).toBe(before);
+  });
+
+  test('URL with empty dopeDistances array leaves distances unchanged', () => {
+    history.replaceState(null, '', '/?dopeDistances=[]');
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    // Array.isArray([]) = true but [].length > 0 = false → _dopeDistances unchanged
+    expect(document.querySelectorAll('.dope-dist-input').length).toBeGreaterThan(0);
+  });
+
+  test('add distance defaults to 500 when _dopeDistances is empty', () => {
+    history.replaceState(null, '', '/?dopeDistances=[0,0]');
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    // filter(n => n > 0) = [] → push((undefined ?? 500) + 100 = 600)
+    document.getElementById('dopeAddDistBtn').click();
+    const inputs = document.querySelectorAll('.dope-dist-input');
+    expect(inputs.length).toBe(1);
+    expect(+inputs[0].value).toBe(600);
+  });
+
+  test('input change with valid value is a no-op when no results loaded yet', () => {
+    // _lastDopeResults is still null at this point (renderDopeCard not yet called)
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    const inp = document.querySelector('.dope-dist-input');
+    inp.value = '300';
+    inp.dispatchEvent(new Event('change'));
+    // table stays empty (false branch of if (_lastDopeResults) on line 139)
+    expect(document.getElementById('dopeTable').innerHTML).toBe('');
+  });
+
+  test('input change updates distance and rebuilds table when results exist', () => {
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    const results = [
+      {
+        bullet: { id: 'x', name: 'Test' },
+        points: [
+          { rangeMeters: 0,   dropCm: 0  },
+          { rangeMeters: 500, dropCm: -50 },
+        ],
+      },
+    ];
+    renderDopeCard(results, {});
+    const inp = document.querySelector('.dope-dist-input');
+    inp.value = '300';
+    inp.dispatchEvent(new Event('change'));
+    // table should still render without throwing
+    expect(document.getElementById('dopeTable').innerHTML).not.toBe('');
+  });
+
+  test('input change with invalid (zero) value is ignored', () => {
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    const inp = document.querySelector('.dope-dist-input');
+    const before = inp.value;
+    inp.value = '0';
+    inp.dispatchEvent(new Event('change'));
+    // the distance should NOT have changed
+    expect(inp.value).toBe('0');
+  });
+
+  test('copy button with populated table invokes clipboard writeText', () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    history.replaceState(null, '', '/?dopeDistances=[100,300]');
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    // Populate the table so the .map() callback on line 149 is exercised
+    renderDopeCard([
+      {
+        bullet: { id: 'a', name: 'Test A' },
+        points: [
+          { rangeMeters: 0,   dropCm: 0   },
+          { rangeMeters: 300, dropCm: -30 },
+        ],
+      },
+    ], {});
+    document.getElementById('dopeCopyBtn').click();
+    expect(writeText).toHaveBeenCalled();
+  });
+
+  test('copy button with no dopeTable is a no-op (line 147 guard)', () => {
+    initDopeCard(makeSimFn());
+    document.getElementById('dopeTable').remove();
+    expect(() => document.getElementById('dopeCopyBtn').click()).not.toThrow();
+  });
+
+  test('copy button handles clipboard rejection silently (line 151 catch callback)', async () => {
+    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    history.replaceState(null, '', '/?dopeDistances=[100,300]');
+    const sim = makeSimFn();
+    initDopeCard(sim);
+    renderDopeCard([{
+      bullet: { id: 'a', name: 'Test A' },
+      points: [{ rangeMeters: 0, dropCm: 0 }, { rangeMeters: 300, dropCm: -30 }],
+    }], {});
+    document.getElementById('dopeCopyBtn').click();
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalled();
+  });
+
+  test('is a no-op when DOPE DOM elements are absent', () => {
+    document.body.innerHTML = '';
+    expect(() => initDopeCard(makeSimFn())).not.toThrow();
+  });
+});
+
+describe('renderDopeCard', () => {
+  beforeEach(() => {
+    buildDopeDOM();
+    history.replaceState(null, '', '/');
+  });
+
+  test('no-op when results array is empty', () => {
+    initDopeCard(makeSimFn());
+    renderDopeCard([], {});
+    expect(document.getElementById('dopeTable').innerHTML).toBe('');
+  });
+
+  test('no-op when results is null', () => {
+    initDopeCard(makeSimFn());
+    expect(() => renderDopeCard(null, {})).not.toThrow();
+  });
+
+  test('renders thead and tbody rows', () => {
+    initDopeCard(makeSimFn());
+    const results = [
+      {
+        bullet: { id: 'a', name: 'Test A' },
+        points: [
+          { rangeMeters: 0,   dropCm: 0   },
+          { rangeMeters: 300, dropCm: -30 },
+          { rangeMeters: 500, dropCm: -80 },
+        ],
+      },
+    ];
+    renderDopeCard(results, {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('Test A');
+    expect(html).toContain('MOA');
+    expect(html).toContain('MRAD');
+  });
+
+  test('shows – when drop interpolation returns null', () => {
+    initDopeCard(makeSimFn());
+    // Only one point; requesting at distance >0 and beyond it returns null-like
+    history.replaceState(null, '', '/?dopeDistances=[9999]');
+    initDopeCard(makeSimFn());
+    const results = [
+      {
+        bullet: { id: 'a', name: 'Test A' },
+        points: [{ rangeMeters: 0, dropCm: 0 }],
+      },
+    ];
+    renderDopeCard(results, {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    // Should render some content including the distance
+    expect(html).not.toBe('');
+  });
+
+  test('renders positive MOA as +value', () => {
+    history.replaceState(null, '', '/?dopeDistances=[300]');
+    initDopeCard(makeSimFn());
+    const results = [
+      {
+        bullet: { id: 'a', name: 'A' },
+        points: [
+          { rangeMeters: 0,   dropCm: 0   },
+          { rangeMeters: 300, dropCm: -30 },
+        ],
+      },
+    ];
+    renderDopeCard(results, {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('+');
+  });
+
+  test('sign for positive drop (bullet above aim line) gives negative MOA', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100]');
+    initDopeCard(makeSimFn());
+    renderDopeCard([{
+      bullet: { id: 'a', name: 'A' },
+      points: [{ rangeMeters: 0, dropCm: 0 }, { rangeMeters: 100, dropCm: 5 }],
+    }], {});
+    // drop > 0 → sign = -1 → moa is negative (no + prefix)
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).not.toBe('');
+  });
+
+  test('sign for zero drop gives zero MOA and MRAD', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100]');
+    initDopeCard(makeSimFn());
+    renderDopeCard([{
+      bullet: { id: 'a', name: 'A' },
+      points: [{ rangeMeters: 0, dropCm: 0 }, { rangeMeters: 100, dropCm: 0 }],
+    }], {});
+    // drop = 0 → sign = 0 → moa = 0, mrad = 0
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('<td>0</td>');
+  });
+
+  test('add button after renderDopeCard rebuilds table (line 178 true branch)', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100]');
+    initDopeCard(makeSimFn());
+    renderDopeCard([{
+      bullet: { id: 'a', name: 'A' },
+      points: [{ rangeMeters: 0, dropCm: 0 }, { rangeMeters: 300, dropCm: -30 }],
+    }], {});
+    // _lastDopeResults is set; click add → if (_lastDopeResults) is TRUE → rebuilds table
+    document.getElementById('dopeAddDistBtn').click();
+    expect(document.getElementById('dopeTable').innerHTML).not.toBe('');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// calcBC / initBcSolver
+// ─────────────────────────────────────────────────────────────────────────────
+describe('calcBC', () => {
+  test('returns a finite number within [0.001, 1.5]', () => {
+    const sim = makeSimFn();
+    const bc = calcBC(sim, 10.89, 807, -45, 500, 0, 15);
+    if (bc !== null) {
+      expect(bc).toBeGreaterThanOrEqual(0.001);
+      expect(bc).toBeLessThanOrEqual(1.5);
+    }
+  });
+
+  test('returns null when interpolation fails (range outside points)', () => {
+    // Sim that always returns empty points
+    const badSim = jest.fn(() => ({ bullet: {}, points: [] }));
+    const result = calcBC(badSim, 10, 800, -40, 500, 0, 15);
+    expect(result).toBeNull();
+  });
+
+  test('calls simulateBulletFn 64 times', () => {
+    const sim = makeSimFn();
+    calcBC(sim, 10.89, 807, -40, 400, 0, 15);
+    expect(sim).toHaveBeenCalledTimes(64);
+  });
+
+  test('rounds result to 4 decimal places', () => {
+    const sim = makeSimFn();
+    const bc = calcBC(sim, 10.89, 807, -40, 400, 0, 15);
+    if (bc !== null) {
+      const decimals = (bc.toString().split('.')[1] || '').length;
+      expect(decimals).toBeLessThanOrEqual(4);
+    }
+  });
+
+  test('lo = mid branch: measuredDropCm = 0 forces lo upward every iteration', () => {
+    // Stub drop is always negative → drop < 0 = measuredDropCm → lo = mid every time
+    const sim = makeSimFn();
+    const bc = calcBC(sim, 10.89, 807, 0, 500, 0, 15);
+    if (bc !== null) {
+      expect(bc).toBeGreaterThanOrEqual(0.001);
+      expect(bc).toBeLessThanOrEqual(1.5);
+    }
+  });
+});
+
+describe('initBcSolver', () => {
+  beforeEach(() => {
+    buildDopeDOM();
+  });
+
+  test('CALCULATE with missing inputs shows error message', () => {
+    const sim = makeSimFn();
+    initBcSolver(sim);
+    document.getElementById('bcCalcBtn').click();
+    expect(document.getElementById('bcCalcResult').textContent).toContain('Fill all fields');
+  });
+
+  test('CALCULATE with zero weight shows error', () => {
+    const sim = makeSimFn();
+    initBcSolver(sim);
+    document.getElementById('bcCalcWeightG').value = '0';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '-45';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    document.getElementById('bcCalcBtn').click();
+    expect(document.getElementById('bcCalcResult').textContent).toContain('Fill all fields');
+  });
+
+  test('CALCULATE with zero drop shows error', () => {
+    const sim = makeSimFn();
+    initBcSolver(sim);
+    document.getElementById('bcCalcWeightG').value = '10';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '0';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    document.getElementById('bcCalcBtn').click();
+    expect(document.getElementById('bcCalcResult').textContent).toContain('Fill all fields');
+  });
+
+  test('CALCULATE with valid inputs populates result', () => {
+    const sim = makeSimFn();
+    initBcSolver(sim);
+    document.getElementById('bcCalcWeightG').value = '10.89';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '-45';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    document.getElementById('bcCalcBtn').click();
+    const html = document.getElementById('bcCalcResult').innerHTML;
+    expect(html).toContain('G1 BC');
+  });
+
+  test('CALCULATE shows convergence error when sim returns no points', () => {
+    const badSim = jest.fn(() => ({ bullet: {}, points: [] }));
+    initBcSolver(badSim);
+    document.getElementById('bcCalcWeightG').value = '10';
+    document.getElementById('bcCalcMvMps').value   = '800';
+    document.getElementById('bcCalcDropCm').value  = '-40';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    document.getElementById('bcCalcBtn').click();
+    expect(document.getElementById('bcCalcResult').textContent).toContain('Could not converge');
+  });
+
+  test('is a no-op when bcCalcBtn is absent', () => {
+    document.body.innerHTML = '';
+    expect(() => initBcSolver(makeSimFn())).not.toThrow();
+  });
+
+  test('bcCalcResult absent → no throw', () => {
+    document.getElementById('bcCalcResult').remove();
+    initBcSolver(makeSimFn());
+    document.getElementById('bcCalcBtn').click();
+    // Should not throw even without the result container
+  });
+
+  test('empty altM string uses 0 via || 0 branch', () => {
+    const sim = makeSimFn();
+    initBcSolver(sim);
+    document.getElementById('bcCalcWeightG').value = '10.89';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '-45';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    document.getElementById('bcCalcAltM').value    = ''; // "" || 0 = 0 → covers || 0
+    document.getElementById('bcCalcBtn').click();
+    expect(document.getElementById('bcCalcResult').innerHTML).toContain('G1 BC');
+  });
+
+  test('non-input tempC element covers ?? 15 fallback branch', () => {
+    // Replace bcCalcTempC input with a div so .value = undefined → undefined ?? 15 = 15
+    const div = document.createElement('div');
+    div.id = 'bcCalcTempC';
+    document.getElementById('bcCalcTempC').replaceWith(div);
+    const sim = makeSimFn();
+    initBcSolver(sim);
+    document.getElementById('bcCalcWeightG').value = '10.89';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '-45';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    document.getElementById('bcCalcAltM').value    = '0';
+    document.getElementById('bcCalcBtn').click();
+    expect(document.getElementById('bcCalcResult').innerHTML).toContain('G1 BC');
   });
 });

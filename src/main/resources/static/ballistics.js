@@ -3,6 +3,7 @@ import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
+import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -10,6 +11,9 @@ const API_BASE = '/api';
 
 // Derived from bullets.yaml via virtual:bullet-catalog at build time
 const BULLET_COLORS = Object.fromEntries(BULLET_CATALOG.map(b => [b.id, b.hexColor]));
+
+// Five-step sweep color ramp (independent of bullet catalog colors)
+const SWEEP_COLORS = ['#00d4ff', '#4ADE80', '#f59e0b', '#f472b6', '#a78bfa'];
 
 // ── HTML escaping – used wherever user-supplied strings enter innerHTML ────────
 function escapeHtml(str) {
@@ -80,6 +84,10 @@ let crosshairPinned = false; // true after user clicks a range to lock the reado
 let sortColumn    = null;   // string | null
 let sortDirection = 'asc';  // 'asc' | 'desc'
 let tableResults  = null;   // results last passed to renderTable
+// Sweep state (MH-4)
+let sweepMode    = false;
+let sweepResults = null;
+let lastReq      = null;
 
 // ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
 function getMockBullets() {
@@ -301,6 +309,7 @@ function toggleBullet(id) {
   updateBulletCards();
   savePrefs();
   syncUrl();
+  updateSweepButtonVisibility();
 }
 
 function updateBulletCards() {
@@ -376,19 +385,22 @@ async function runSimulation() {
   const btn   = document.getElementById('runBtn');
   btn.classList.add('loading');
 
+  const twistRaw = document.getElementById('twistRate')?.value;
   const req = {
-    bulletIds:              [...selectedIds],
-    zeroRangeMeters:        +document.getElementById('zeroRange').value,
-    maxRangeMeters:         +document.getElementById('maxRange').value,
-    stepMeters:             +document.getElementById('step').value,
-    windSpeedKph:           +document.getElementById('windSpeed').value,
-    windDirectionDeg:       +document.getElementById('windDir').value,
-    altitudeMeters:         +document.getElementById('altitude').value,
-    temperatureC:           +document.getElementById('temperature').value,
-    sightHeightMm:          +document.getElementById('sightHeight').value,
-    shootingAngleDegrees:   +document.getElementById('shootingAngle').value,
-    dragModel:              document.getElementById('dragModel').value
+    bulletIds:                [...selectedIds],
+    zeroRangeMeters:          +document.getElementById('zeroRange').value,
+    maxRangeMeters:           +document.getElementById('maxRange').value,
+    stepMeters:               +document.getElementById('step').value,
+    windSpeedKph:             +document.getElementById('windSpeed').value,
+    windDirectionDeg:         +document.getElementById('windDir').value,
+    altitudeMeters:           +document.getElementById('altitude').value,
+    temperatureC:             +document.getElementById('temperature').value,
+    sightHeightMm:            +document.getElementById('sightHeight').value,
+    shootingAngleDegrees:     +document.getElementById('shootingAngle').value,
+    dragModel:                document.getElementById('dragModel').value,
+    ...(twistRaw ? { twistRateInchesPerTurn: +twistRaw } : {})
   };
+  lastReq = req;
   const total   = req.bulletIds.length;
   const results = [];
   let   done    = 0;
@@ -447,6 +459,7 @@ async function runSimulation() {
       }
     }
     lastResults = results;
+    updateSweepButtonVisibility();
   } catch (err) {
     console.error(err);
   } finally {
@@ -785,6 +798,9 @@ function renderStatCards(results, container) {
     <div class="stats-grid">
       ${results.map(r => {
         const color = BULLET_COLORS[r.bullet.id] || '#4ADE80';
+        const daLine = r.densityAltitudeMeters !== undefined
+          ? `<br><span style="color:var(--text)">${Number(r.densityAltitudeMeters)}</span> m density alt`
+          : '';
         return `
         <div class="stat-card" style="--bullet-color:${color}">
           <div class="stat-label" style="color:${color}">${escapeHtml(r.bullet.name)}</div>
@@ -792,7 +808,7 @@ function renderStatCards(results, container) {
           <div class="stat-unit">MV m/s &nbsp;·&nbsp; BC ${Number(r.bullet.ballisticCoefficient)} &nbsp;·&nbsp; ${Number(r.bullet.bulletWeightGrams)}g</div>
           <div style="margin-top:8px; font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--text-dim); letter-spacing:1px; line-height:1.8">
             <span style="color:var(--text)">⚡ ${Number(r.bullet.muzzleEnergyJoules).toLocaleString()}</span> J muzzle energy<br>
-            <span style="color:var(--text)">${Number(r.supersonicLimitMeters)}</span> m supersonic<br>
+            <span style="color:var(--text)">${Number(r.supersonicLimitMeters)}</span> m supersonic${daLine}<br>
             <span style="color:var(--text)">${Number(r.maxOrdinateCm)}</span> cm max ordinate @ ${Number(r.maxOrdinateRangeMeters)} m
           </div>
         </div>`;
@@ -980,6 +996,26 @@ function renderResults(rawResults, req) {
       tension:          0.3
     }));
 
+    // SH-1 FE: add spin drift as dashed series on the wind drift chart
+    if (def.id === 'windChart') {
+      const hasSpinDrift = results.some(r => r.points.some(p => p.spinDriftCm));
+      if (hasSpinDrift) {
+        results.forEach(r => {
+          datasets.push({
+            label:            r.bullet.name + ' (spin drift)',
+            data:             r.points.map(p => ({ x: p.rangeMeters, y: p.spinDriftCm ?? 0 })),
+            borderColor:      BULLET_COLORS[r.bullet.id] || '#4ADE80',
+            backgroundColor:  'transparent',
+            borderWidth:      1.5,
+            borderDash:       [5, 5],
+            pointRadius:      0,
+            pointHoverRadius: 4,
+            tension:          0.3,
+          });
+        });
+      }
+    }
+
     const ctx = document.getElementById(def.id).getContext('2d');
     charts[def.id] = new Chart(ctx, buildChartConfig(def, datasets, results));
 
@@ -1001,9 +1037,105 @@ function renderResults(rawResults, req) {
     }
   });
 
+  // MH-1: Elevation adjustment chart — dual y-axis (MOA left, MRAD right)
+  {
+    cc.insertAdjacentHTML('beforeend', `
+      <div class="chart-panel">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">ELEVATION ADJUSTMENT</div>
+            <div class="chart-subtitle">click-up (MOA / MRAD) vs range</div>
+          </div>
+          <button class="export-btn" data-chart-id="adjustChart">PNG</button>
+        </div>
+        <div class="chart-wrap"><canvas id="adjustChart"></canvas></div>
+      </div>`);
+    cc.querySelector('.chart-panel:last-child .export-btn')
+      ?.addEventListener('click', () => exportPNG('adjustChart'));
+
+    const moaDatasets = results.map(r => ({
+      label:            r.bullet.name + ' MOA',
+      data:             r.points.map(p => { const a = computeAdjustments(p.dropCm, p.rangeMeters); return { x: p.rangeMeters, y: a.moa }; }),
+      borderColor:      BULLET_COLORS[r.bullet.id] || '#4ADE80',
+      backgroundColor:  'transparent',
+      borderWidth:      2,
+      pointRadius:      0,
+      pointHoverRadius: 4,
+      tension:          0.3,
+      yAxisID:          'yMoa',
+    }));
+    const mradDatasets = results.map(r => ({
+      label:            r.bullet.name + ' MRAD',
+      data:             r.points.map(p => { const a = computeAdjustments(p.dropCm, p.rangeMeters); return { x: p.rangeMeters, y: a.mrad }; }),
+      borderColor:      BULLET_COLORS[r.bullet.id] || '#4ADE80',
+      backgroundColor:  'transparent',
+      borderWidth:      1.5,
+      borderDash:       [4, 4],
+      pointRadius:      0,
+      pointHoverRadius: 4,
+      tension:          0.3,
+      yAxisID:          'yMrad',
+    }));
+
+    const adjCtx = document.getElementById('adjustChart').getContext('2d');
+    charts['adjustChart'] = new Chart(adjCtx, {
+      type: 'line',
+      data: { datasets: [...moaDatasets, ...mradDatasets] },
+      plugins: [crosshairPlugin, annotationPlugin(sonicAnn)],
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
+        events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
+        interaction: { mode: 'index', intersect: false },
+        onHover: (event, elements) => {
+          if (crosshairPinned) return;
+          if (elements.length > 0) {
+            crosshairIndex = elements[0].index;
+            updateReadout(results, crosshairIndex);
+          } else {
+            crosshairIndex = null;
+            const panel = document.getElementById('rangeReadout');
+            /* istanbul ignore else */
+            if (panel) panel.style.display = 'none';
+          }
+          Object.values(charts).forEach(c => { if (c !== charts['adjustChart']) c.update('none'); });
+        },
+        onClick: (event, elements) => {
+          if (elements.length === 0) return;
+          crosshairPinned = !crosshairPinned;
+          const btn = document.getElementById('readoutPin');
+          /* istanbul ignore else */
+          if (btn) { btn.textContent = crosshairPinned ? 'UNPIN' : 'PIN'; btn.classList.toggle('pinned', crosshairPinned); }
+          if (crosshairPinned) { crosshairIndex = elements[0].index; updateReadout(results, crosshairIndex); }
+          else { crosshairIndex = null; const panel = document.getElementById('rangeReadout'); /* istanbul ignore else */ if (panel) panel.style.display = 'none'; }
+          Object.values(charts).forEach(c => c.update('none'));
+        },
+        scales: {
+          x:     { type: 'linear', title: { display: true, text: 'Range (m)', color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { color: 'rgba(30,48,64,0.6)' }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
+          yMoa:  { type: 'linear', position: 'left',  title: { display: true, text: 'MOA',  color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { color: 'rgba(30,48,64,0.6)' }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
+          yMrad: { type: 'linear', position: 'right', title: { display: true, text: 'MRAD', color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { drawOnChartArea: false }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
+        },
+        plugins: {
+          legend:  { labels: { color: '#c8dde8', font: { family: 'Rajdhani', size: 12, weight: '600' }, usePointStyle: true, pointStyleWidth: 12 } },
+          tooltip: { backgroundColor: '#141d26', borderColor: '#1e3040', borderWidth: 1, titleFont: { family: 'Share Tech Mono', size: 10 }, bodyFont: { family: 'Share Tech Mono', size: 10 }, titleColor: '#00d4ff', bodyColor: '#c8dde8', padding: 10, displayColors: true },
+        }
+      }
+    });
+
+    const adjCanvas = document.getElementById('adjustChart');
+    /* istanbul ignore else */
+    if (adjCanvas) {
+      adjCanvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        const t = e.touches[0];
+        adjCanvas.dispatchEvent(new MouseEvent('mousemove', { clientX: t.clientX, clientY: t.clientY, bubbles: true, cancelable: true }));
+      }, { passive: false });
+    }
+  }
+
   sortColumn = null;
   sortDirection = 'asc';
   renderTable(results);
+  renderDopeCard(results, req);
 }
 
 // ── Data table ────────────────────────────────────────────────────────────────
@@ -1093,6 +1225,138 @@ function updateSortIndicators() {
 
 function _getSortState() {
   return { column: sortColumn, direction: sortDirection };
+}
+
+// ── Sweep mode (MH-4) ─────────────────────────────────────────────────────────
+function updateSweepButtonVisibility() {
+  const sweepControls = document.getElementById('sweepControls');
+  if (sweepControls) sweepControls.style.display = selectedIds.size > 0 ? 'block' : 'none';
+}
+
+const SWEEP_RANGES = {
+  wind:        [0, 10, 20, 30, 40],
+  altitude:    [0, 500, 1000, 2000, 3000],
+  temperature: [0, 10, 20, 30, 40],
+};
+
+function buildSweepRequests(baseReq, sweepParam, bulletId) {
+  const values = SWEEP_RANGES[sweepParam] ?? SWEEP_RANGES.wind;
+  return values.map(v => {
+    const r = { ...baseReq, bulletIds: [bulletId] };
+    if (sweepParam === 'wind')        r.windSpeedKph    = v;
+    if (sweepParam === 'altitude')    r.altitudeMeters  = v;
+    if (sweepParam === 'temperature') r.temperatureC    = v;
+    return r;
+  });
+}
+
+async function runSweep() {
+  if (selectedIds.size === 0) return;
+  const bulletId   = [...selectedIds][0];
+  const sweepParam = document.getElementById('sweepParam')?.value ?? 'wind';
+  const btn        = document.getElementById('sweepBtn');
+  if (btn) btn.querySelector('span').textContent = '⏳ SWEEPING...';
+
+  const base = lastReq ?? {
+    bulletIds:            [bulletId],
+    zeroRangeMeters:      +document.getElementById('zeroRange').value,
+    maxRangeMeters:       +document.getElementById('maxRange').value,
+    stepMeters:           +document.getElementById('step').value,
+    windSpeedKph:         +document.getElementById('windSpeed').value,
+    windDirectionDeg:     +document.getElementById('windDir').value,
+    altitudeMeters:       +document.getElementById('altitude').value,
+    temperatureC:         +document.getElementById('temperature').value,
+    sightHeightMm:        +document.getElementById('sightHeight').value,
+    shootingAngleDegrees: +document.getElementById('shootingAngle').value,
+    dragModel:            document.getElementById('dragModel').value,
+  };
+
+  const requests = buildSweepRequests(base, sweepParam, bulletId);
+
+  let results;
+  try {
+    const res = await fetch(`${API_BASE}/rpc`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ jsonrpc: '2.0', method: 'trajectory.batch', id: 1, params: { requests } }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error('RPC error');
+    results = data.result;
+  } catch {
+    const bullet = bullets.find(b => b.id === bulletId);
+    if (!bullet) { if (btn) btn.querySelector('span').textContent = 'SWEEP'; return; }
+    results = requests.map(r => simulateBullet(bullet, r));
+  }
+
+  sweepResults = results;
+  sweepMode    = true;
+  renderSweepCharts(results, sweepParam);
+
+  if (btn) btn.querySelector('span').textContent = 'SWEEP';
+  const clearBtn = document.getElementById('clearSweepBtn');
+  if (clearBtn) clearBtn.style.display = 'block';
+}
+
+function clearSweep() {
+  sweepMode    = false;
+  sweepResults = null;
+  const clearBtn = document.getElementById('clearSweepBtn');
+  if (clearBtn) clearBtn.style.display = 'none';
+  /* istanbul ignore else -- only callable after a simulation has run */
+  if (lastResults.length) renderResults(lastResults, lastReq ?? {});
+}
+
+function renderSweepCharts(sweepResultsList, sweepParam) {
+  const values = SWEEP_RANGES[sweepParam] ?? SWEEP_RANGES.wind;
+  const labels = { wind: 'km/h', altitude: 'm alt', temperature: '°C' };
+  const unit   = labels[sweepParam] ?? '';
+
+  document.getElementById('emptyState').style.display = 'none';
+  const rc = document.getElementById('resultsContainer');
+  rc.style.display = 'flex';
+  const cc = document.getElementById('chartContainer');
+  cc.innerHTML = '';
+
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+
+  const sweepDefs = [
+    { id: 'sweepDropChart', title: 'SWEEP — BULLET DROP', yLabel: 'Drop (cm)',      key: 'dropCm'      },
+    { id: 'sweepWindChart', title: 'SWEEP — WIND DRIFT',  yLabel: 'Drift (cm)',     key: 'windDriftCm' },
+    { id: 'sweepVelChart',  title: 'SWEEP — VELOCITY',    yLabel: 'Velocity (m/s)', key: 'velocityMps' },
+  ];
+
+  sweepDefs.forEach(def => {
+    cc.insertAdjacentHTML('beforeend', `
+      <div class="chart-panel">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">${def.title}</div>
+            <div class="chart-subtitle">${sweepParam} sweep (${values.join(', ')} ${unit})</div>
+          </div>
+          <button class="export-btn" data-chart-id="${def.id}">PNG</button>
+        </div>
+        <div class="chart-wrap"><canvas id="${def.id}"></canvas></div>
+      </div>`);
+    cc.querySelector('.chart-panel:last-child .export-btn')
+      ?.addEventListener('click', () => exportPNG(def.id));
+
+    const datasets = sweepResultsList.map((r, i) => ({
+      label:            `${values[i]} ${unit}`,
+      data:             r.points.map(p => ({ x: p.rangeMeters, y: p[def.key] })),
+      borderColor:      SWEEP_COLORS[i % SWEEP_COLORS.length],
+      backgroundColor:  'transparent',
+      borderWidth:      2,
+      pointRadius:      0,
+      pointHoverRadius: 4,
+      tension:          0.3,
+    }));
+
+    const ctx = document.getElementById(def.id).getContext('2d');
+    charts[def.id] = new Chart(ctx, buildChartConfig(def, datasets, sweepResultsList));
+  });
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -1275,6 +1539,18 @@ async function init() {
   // Normalize address bar if URL had recognized params
   if (fromUrl.recognized) syncUrl();
 
+  // MH-4: Sweep controls
+  updateSweepButtonVisibility();
+  document.getElementById('sweepBtn')?.addEventListener('click', runSweep);
+  document.getElementById('clearSweepBtn')?.addEventListener('click', clearSweep);
+
+  // SH-1 FE: twist rate input persists to URL/prefs
+  document.getElementById('twistRate')?.addEventListener('input', syncUrl);
+
+  // MH-3, SH-2: Tools tab
+  initDopeCard(simulateBullet);
+  initBcSolver(simulateBullet);
+
   // Pin button toggles crosshair lock (chart onClick also toggles)
   document.getElementById('readoutPin')?.addEventListener('click', () => {
     crosshairPinned = !crosshairPinned;
@@ -1394,6 +1670,7 @@ function _resetState()   {
   crosshairIndex = null; crosshairPinned = false;
   offlineMode = false;
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
+  sweepMode = false; sweepResults = null; lastReq = null;
   if (retryTimer !== null) { clearInterval(retryTimer); retryTimer = null; }
 }
 function _setBullets(b)      { bullets = b; }
@@ -1416,11 +1693,13 @@ export {
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
   exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, setOfflineMode, probeServer, showToast,
   _downloadBlob,
-  BULLET_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
+  BULLET_COLORS, SWEEP_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
   drawVLine, drawHLine, annotationPlugin, windChartSubtitle,
   savePrefs, loadPrefs, PREF_KEYS, PREF_DEFAULTS,
   openSidebar, closeSidebar,
   currentState, syncUrl, copyLink,
+  updateSweepButtonVisibility, buildSweepRequests, runSweep, clearSweep, renderSweepCharts,
+  SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
   _parseRejection, _setSimulationError,
 };
