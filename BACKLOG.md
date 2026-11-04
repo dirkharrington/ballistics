@@ -6,7 +6,7 @@ _Baseline: 2026-11-03 · Spring Boot 4.1.1 / Java 21 · 354 tests · 100% covera
 
 ## P1 — Must Have
 
-~~### MH-1 · MOA / MRAD Adjustment Chart · FE · Size S~~ ✅ Done — PR #33
+~~### MH-1 · MOA / MRAD Adjustment Chart · FE · Size S~~ ✅ Done — PR #34
 
 Add a 5th Chart.js panel to the Trajectory Charts tab showing scope elevation
 adjustment (MOA primary axis, MRAD secondary) vs. range. Zero crossing,
@@ -24,7 +24,7 @@ visualization is missing.
 
 ~~### MH-2 · Catalog Expansion — 50+ Rounds · BE · Size M~~ ✅ Done — PR #32
 
-~~### MH-3 · Come-Ups / DOPE Card · FE · Size M~~ ✅ Done — PR #33
+~~### MH-3 · Come-Ups / DOPE Card · FE · Size M~~ ✅ Done — PR #34
 
 Add a "DOPE Card" panel to the Tools tab. The user enters 4–8 target distances;
 the tool generates a come-ups table (distance → MOA up → MRAD up → windage at
@@ -40,7 +40,7 @@ core use case.
 
 ---
 
-~~### MH-4 · Sensitivity Analysis — Condition Sweep · FE · Size S~~ ✅ Done — PR #33
+~~### MH-4 · Sensitivity Analysis — Condition Sweep · FE · Size S~~ ✅ Done — PR #34
 
 Add a "Sweep" mode to the sidebar. The user locks one bullet and sweeps a single
 parameter (wind speed, altitude, or temperature) across 3–5 values. The tool
@@ -56,9 +56,9 @@ Turns the backend's parallel execution capability into a visible user feature.
 
 ## P2 — Should Have
 
-~~### SH-1 · Spin Drift (Gyroscopic) · BE + FE · Size M~~ ✅ Done — PR #32 (BE), PR #33 (FE)
+~~### SH-1 · Spin Drift (Gyroscopic) · BE + FE · Size M~~ ✅ Done — PR #32 (BE), PR #34 (FE)
 
-~~### SH-2 · BC Back-Calculator · FE · Size S~~ ✅ Done — PR #33
+~~### SH-2 · BC Back-Calculator · FE · Size S~~ ✅ Done — PR #34
 
 Add a "Solve BC" card to the Tools tab. Inputs: bullet weight (g), muzzle
 velocity (m/s), measured drop (cm), measured range (m), same environmental
@@ -74,7 +74,7 @@ BC to compare against published values. Common load-development task.
 
 ---
 
-~~### SH-3 · Density Altitude Output · BE + FE · Size S~~ ✅ Done — PR #32 (BE), PR #33 (FE)
+~~### SH-3 · Density Altitude Output · BE + FE · Size S~~ ✅ Done — PR #32 (BE), PR #34 (FE)
 
 ## Open Items (pre-existing, not sprint work)
 
