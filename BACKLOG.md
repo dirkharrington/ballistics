@@ -112,6 +112,24 @@ that determines effective drag. ~15 lines of arithmetic, no new dependencies.
 
 ---
 
+## Next Sprint
+
+### SH-4 · Spin Drift in Crosshair Readout · FE · Size XS
+
+Add `spinDriftCm` to the per-range crosshair readout panel (`updateReadout` in
+`ballistics.js`). Show it conditioned on `p.spinDriftCm > 0` so the row is
+invisible when twist rate is not configured.
+
+Pure frontend change — no backend, no contract, no new test infrastructure needed
+beyond the existing crosshair readout tests. The value is already on every
+`TrajectoryPoint` (shipped in PR #34).
+
+**Value:** Users with twist rate configured can read the numeric spin drift at any
+range by hovering, completing the spin drift feature surface that the wind chart
+overlay alone does not provide.
+
+---
+
 ## Open Items (pre-existing, not sprint work)
 
 | Severity | Item | Source |
