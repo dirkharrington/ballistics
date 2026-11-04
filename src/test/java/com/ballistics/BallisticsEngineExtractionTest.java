@@ -68,7 +68,7 @@ class BallisticsEngineExtractionTest {
     @Test
     void convertInputs_mvFpsIsScaledFromMuzzleVelocityMps() throws Exception {
         Bullet bullet = BulletCatalog.findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null, null);
 
         Object ci = convertInputs(bullet, req);
 
@@ -81,7 +81,7 @@ class BallisticsEngineExtractionTest {
     void convertInputs_airDensityRatioNearOneAtStandardConditions() throws Exception {
         Bullet bullet = BulletCatalog.findById("308-win-168gr");
         // alt=0 m, temp=15 °C (=59 °F) → standard atmosphere → ratio ≈ 1.0
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null, null);
 
         Object ci = convertInputs(bullet, req);
 
@@ -92,7 +92,7 @@ class BallisticsEngineExtractionTest {
     @Test
     void convertInputs_launchAngleIsSmallNonZeroForTypicalRequest() throws Exception {
         Bullet bullet = BulletCatalog.findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null, null);
 
         Object ci = convertInputs(bullet, req);
 
@@ -104,7 +104,7 @@ class BallisticsEngineExtractionTest {
     @Test
     void convertInputs_g7DragModelAliasesG7Tables() throws Exception {
         Bullet bullet = BulletCatalog.findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, "G7");
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, "G7", null);
 
         Object ci = convertInputs(bullet, req);
 
@@ -122,7 +122,7 @@ class BallisticsEngineExtractionTest {
     @Test
     void integrateTrajectory_pointsMatchComputeOutput() throws Exception {
         Bullet bullet = BulletCatalog.findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null, null);
 
         // Reference result from the full compute() (no Spring cache on raw instance)
         TrajectoryResult expected = engine.compute(bullet, req);
@@ -143,7 +143,7 @@ class BallisticsEngineExtractionTest {
     void integrateTrajectory_supersonicLimitWithinRangeForSupersonicLoad() throws Exception {
         Bullet bullet = BulletCatalog.findById("308-win-168gr");
         // 2000 m max — .308 Win 168 gr goes subsonic well before 2000 m
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 2000, 50, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 2000, 50, 0, 0, 15, null, null, null, null, null);
 
         Object ci = convertInputs(bullet, req);
         Object ir = integrateTrajectory(ci);

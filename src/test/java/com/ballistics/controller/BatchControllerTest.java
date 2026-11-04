@@ -8,6 +8,8 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -18,6 +20,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+// Re-enable rate limiting so rateLimitReturnsTooManyRequests can exhaust the BATCH bucket.
+// A dedicated context with @TestPropertySource isolates these bucket-exhaustion tests from
+// the shared disabled-rate-limit context used by all other @SpringBootTest classes.
+@TestPropertySource(properties = "app.ratelimit.enabled=true")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class BatchControllerTest {
 
     @Autowired WebApplicationContext wac;

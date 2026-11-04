@@ -47,7 +47,7 @@ class CrossValidationTest {
     void javaAndJsDropValuesAgreeWithin2cmForAllCatalogBullets() throws Exception {
         for (Bullet bullet : BulletCatalog.load()) {
             TrajectoryRequest req = new TrajectoryRequest(
-                bullet.id(), 100, 800, 25, 0, 0, 15, 38.1, null, null, null
+                bullet.id(), 100, 800, 25, 0, 0, 15, 38.1, null, null, null, null
             );
 
             List<Map<String, Object>> javaPoints = fetchJavaPoints(bullet.id(), req);
@@ -77,7 +77,7 @@ class CrossValidationTest {
     void velocityValuesAgreeWithin3mpsForAllCatalogBullets() throws Exception {
         for (Bullet bullet : BulletCatalog.load()) {
             TrajectoryRequest req = new TrajectoryRequest(
-                bullet.id(), 100, 800, 100, 0, 0, 15, 38.1, null, null, null
+                bullet.id(), 100, 800, 100, 0, 0, 15, 38.1, null, null, null, null
             );
 
             List<Map<String, Object>> javaPoints = fetchJavaPoints(bullet.id(), req);
@@ -100,7 +100,7 @@ class CrossValidationTest {
     void eachBulletProducesAtLeast20PointsInBothEngines() throws Exception {
         for (Bullet bullet : BulletCatalog.load()) {
             TrajectoryRequest req = new TrajectoryRequest(
-                bullet.id(), 100, 800, 25, 0, 0, 15, 38.1, null, null, null
+                bullet.id(), 100, 800, 25, 0, 0, 15, 38.1, null, null, null, null
             );
 
             List<Map<String, Object>> javaPoints = fetchJavaPoints(bullet.id(), req);
@@ -121,7 +121,7 @@ class CrossValidationTest {
     void g7JavaAndJsDropValuesAgreeWithin2cm() throws Exception {
         for (Bullet bullet : BulletCatalog.load()) {
             TrajectoryRequest req = new TrajectoryRequest(
-                bullet.id(), 100, 800, 25, 0, 0, 15, 38.1, null, null, "G7"
+                bullet.id(), 100, 800, 25, 0, 0, 15, 38.1, null, null, "G7", null
             );
             List<Map<String, Object>> javaPoints = fetchJavaPointsG7(bullet.id(), req);
             List<Map<String, Object>> jsPoints   = fetchJsPointsG7(bullet, req);

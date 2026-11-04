@@ -12,6 +12,8 @@ package com.ballistics.model;
  * @param moaAdjustment    scope elevation adjustment in MOA needed to return bullet to LoS
  *                         (positive = click up; negative = click down; 0 at muzzle)
  * @param mradAdjustment   same adjustment in MRAD (milliradians)
+ * @param spinDriftCm      Gyroscopic spin drift in cm at this range. Positive = rightward (right-hand twist).
+ *                         Zero when twistRateInchesPerTurn is null/absent on the request.
  */
 public record TrajectoryPoint(
     double rangeMeters,
@@ -21,5 +23,6 @@ public record TrajectoryPoint(
     double windDriftCm,
     double timeOfFlightSec,
     double moaAdjustment,
-    double mradAdjustment
+    double mradAdjustment,
+    double spinDriftCm
 ) {}

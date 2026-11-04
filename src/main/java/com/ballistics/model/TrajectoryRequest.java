@@ -61,7 +61,15 @@ public record TrajectoryRequest(
             "spitzer projectiles; \"G7\" suits boat-tail, very-low-drag long-range projectiles. " +
             "Use G7 only when the ballistic coefficient was derived against the G7 standard projectile.",
             example = "G1", allowableValues = {"G1", "G7"})
-    @Pattern(regexp = "G[17]") String dragModel
+    @Pattern(regexp = "G[17]") String dragModel,
+
+    @Schema(description = "Barrel twist rate in inches per turn. When provided, gyroscopic spin drift " +
+            "is computed and returned as spinDriftCm on each TrajectoryPoint. " +
+            "Null or absent = spin drift disabled (spinDriftCm = 0.0). " +
+            "Example: 10 = 1-in-10\" twist.", example = "10")
+    @DecimalMin(value = "0", inclusive = false)
+    @DecimalMax("100")
+    Double twistRateInchesPerTurn
 ) {
     /** Defaults suitable for a standard sea-level, calm-day simulation. */
     public TrajectoryRequest {
@@ -73,12 +81,13 @@ public record TrajectoryRequest(
         if (shootingAngleDegrees == null) shootingAngleDegrees = 0.0;
         if (windDirectionDeg == null) windDirectionDeg = 90.0;
         if (dragModel == null) dragModel = "G1";
+        // twistRateInchesPerTurn: null means absent; no default applied — null = disabled
     }
 
     /** Returns a copy of this request with bulletId replaced; all other components unchanged. */
     public TrajectoryRequest withBulletId(String newBulletId) {
         return new TrajectoryRequest(newBulletId, zeroRangeMeters, maxRangeMeters, stepMeters,
             windSpeedKph, altitudeMeters, temperatureC, sightHeightMm,
-            shootingAngleDegrees, windDirectionDeg, dragModel);
+            shootingAngleDegrees, windDirectionDeg, dragModel, twistRateInchesPerTurn);
     }
 }
