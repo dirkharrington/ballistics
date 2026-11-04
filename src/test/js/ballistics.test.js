@@ -90,6 +90,32 @@ function buildDOM() {
     <button type="button" id="savePresetBtn">SAVE AS PRESET</button>
     <div id="customPresetSection" hidden></div>
     <ul id="customPresetList" aria-label="Saved custom round presets"></ul>
+    <input id="twistRate" value="" />
+    <div id="sweepControls" style="display:none">
+      <select id="sweepParam">
+        <option value="wind" selected>Wind</option>
+        <option value="altitude">Altitude</option>
+        <option value="temperature">Temperature</option>
+      </select>
+      <button id="sweepBtn"><span>SWEEP</span></button>
+      <button id="clearSweepBtn" style="display:none"><span>CLEAR SWEEP</span></button>
+    </div>
+    <div id="dopeCard">
+      <div id="dopeDistanceRow"></div>
+      <button id="dopeAddDistBtn">+ Add distance</button>
+      <table id="dopeTable"></table>
+      <button id="dopeCopyBtn">COPY TEXT</button>
+    </div>
+    <div id="bcCalcCard">
+      <input id="bcCalcWeightG" value="" />
+      <input id="bcCalcMvMps"   value="" />
+      <input id="bcCalcDropCm"  value="" />
+      <input id="bcCalcRangeM"  value="" />
+      <input id="bcCalcAltM"    value="0" />
+      <input id="bcCalcTempC"   value="15" />
+      <button id="bcCalcBtn">CALCULATE</button>
+      <div id="bcCalcResult" class="tool-results"></div>
+    </div>
   `;
 }
 
@@ -1014,9 +1040,9 @@ describe('renderResults', () => {
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
   });
 
-  test('creates 4 Chart instances (one per chart type)', () => {
+  test('creates 5 Chart instances (4 trajectory + 1 adjustment)', () => {
     mod.renderResults(results, req);
-    expect(MockChart).toHaveBeenCalledTimes(4);
+    expect(MockChart).toHaveBeenCalledTimes(5);
   });
 
   test('destroys existing charts before rendering new ones', () => {
@@ -1862,7 +1888,7 @@ describe('crosshairPlugin', () => {
     expect(fakeChart.ctx.beginPath).not.toHaveBeenCalled();
   });
 
-  test('all four charts are created with crosshairPlugin in plugins array', () => {
+  test('all five charts are created with crosshairPlugin in plugins array', () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -1873,14 +1899,14 @@ describe('crosshairPlugin', () => {
     }];
     MockChart.mockClear();
     mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    expect(MockChart).toHaveBeenCalledTimes(4);
+    expect(MockChart).toHaveBeenCalledTimes(5);
     MockChart.mock.calls.forEach(([, cfg]) => {
       expect(Array.isArray(cfg.plugins)).toBe(true);
       expect(cfg.plugins.some(p => p.id === 'ballistics-crosshair')).toBe(true);
     });
   });
 
-  test('all four charts use interaction mode index', () => {
+  test('all five charts use interaction mode index', () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -2006,10 +2032,10 @@ describe('annotationPlugin integration with renderResults', () => {
     };
   }
 
-  test('all four charts receive an annotationPlugin in their plugins array', () => {
+  test('all five charts receive an annotationPlugin in their plugins array', () => {
     MockChart.mockClear();
     mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
-    expect(MockChart).toHaveBeenCalledTimes(4);
+    expect(MockChart).toHaveBeenCalledTimes(5);
     MockChart.mock.calls.forEach(([, cfg]) => {
       const hasAnnot = cfg.plugins.some(p => p.id === 'ballistics-annotations');
       expect(hasAnnot).toBe(true);
@@ -2076,7 +2102,7 @@ describe('annotationPlugin integration with renderResults', () => {
     MockChart.mockClear();
     // Covers sonicAnn = [] and dropAnns = [] branches when results[0] is undefined
     mod.renderResults([], { zeroRangeMeters: 100, windSpeedKph: 0 });
-    expect(MockChart).toHaveBeenCalledTimes(4);
+    expect(MockChart).toHaveBeenCalledTimes(5);
     MockChart.mock.calls.forEach(([, cfg]) => {
       const annotPlug = cfg.plugins.find(p => p.id === 'ballistics-annotations');
       expect(annotPlug).toBeDefined();
@@ -3978,5 +4004,702 @@ describe('FE-3: init() thead click listener', () => {
     const roundTh = document.querySelector('#dataTable thead th:not([data-sort-key])');
     roundTh.click();
     expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-1: Adjustment chart (5th panel, dual y-axis)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-1: renderResults creates adjustment chart as 5th panel', () => {
+  function makeAdjResult(overrides = {}) {
+    return {
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 0,   dropCm: 0,   velocityMps: 807, energyJoules: 3552, windDriftCm: 0,  timeOfFlightSec: 0 },
+        { rangeMeters: 100, dropCm: -5,  velocityMps: 760, energyJoules: 3150, windDriftCm: 2,  timeOfFlightSec: 0.13 },
+        { rangeMeters: 300, dropCm: -30, velocityMps: 650, energyJoules: 2300, windDriftCm: 10, timeOfFlightSec: 0.42 },
+      ],
+      maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
+      ...overrides,
+    };
+  }
+
+  test('renders 5 Chart instances', () => {
+    MockChart.mockClear();
+    mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(MockChart).toHaveBeenCalledTimes(5);
+  });
+
+  test('adjustment chart has dual y-axes (yMoa and yMrad)', () => {
+    MockChart.mockClear();
+    mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    // 5th call is adjustChart
+    const adjustCfg = MockChart.mock.calls[4][1];
+    expect(adjustCfg.options.scales.yMoa).toBeDefined();
+    expect(adjustCfg.options.scales.yMrad).toBeDefined();
+    expect(adjustCfg.options.scales.yMoa.position).toBe('left');
+    expect(adjustCfg.options.scales.yMrad.position).toBe('right');
+  });
+
+  test('adjustment chart datasets include MOA and MRAD series', () => {
+    MockChart.mockClear();
+    mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const adjustCfg = MockChart.mock.calls[4][1];
+    const labels = adjustCfg.data.datasets.map(d => d.label);
+    const hasMoa  = labels.some(l => l.includes('MOA'));
+    const hasMrad = labels.some(l => l.includes('MRAD'));
+    expect(hasMoa).toBe(true);
+    expect(hasMrad).toBe(true);
+  });
+
+  test('MRAD datasets use dashed border', () => {
+    MockChart.mockClear();
+    mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const adjustCfg = MockChart.mock.calls[4][1];
+    const mradDs = adjustCfg.data.datasets.filter(d => d.label.includes('MRAD'));
+    mradDs.forEach(ds => {
+      expect(Array.isArray(ds.borderDash)).toBe(true);
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SH-3 FE: density altitude stat tile
+// ─────────────────────────────────────────────────────────────────────────────
+describe('SH-3 FE: renderStatCards shows density altitude', () => {
+  function makeStatResult(densityAlt) {
+    return {
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552,
+                 windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823,
+      ...(densityAlt !== undefined ? { densityAltitudeMeters: densityAlt } : {}),
+    };
+  }
+
+  test('renders density altitude tile when field is present', () => {
+    const container = document.getElementById('resultsContainer');
+    container.innerHTML = '';
+    mod.renderStatCards([makeStatResult(1500)], container);
+    expect(container.innerHTML).toContain('density alt');
+    expect(container.innerHTML).toContain('1500');
+  });
+
+  test('omits density altitude tile when field is absent', () => {
+    const container = document.getElementById('resultsContainer');
+    container.innerHTML = '';
+    mod.renderStatCards([makeStatResult(undefined)], container);
+    expect(container.innerHTML).not.toContain('density alt');
+  });
+
+  test('renders zero density altitude', () => {
+    const container = document.getElementById('resultsContainer');
+    container.innerHTML = '';
+    mod.renderStatCards([makeStatResult(0)], container);
+    expect(container.innerHTML).toContain('density alt');
+    expect(container.innerHTML).toContain('0');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SH-1 FE: spin drift as dashed series on wind chart
+// ─────────────────────────────────────────────────────────────────────────────
+describe('SH-1 FE: spin drift dashed series on wind chart', () => {
+  function makeSpinResult(withSpinDrift) {
+    return {
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: withSpinDrift
+        ? [{ rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0, spinDriftCm: 0.5 },
+           { rangeMeters: 100, dropCm: -5, velocityMps: 760, energyJoules: 3150, windDriftCm: 2, timeOfFlightSec: 0.13, spinDriftCm: 1.2 }]
+        : [{ rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823,
+    };
+  }
+
+  test('adds spin drift dataset to windChart when spinDriftCm present', () => {
+    MockChart.mockClear();
+    mod.renderResults([makeSpinResult(true)], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    // windChart is the 4th chart (index 3)
+    const windCfg = MockChart.mock.calls[3][1];
+    const spinDs = windCfg.data.datasets.filter(d => d.label.includes('spin drift'));
+    expect(spinDs.length).toBeGreaterThan(0);
+    // should be dashed
+    spinDs.forEach(ds => expect(Array.isArray(ds.borderDash)).toBe(true));
+  });
+
+  test('no spin drift dataset when spinDriftCm absent from all points', () => {
+    MockChart.mockClear();
+    mod.renderResults([makeSpinResult(false)], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const windCfg = MockChart.mock.calls[3][1];
+    const spinDs = windCfg.data.datasets.filter(d => d.label.includes('spin drift'));
+    expect(spinDs.length).toBe(0);
+  });
+
+  test('spin drift ?? 0 covers undefined spinDriftCm on a point', () => {
+    // First point has spinDriftCm (triggers hasSpinDrift=true); second lacks it → ?? 0 fires
+    MockChart.mockClear();
+    mod.renderResults([{
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    spinDriftCm: 1 },
+        { rangeMeters: 100, dropCm: -5, velocityMps: 760, energyJoules: 3150, windDriftCm: 2, timeOfFlightSec: 0.13 },
+      ],
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823,
+    }], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const windCfg = MockChart.mock.calls[3][1];
+    const spinDs = windCfg.data.datasets.filter(d => d.label.includes('spin drift'));
+    expect(spinDs.length).toBeGreaterThan(0);
+    expect(spinDs[0].data[1].y).toBe(0); // undefined ?? 0 = 0
+  });
+
+  test('fallback color used when bullet id not in BULLET_COLORS', () => {
+    MockChart.mockClear();
+    mod.renderResults([{
+      bullet: { id: 'unknown-custom-bullet', name: 'Custom', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    spinDriftCm: 1 },
+        { rangeMeters: 100, dropCm: -5, velocityMps: 760, energyJoules: 3150, windDriftCm: 2, timeOfFlightSec: 0.13, spinDriftCm: 1.2 },
+      ],
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823,
+    }], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const windCfg = MockChart.mock.calls[3][1];
+    const spinDs = windCfg.data.datasets.filter(d => d.label.includes('spin drift'));
+    expect(spinDs.length).toBeGreaterThan(0);
+    expect(spinDs[0].borderColor).toBe('#4ADE80'); // BULLET_COLORS[unknownId] || '#4ADE80'
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-3: renderDopeCard called from renderResults
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-3: renderResults calls renderDopeCard', () => {
+  test('dopeTable is populated after renderResults', () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 0,   dropCm: 0,   velocityMps: 807, energyJoules: 3552, windDriftCm: 0,  timeOfFlightSec: 0 },
+        { rangeMeters: 100, dropCm: -5,  velocityMps: 760, energyJoules: 3150, windDriftCm: 2,  timeOfFlightSec: 0.13 },
+        { rangeMeters: 500, dropCm: -80, velocityMps: 550, energyJoules: 1650, windDriftCm: 15, timeOfFlightSec: 0.72 },
+      ],
+      maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
+    };
+    mod.renderResults([result], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const html = document.getElementById('dopeTable').innerHTML;
+    // dopeTable should have content (thead + tbody)
+    expect(html).toContain('<thead>');
+    expect(html).toContain('.308 Win');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-4: updateSweepButtonVisibility
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-4: updateSweepButtonVisibility', () => {
+  test('hides sweepControls when no bullets selected', () => {
+    mod._setSelectedIds(new Set());
+    mod.updateSweepButtonVisibility();
+    expect(document.getElementById('sweepControls').style.display).toBe('none');
+  });
+
+  test('shows sweepControls when at least one bullet selected', () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod.updateSweepButtonVisibility();
+    expect(document.getElementById('sweepControls').style.display).toBe('block');
+  });
+
+  test('is a no-op when sweepControls element is absent', () => {
+    document.getElementById('sweepControls').remove();
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    expect(() => mod.updateSweepButtonVisibility()).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-4: SWEEP_RANGES and buildSweepRequests
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-4: SWEEP_RANGES', () => {
+  test('has wind, altitude, temperature keys with 5 values each', () => {
+    expect(mod.SWEEP_RANGES.wind).toHaveLength(5);
+    expect(mod.SWEEP_RANGES.altitude).toHaveLength(5);
+    expect(mod.SWEEP_RANGES.temperature).toHaveLength(5);
+  });
+});
+
+describe('MH-4: buildSweepRequests', () => {
+  const baseReq = {
+    bulletIds: ['308-win-168gr'], zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 25,
+    windSpeedKph: 0, windDirectionDeg: 90, altitudeMeters: 0, temperatureC: 15,
+    sightHeightMm: 38.1, shootingAngleDegrees: 0, dragModel: 'G1',
+  };
+
+  test('returns 5 requests for wind sweep', () => {
+    const reqs = mod.buildSweepRequests(baseReq, 'wind', '308-win-168gr');
+    expect(reqs).toHaveLength(5);
+    reqs.forEach((r, i) => {
+      expect(r.windSpeedKph).toBe(mod.SWEEP_RANGES.wind[i]);
+      expect(r.bulletIds).toEqual(['308-win-168gr']);
+    });
+  });
+
+  test('returns 5 requests for altitude sweep', () => {
+    const reqs = mod.buildSweepRequests(baseReq, 'altitude', '308-win-168gr');
+    expect(reqs).toHaveLength(5);
+    reqs.forEach((r, i) => {
+      expect(r.altitudeMeters).toBe(mod.SWEEP_RANGES.altitude[i]);
+    });
+  });
+
+  test('returns 5 requests for temperature sweep', () => {
+    const reqs = mod.buildSweepRequests(baseReq, 'temperature', '308-win-168gr');
+    expect(reqs).toHaveLength(5);
+    reqs.forEach((r, i) => {
+      expect(r.temperatureC).toBe(mod.SWEEP_RANGES.temperature[i]);
+    });
+  });
+
+  test('falls back to wind range for unknown sweepParam (5 requests, bulletIds set)', () => {
+    const reqs = mod.buildSweepRequests(baseReq, 'unknown', '308-win-168gr');
+    expect(reqs).toHaveLength(5);
+    reqs.forEach(r => {
+      expect(r.bulletIds).toEqual(['308-win-168gr']);
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-4: runSweep
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-4: runSweep', () => {
+  function makeSweepApiResult() {
+    return {
+      jsonrpc: '2.0', id: 1,
+      result: [0, 1, 2, 3, 4].map(i => ({
+        bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+                  ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+        request: {},
+        points: [
+          { rangeMeters: 0,   dropCm: 0,          velocityMps: 807, energyJoules: 3552, windDriftCm: i, timeOfFlightSec: 0 },
+          { rangeMeters: 100, dropCm: -(5 + i),   velocityMps: 760, energyJoules: 3150, windDriftCm: i + 2, timeOfFlightSec: 0.13 },
+        ],
+        supersonicLimitMeters: 820, maxOrdinateCm: 3, maxOrdinateRangeMeters: 50,
+      })),
+    };
+  }
+
+  test('no-op when no bullets selected', async () => {
+    mod._setSelectedIds(new Set());
+    await mod.runSweep();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('calls trajectory.batch RPC on success', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeSweepApiResult()),
+    });
+
+    await mod.runSweep();
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/rpc'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+    expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
+  });
+
+  test('falls back to client-side simulation when fetch fails', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockRejectedValue(new Error('offline'));
+
+    await mod.runSweep();
+
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('falls back to client-side when RPC returns error', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'Internal error' } }),
+    });
+
+    await mod.runSweep();
+
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('no-op when bullet not found in fallback path', async () => {
+    mod._setSelectedIds(new Set(['nonexistent-bullet']));
+    mod._setBullets([]);
+    global.fetch.mockRejectedValue(new Error('offline'));
+
+    await mod.runSweep();
+    // button text should be reset
+    const btn = document.getElementById('sweepBtn');
+    expect(btn.querySelector('span').textContent).toBe('SWEEP');
+  });
+
+  test('falls back when HTTP response is not ok', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) });
+
+    await mod.runSweep();
+
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('sweepParam defaults to wind when element absent (line 1256 ?? wind)', async () => {
+    document.getElementById('sweepParam').remove();
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeSweepApiResult()),
+    });
+    await mod.runSweep();
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('sweepBtn absent: if(btn) false at spinner and final reset (lines 1258 and 1297)', async () => {
+    document.getElementById('sweepBtn').remove();
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeSweepApiResult()),
+    });
+    await mod.runSweep();
+    expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
+  });
+
+  test('clearSweepBtn absent: if(clearBtn) false after sweep (line 1299)', async () => {
+    document.getElementById('clearSweepBtn').remove();
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeSweepApiResult()),
+    });
+    await mod.runSweep();
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('bullet not found and sweepBtn absent: if(btn) false in !bullet branch (line 1289)', async () => {
+    document.getElementById('sweepBtn').remove();
+    mod._setSelectedIds(new Set(['nonexistent-bullet']));
+    mod._setBullets([]);
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.runSweep();
+    expect(document.getElementById('clearSweepBtn').style.display).not.toBe('block');
+  });
+
+  test('destroys existing charts before sweep renders (line 1322 forEach callback)', async () => {
+    const mockChart = { destroy: jest.fn() };
+    mod._setCharts({ trajectory: mockChart });
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeSweepApiResult()),
+    });
+    await mod.runSweep();
+    expect(mockChart.destroy).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-4: clearSweep
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-4: clearSweep', () => {
+  test('hides clearSweepBtn', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.runSweep();
+    expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
+
+    // Set up lastResults so clearSweep can call renderResults
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 3, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 820,
+    };
+    mod._setLastResults([result]);
+    mod.clearSweep();
+    expect(document.getElementById('clearSweepBtn').style.display).toBe('none');
+  });
+
+  test('re-renders last results', async () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 3, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 820,
+    };
+    mod._setLastResults([result]);
+    MockChart.mockClear();
+    mod.clearSweep();
+    // renderResults should have been called → new charts created
+    expect(MockChart).toHaveBeenCalled();
+  });
+
+  test('clearSweepBtn absent: if(clearBtn) false does not throw (line 1306)', () => {
+    document.getElementById('clearSweepBtn').remove();
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 3, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 820,
+    };
+    mod._setLastResults([result]);
+    expect(() => mod.clearSweep()).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-4: renderSweepCharts
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-4: renderSweepCharts', () => {
+  function makeSweepList() {
+    return [0, 1, 2, 3, 4].map(i => ({
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+                ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 0,   dropCm: 0,          velocityMps: 807, energyJoules: 3552, windDriftCm: i, timeOfFlightSec: 0 },
+        { rangeMeters: 100, dropCm: -(5 + i),   velocityMps: 760, energyJoules: 3150, windDriftCm: i + 2, timeOfFlightSec: 0.13 },
+      ],
+      supersonicLimitMeters: 820, maxOrdinateCm: 3, maxOrdinateRangeMeters: 50,
+    }));
+  }
+
+  test('creates 3 Chart instances (drop, wind, velocity)', () => {
+    MockChart.mockClear();
+    mod.renderSweepCharts(makeSweepList(), 'wind');
+    expect(MockChart).toHaveBeenCalledTimes(3);
+  });
+
+  test('shows resultsContainer', () => {
+    mod.renderSweepCharts(makeSweepList(), 'wind');
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('uses SWEEP_COLORS for datasets', () => {
+    MockChart.mockClear();
+    mod.renderSweepCharts(makeSweepList(), 'wind');
+    const cfg = MockChart.mock.calls[0][1];
+    cfg.data.datasets.forEach((ds, i) => {
+      expect(ds.borderColor).toBe(mod.SWEEP_COLORS[i % mod.SWEEP_COLORS.length]);
+    });
+  });
+
+  test('renders altitude sweep without error', () => {
+    expect(() => mod.renderSweepCharts(makeSweepList(), 'altitude')).not.toThrow();
+  });
+
+  test('renders temperature sweep without error', () => {
+    expect(() => mod.renderSweepCharts(makeSweepList(), 'temperature')).not.toThrow();
+  });
+
+  test('falls back to wind unit for unknown sweepParam', () => {
+    expect(() => mod.renderSweepCharts(makeSweepList(), 'unknown')).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-4: toggleBullet calls updateSweepButtonVisibility
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-4: toggleBullet calls updateSweepButtonVisibility', () => {
+  test('sweepControls shown after selecting a bullet', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod.renderBulletList(mod.getMockBullets());
+    mod.toggleBullet('308-win-168gr');
+    expect(document.getElementById('sweepControls').style.display).toBe('block');
+  });
+
+  test('sweepControls hidden after deselecting last bullet', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod.renderBulletList(mod.getMockBullets());
+    mod.toggleBullet('308-win-168gr');
+    mod.toggleBullet('308-win-168gr');
+    expect(document.getElementById('sweepControls').style.display).toBe('none');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-4: runSimulation includes twistRateInchesPerTurn when twistRate is set
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-4: runSimulation uses twistRate input', () => {
+  const mockApiResults = [
+    {
+      bullet: { id: '308-win-168gr', name: '.308 Win 168gr', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823,
+    },
+  ];
+
+  test('includes twistRateInchesPerTurn when twistRate input has a value', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    document.getElementById('twistRate').value = '10';
+    global.fetch.mockResolvedValue({ json: () => Promise.resolve(mockApiResults) });
+
+    await mod.runSimulation();
+
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.twistRateInchesPerTurn).toBe(10);
+  });
+
+  test('omits twistRateInchesPerTurn when twistRate input is empty', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    document.getElementById('twistRate').value = '';
+    global.fetch.mockResolvedValue({ json: () => Promise.resolve(mockApiResults) });
+
+    await mod.runSimulation();
+
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.twistRateInchesPerTurn).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-1: adjustment chart interaction callbacks (lines 1095-1110)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-1: adjustment chart callbacks', () => {
+  const singleResult = [{
+    bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+              muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+    request: {},
+    points: [
+      { rangeMeters: 0,   dropCm: 0,   velocityMps: 807, energyJoules: 3552, windDriftCm: 0,  timeOfFlightSec: 0 },
+      { rangeMeters: 100, dropCm: -5,  velocityMps: 760, energyJoules: 3150, windDriftCm: 2,  timeOfFlightSec: 0.13 },
+    ],
+    maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
+  }];
+
+  function renderAndGetAdjCallbacks() {
+    MockChart.mockClear();
+    mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    // 5th chart is adjustChart
+    return MockChart.mock.calls[4][1].options;
+  }
+
+  test('onHover with no elements hides readout (adjustChart)', () => {
+    const opts = renderAndGetAdjCallbacks();
+    // First set a crosshairIndex
+    opts.onHover({}, [{ index: 0 }]);
+    // Then clear it
+    opts.onHover({}, []);
+    expect(mod._getState().crosshairIndex).toBeNull();
+    expect(document.getElementById('rangeReadout').style.display).toBe('none');
+  });
+
+  test('onClick with elements pins readout (adjustChart)', () => {
+    const opts = renderAndGetAdjCallbacks();
+    opts.onClick({}, [{ index: 1 }]);
+    expect(mod._getState().crosshairPinned).toBe(true);
+    expect(mod._getState().crosshairIndex).toBe(1);
+  });
+
+  test('onClick with no elements is no-op (adjustChart)', () => {
+    const opts = renderAndGetAdjCallbacks();
+    opts.onClick({}, []);
+    expect(mod._getState().crosshairPinned).toBe(false);
+  });
+
+  test('onClick unpins and hides readout on second click (adjustChart)', () => {
+    const opts = renderAndGetAdjCallbacks();
+    opts.onClick({}, [{ index: 0 }]);
+    opts.onClick({}, [{ index: 0 }]);
+    expect(mod._getState().crosshairPinned).toBe(false);
+  });
+
+  test('onHover when crosshairPinned returns early without changing index (adjustChart)', () => {
+    const opts = renderAndGetAdjCallbacks();
+    opts.onHover({}, [{ index: 0 }]);           // set crosshairIndex = 0
+    opts.onClick({}, [{ index: 0 }]);            // pin crosshairPinned = true
+    expect(mod._getState().crosshairPinned).toBe(true);
+    opts.onHover({}, [{ index: 1 }]);            // if (crosshairPinned) return; fires
+    expect(mod._getState().crosshairIndex).toBe(0); // unchanged
+  });
+
+  test('export button on adjustChart calls exportPNG', () => {
+    HTMLCanvasElement.prototype.toDataURL = jest.fn(() => 'data:image/png;base64,abc');
+    try {
+      mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
+      const btn = document.querySelector('[data-chart-id="adjustChart"]');
+      expect(btn).not.toBeNull();
+      btn.click();
+    } finally {
+      delete HTMLCanvasElement.prototype.toDataURL;
+    }
+  });
+
+  test('touchmove on adjustChart canvas fires mousemove', () => {
+    mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const canvas = document.getElementById('adjustChart');
+    expect(canvas).not.toBeNull();
+    const listener = jest.fn();
+    canvas.addEventListener('mousemove', listener);
+    const touch = { clientX: 100, clientY: 50 };
+    const te = new Event('touchmove', { cancelable: true, bubbles: true });
+    te.touches = [touch];
+    canvas.dispatchEvent(te);
+    expect(listener).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MH-4: export button on sweep chart (line 1344)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('MH-4: sweep export button', () => {
+  function makeSweepList5() {
+    return [0, 1, 2, 3, 4].map(i => ({
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+                ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 0,   dropCm: 0,        velocityMps: 807, energyJoules: 3552, windDriftCm: i, timeOfFlightSec: 0 },
+        { rangeMeters: 100, dropCm: -(5 + i), velocityMps: 760, energyJoules: 3150, windDriftCm: i + 2, timeOfFlightSec: 0.13 },
+      ],
+      supersonicLimitMeters: 820, maxOrdinateCm: 3, maxOrdinateRangeMeters: 50,
+    }));
+  }
+
+  test('clicking export-btn on a sweep chart panel calls exportPNG', () => {
+    HTMLCanvasElement.prototype.toDataURL = jest.fn(() => 'data:image/png;base64,abc');
+    try {
+      mod.renderSweepCharts(makeSweepList5(), 'wind');
+      const btn = document.querySelector('.export-btn');
+      expect(btn).not.toBeNull();
+      btn.click();
+    } finally {
+      delete HTMLCanvasElement.prototype.toDataURL;
+    }
   });
 });
