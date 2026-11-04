@@ -179,7 +179,9 @@ public class BallisticsEngine {
             double massGr = bullet.bulletWeightGrams() * GRAINS_PER_GRAM;
             double twist  = req.twistRateInchesPerTurn();
             double ldRatio = 4.5;
-            sg = (150.0 * Math.pow(dIn, 3)) / (twist * twist * massGr * (1.0 + ldRatio * ldRatio));
+            if (dIn > 0.0 && massGr > 0.0 && twist > 0.0) {
+                sg = (150.0 * Math.pow(dIn, 3)) / (twist * twist * massGr * (1.0 + ldRatio * ldRatio));
+            }
         }
 
         return new ConvertedInputs(mvFps, weightLbs, bc, crosswindMph, airDensityRatio,
