@@ -14,17 +14,17 @@ class TrajectoryResultTest {
         "The gold standard precision rifle cartridge.", "#F97316"
     );
     private static final TrajectoryRequest REQUEST =
-        new TrajectoryRequest("308-win-168gr", 100, 500, 25, 0, 0, 15, null, null, null, null);
+        new TrajectoryRequest("308-win-168gr", 100, 500, 25, 0, 0, 15, null, null, null, null, null);
 
     @Test
     void constructorAndAllAccessors() {
         List<TrajectoryPoint> points = List.of(
-            new TrajectoryPoint(0.0,    0.0,  807.7, 3552.0, 0.0, 0.0,    0.0, 0.0),
-            new TrajectoryPoint(91.4,   0.0,  747.6, 3036.0, 0.0, 0.12,  0.0, 0.0),
-            new TrajectoryPoint(457.2, -106.7, 548.6, 1637.0, 0.0, 0.65, 8.1, 2.3)
+            new TrajectoryPoint(0.0,    0.0,  807.7, 3552.0, 0.0, 0.0,    0.0, 0.0, 0.0),
+            new TrajectoryPoint(91.4,   0.0,  747.6, 3036.0, 0.0, 0.12,  0.0, 0.0, 0.0),
+            new TrajectoryPoint(457.2, -106.7, 548.6, 1637.0, 0.0, 0.65, 8.1, 2.3, 0.0)
         );
 
-        TrajectoryResult result = new TrajectoryResult(BULLET, REQUEST, points, 8.1, 68.6, 731.5);
+        TrajectoryResult result = new TrajectoryResult(BULLET, REQUEST, points, 8.1, 68.6, 731.5, 0.0);
 
         assertThat(result.bullet()).isEqualTo(BULLET);
         assertThat(result.request()).isEqualTo(REQUEST);
@@ -32,11 +32,12 @@ class TrajectoryResultTest {
         assertThat(result.maxOrdinateCm()).isEqualTo(8.1);
         assertThat(result.maxOrdinateRangeMeters()).isEqualTo(68.6);
         assertThat(result.supersonicLimitMeters()).isEqualTo(731.5);
+        assertThat(result.densityAltitudeMeters()).isEqualTo(0.0);
     }
 
     @Test
     void emptyPointsListIsAllowed() {
-        TrajectoryResult result = new TrajectoryResult(BULLET, REQUEST, List.of(), 0.0, 0.0, 0.0);
+        TrajectoryResult result = new TrajectoryResult(BULLET, REQUEST, List.of(), 0.0, 0.0, 0.0, 0.0);
         assertThat(result.points()).isEmpty();
         assertThat(result.maxOrdinateCm()).isEqualTo(0.0);
     }
@@ -44,30 +45,30 @@ class TrajectoryResultTest {
     @Test
     void recordEquality() {
         List<TrajectoryPoint> pts = List.of(
-            new TrajectoryPoint(91.4, 0.0, 762.0, 2711.0, 0.0, 0.1, 0.0, 0.0)
+            new TrajectoryPoint(91.4, 0.0, 762.0, 2711.0, 0.0, 0.1, 0.0, 0.0, 0.0)
         );
-        TrajectoryResult r1 = new TrajectoryResult(BULLET, REQUEST, pts, 5.1, 54.9, 777.2);
-        TrajectoryResult r2 = new TrajectoryResult(BULLET, REQUEST, pts, 5.1, 54.9, 777.2);
+        TrajectoryResult r1 = new TrajectoryResult(BULLET, REQUEST, pts, 5.1, 54.9, 777.2, 0.0);
+        TrajectoryResult r2 = new TrajectoryResult(BULLET, REQUEST, pts, 5.1, 54.9, 777.2, 0.0);
         assertThat(r1).isEqualTo(r2);
         assertThat(r1.hashCode()).isEqualTo(r2.hashCode());
     }
 
     @Test
     void recordInequality() {
-        TrajectoryResult r1 = new TrajectoryResult(BULLET, REQUEST, List.of(), 1.0, 45.7, 731.5);
-        TrajectoryResult r2 = new TrajectoryResult(BULLET, REQUEST, List.of(), 2.0, 45.7, 731.5);
+        TrajectoryResult r1 = new TrajectoryResult(BULLET, REQUEST, List.of(), 1.0, 45.7, 731.5, 0.0);
+        TrajectoryResult r2 = new TrajectoryResult(BULLET, REQUEST, List.of(), 2.0, 45.7, 731.5, 0.0);
         assertThat(r1).isNotEqualTo(r2);
     }
 
     @Test
     void recordToStringIsNotBlank() {
-        TrajectoryResult r = new TrajectoryResult(BULLET, REQUEST, List.of(), 0.0, 0.0, 0.0);
+        TrajectoryResult r = new TrajectoryResult(BULLET, REQUEST, List.of(), 0.0, 0.0, 0.0, 0.0);
         assertThat(r.toString()).isNotBlank();
     }
 
     @Test
     void supersonicLimitCanEqualMaxRange() {
-        TrajectoryResult r = new TrajectoryResult(BULLET, REQUEST, List.of(), 0.0, 0.0, 500.0);
+        TrajectoryResult r = new TrajectoryResult(BULLET, REQUEST, List.of(), 0.0, 0.0, 500.0, 0.0);
         assertThat(r.supersonicLimitMeters()).isEqualTo(REQUEST.maxRangeMeters());
     }
 }

@@ -258,6 +258,23 @@
                     </excludes>
                 </configuration>
             </plugin>
+            <!-- Disable rate limiting during tests so a full test run (370+ requests across
+                 @SpringBootTest classes) cannot exhaust the shared Bucket4j token buckets.
+                 Note: src/test/resources/application.properties is unreachable because the
+                 maven-resources-plugin's plugin-level <resources> override causes it to copy
+                 src/main/resources into target/test-classes/, overwriting the test file.
+                 A system property bypasses that issue and has the highest priority in Spring. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- @{argLine} uses late-binding so JaCoCo's prepare-agent value is included -->
+                    <argLine>@{argLine}</argLine>
+                    <systemPropertyVariables>
+                        <app.ratelimit.enabled>false</app.ratelimit.enabled>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
             <!-- Item 4 — OWASP Dependency-Check: fail build on CVSS ≥ 7 (high/critical).
                  Run manually: mvn dependency-check:check
                  NVD API key (optional but recommended to avoid rate-limits):

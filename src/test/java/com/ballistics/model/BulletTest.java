@@ -12,19 +12,34 @@ import static org.assertj.core.api.Assertions.*;
 class BulletTest {
 
     @Test
-    void catalogContainsTenBullets() {
-        assertThat(BulletCatalog.load()).hasSize(10);
+    void catalogContains37Bullets() {
+        assertThat(BulletCatalog.load()).hasSize(37);
     }
 
     @Test
-    void catalogContainsExpectedIds() {
+    void catalogContainsOriginalTenIds() {
         Set<String> ids = BulletCatalog.load().stream()
             .map(Bullet::id)
             .collect(Collectors.toSet());
-        assertThat(ids).containsExactlyInAnyOrder(
+        assertThat(ids).contains(
             "223-rem-55gr", "308-win-168gr", "3006-150gr", "65-creedmoor-140gr",
             "243-win-95gr", "270-win-130gr", "7mm-rem-mag-160gr",
             "338-lapua-250gr", "6mm-creedmoor-108gr", "300-win-mag-190gr"
+        );
+    }
+
+    @Test
+    void catalogContainsNewMH2Ids() {
+        Set<String> ids = BulletCatalog.load().stream()
+            .map(Bullet::id)
+            .collect(Collectors.toSet());
+        assertThat(ids).contains(
+            "17-hmr-17gr", "22-lr-40gr", "22-250-55gr", "243-win-105gr",
+            "260-rem-142gr", "65x47-lapua-139gr", "6-dasher-105gr",
+            "6-br-105gr", "6xc-115gr", "65-prc-143gr",
+            "7mm-prc-175gr", "300-prc-212gr", "300-norma-mag-230gr",
+            "338-norma-mag-300gr", "375-cheytac-352gr", "416-barrett-400gr",
+            "50-bmg-750gr-amax"
         );
     }
 

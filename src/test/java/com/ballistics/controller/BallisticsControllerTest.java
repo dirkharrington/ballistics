@@ -29,10 +29,10 @@ class BallisticsControllerTest {
     // ── GET /api/bullets ──────────────────────────────────────────────────────
 
     @Test
-    void getBulletsReturns200WithTenBullets() throws Exception {
+    void getBulletsReturns200WithExpandedCatalog() throws Exception {
         mockMvc.perform(get("/api/bullets"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$", hasSize(10)))
+            .andExpect(jsonPath("$", hasSize(37)))
             .andExpect(jsonPath("$[0].id", notNullValue()))
             .andExpect(jsonPath("$[0].name", notNullValue()))
             .andExpect(jsonPath("$[0].ballisticCoefficient", greaterThan(0.0)));
