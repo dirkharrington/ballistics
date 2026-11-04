@@ -29,7 +29,7 @@ class BallisticsEngineTest {
     void allKnownBulletsProduceTrajectory() {
         for (Bullet bullet : BulletCatalog.load()) {
             TrajectoryRequest r = new TrajectoryRequest(
-                bullet.id(), 100, 1000, 25, 16, 0, 15, null, null, null, null
+                bullet.id(), 100, 1000, 25, 16, 0, 15, null, null, null, null, null
             );
             TrajectoryResult result = engine.compute(bullet, r);
 
@@ -53,7 +53,7 @@ class BallisticsEngineTest {
 
         assertThat(creedmoor.ballisticCoefficient()).isGreaterThan(rem223.ballisticCoefficient());
 
-        TrajectoryRequest req = new TrajectoryRequest(null, 100, 1000, 100, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(null, 100, 1000, 100, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult creedmoorResult = engine.compute(creedmoor, req);
         TrajectoryResult rem223Result    = engine.compute(rem223, req);
 
@@ -64,7 +64,7 @@ class BallisticsEngineTest {
     @Test
     void zeroingWorksCorrectly() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         result.points().stream()
@@ -81,7 +81,7 @@ class BallisticsEngineTest {
     @Test
     void windDriftIsZeroWhenNoWind() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         result.points().forEach(p ->
@@ -92,7 +92,7 @@ class BallisticsEngineTest {
     @Test
     void windDriftIsComputedWhenWindIsPresent() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 100, 16, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 100, 16, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         assertThat(result.points()).isNotEmpty();
@@ -104,7 +104,7 @@ class BallisticsEngineTest {
     @Test
     void supersonicLimitEqualsMaxRangeWhenBulletNeverGoesSubsonic() {
         Bullet bullet = findById("223-rem-55gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 50, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 50, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         assertThat(result.supersonicLimitMeters()).isEqualTo(req.maxRangeMeters());
@@ -114,7 +114,7 @@ class BallisticsEngineTest {
     void supersonicLimitIsZeroWhenBulletStartsSubsonic() {
         Bullet slow = new Bullet("slow-test", "Slow", "test",
             50, 40, 0.1, 0.3, 5, "test", "#fff");
-        TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(slow, req);
 
         assertThat(result.supersonicLimitMeters()).isEqualTo(0.0);
@@ -125,7 +125,7 @@ class BallisticsEngineTest {
     @Test
     void maxOrdinateIsPositiveAboveBoreLine() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         assertThat(result.maxOrdinateCm()).isGreaterThan(0);
@@ -188,7 +188,7 @@ class BallisticsEngineTest {
     void hypervelocityBulletExercisesHighEndDragTable() {
         Bullet fast = new Bullet("fast-test", "Hypervelocity", "test",
             55, 4500, 0.5, 5.56, 3000, "test", "#fff");
-        TrajectoryRequest req = new TrajectoryRequest("fast-test", 100, 300, 50, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest("fast-test", 100, 300, 50, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(fast, req);
         assertThat(result.points()).isNotEmpty();
     }
@@ -197,7 +197,7 @@ class BallisticsEngineTest {
     void verySlowBulletTriggersEarlyBreakConditions() {
         Bullet slow = new Bullet("slow-test", "Slow", "test",
             50, 40, 0.1, 0.3, 5, "test", "#fff");
-        TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest("slow-test", 100, 200, 25, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(slow, req);
 
         assertThat(result).isNotNull();
@@ -209,7 +209,7 @@ class BallisticsEngineTest {
     @Test
     void trajectoryResultContainsExpectedFields() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 16, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 16, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         assertThat(result.bullet()).isEqualTo(bullet);
@@ -223,7 +223,7 @@ class BallisticsEngineTest {
     @Test
     void trajectoryPointFieldsAreRoundedAndPositive() {
         Bullet bullet = findById("223-rem-55gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 200, 25, 16, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 200, 25, 16, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         result.points().forEach(p -> {
@@ -237,7 +237,7 @@ class BallisticsEngineTest {
     @Test
     void defaultTrajectoryRequestValuesAreApplied() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 0, 0, 0, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 0, 0, 0, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         assertThat(result.points().size()).isGreaterThan(20);
@@ -248,8 +248,8 @@ class BallisticsEngineTest {
     @Test
     void sightHeightDefaultsTo38_1WhenNull() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest withNull  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
-        TrajectoryRequest with38_1  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, 38.1, null, null, null);
+        TrajectoryRequest withNull  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null, null);
+        TrajectoryRequest with38_1  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, 38.1, null, null, null, null);
 
         TrajectoryResult r1 = engine.compute(bullet, withNull);
         TrajectoryResult r2 = engine.compute(bullet, with38_1);
@@ -264,7 +264,7 @@ class BallisticsEngineTest {
     @Test
     void muzzlePointHasZeroAdjustments() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         TrajectoryPoint muzzle = result.points().get(0);
@@ -276,7 +276,7 @@ class BallisticsEngineTest {
     @Test
     void pointBeyondZeroHasPositiveAdjustment() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         TrajectoryPoint far = result.points().stream()
@@ -292,7 +292,7 @@ class BallisticsEngineTest {
     @Test
     void adjustmentsAreZeroWhenDropIsZero() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         TrajectoryResult result = engine.compute(bullet, req);
 
         result.points().stream()
@@ -309,9 +309,9 @@ class BallisticsEngineTest {
     void inclinedFireReducesApparentDropVsFlat() {
         Bullet bullet = findById("308-win-168gr");
 
-        TrajectoryRequest flat   = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, 0.0, null, null);
-        TrajectoryRequest uphill = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, 20.0, null, null);
-        TrajectoryRequest down   = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, -20.0, null, null);
+        TrajectoryRequest flat   = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, 0.0, null, null, null);
+        TrajectoryRequest uphill = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, 20.0, null, null, null);
+        TrajectoryRequest down   = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, -20.0, null, null, null);
 
         TrajectoryResult flatResult   = engine.compute(bullet, flat);
         TrajectoryResult uphillResult = engine.compute(bullet, uphill);
@@ -329,8 +329,8 @@ class BallisticsEngineTest {
     @Test
     void zeroAngleMatchesFlatFireResult() {
         Bullet bullet = findById("308-win-168gr");
-        TrajectoryRequest withNull  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null);
-        TrajectoryRequest withZero  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, 0.0, null, null);
+        TrajectoryRequest withNull  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, null, null, null, null);
+        TrajectoryRequest withZero  = new TrajectoryRequest(bullet.id(), 100, 500, 25, 0, 0, 15, null, 0.0, null, null, null);
 
         TrajectoryResult nullResult = engine.compute(bullet, withNull);
         TrajectoryResult zeroResult = engine.compute(bullet, withZero);
@@ -344,8 +344,75 @@ class BallisticsEngineTest {
 
     @Test
     void shootingAngleDefaultsToZeroWhenNull() {
-        TrajectoryRequest req = new TrajectoryRequest("id", 100, 500, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest("id", 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         assertThat(req.shootingAngleDegrees()).isEqualTo(0.0);
+    }
+
+    // ── SH-1: Spin drift ─────────────────────────────────────────────────────
+
+    @Test
+    void spinDriftIsZeroWhenTwistRateIsNull() {
+        Bullet bullet = findById("308-win-168gr");
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 100, 0, 0, 15, null, null, null, null, null);
+        TrajectoryResult result = engine.compute(bullet, req);
+        for (TrajectoryPoint p : result.points()) {
+            assertThat(p.spinDriftCm()).isEqualTo(0.0);
+        }
+    }
+
+    @Test
+    void spinDriftIsPositiveAt1000mWithTwistRate() {
+        Bullet bullet = findById("308-win-168gr");
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 100, 0, 0, 15, null, null, null, null, 10.0);
+        TrajectoryResult result = engine.compute(bullet, req);
+        TrajectoryPoint p1000 = pointAt(result, 1000.0);
+        assertThat(p1000.spinDriftCm()).isGreaterThan(0.0);
+    }
+
+    @Test
+    void spinDriftAtZeroRangeIsZero() {
+        Bullet bullet = findById("308-win-168gr");
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15, null, null, null, null, 10.0);
+        TrajectoryResult result = engine.compute(bullet, req);
+        TrajectoryPoint p0 = result.points().get(0);
+        assertThat(p0.rangeMeters()).isLessThan(15.0);
+        assertThat(p0.spinDriftCm()).isEqualTo(0.0);
+    }
+
+    @Test
+    void spinDriftCacheKeyIncludesTwistRate() {
+        Bullet bullet = findById("308-win-168gr");
+        TrajectoryRequest withTwist    = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15, null, null, null, null, 10.0);
+        TrajectoryRequest withoutTwist = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15, null, null, null, null, null);
+        TrajectoryResult r1 = engine.compute(bullet, withTwist);
+        TrajectoryResult r2 = engine.compute(bullet, withoutTwist);
+        assertThat(r1).isNotEqualTo(r2);
+    }
+
+    // ── SH-3: Density altitude ────────────────────────────────────────────────
+
+    @Test
+    void densityAltitudeAtSeaLevelStandardTempIsNearZero() {
+        Bullet bullet = findById("308-win-168gr");
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15.0, null, null, null, null, null);
+        TrajectoryResult result = engine.compute(bullet, req);
+        assertThat(result.densityAltitudeMeters()).isCloseTo(0.0, within(50.0));
+    }
+
+    @Test
+    void densityAltitudeAboveStandardTempIsHigherThanPhysicalAltitude() {
+        Bullet bullet = findById("308-win-168gr");
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 1000.0, 30.0, null, null, null, null, null);
+        TrajectoryResult result = engine.compute(bullet, req);
+        assertThat(result.densityAltitudeMeters()).isGreaterThan(1000.0);
+    }
+
+    @Test
+    void densityAltitudeBelowStandardTempIsLowerThanPhysicalAltitude() {
+        Bullet bullet = findById("308-win-168gr");
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 1000.0, -5.0, null, null, null, null, null);
+        TrajectoryResult result = engine.compute(bullet, req);
+        assertThat(result.densityAltitudeMeters()).isLessThan(1000.0);
     }
 
     private static TrajectoryPoint pointAt(TrajectoryResult result, double rangeM) {

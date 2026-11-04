@@ -91,8 +91,10 @@ public class BallisticsEngine {
         double cosAngle,
         double launchAngleRad,
         double tanLaunchAngle,
-        double[] dragVelocities,   // alias to instance array — not copied
-        double[] dragCoeffs        // alias to instance array — not copied
+        double[] dragVelocities,       // alias to instance array — not copied
+        double[] dragCoeffs,           // alias to instance array — not copied
+        Double twistRateInchesPerTurn, // null = spin drift disabled
+        double stabilityFactor         // Greenhill Sg; 0.0 when twist rate null
     ) {}
 
     private record IntegrationResult(
@@ -121,11 +123,15 @@ public class BallisticsEngine {
         ConvertedInputs ci = convertInputs(bullet, req);
         IntegrationResult result = integrateTrajectory(ci);
 
+        double isaTemp      = 15.0 - 1.98 * (req.altitudeMeters() / 304.8);
+        double densityAltM  = r1(req.altitudeMeters() + 118.8 * (req.temperatureC() - isaTemp));
+
         TrajectoryResult output = new TrajectoryResult(
             bullet, req, result.points(),
             r1(result.maxOrdinateIn()      * CM_PER_INCH),
             r1(result.maxOrdinateRangeYd() * M_PER_YARD),
-            r1(result.supersonicLimitYd()  * M_PER_YARD)
+            r1(result.supersonicLimitYd()  * M_PER_YARD),
+            densityAltM
         );
 
         meterRegistry.timer("ballistics.compute", "bullet", bullet.id())
@@ -167,9 +173,21 @@ public class BallisticsEngine {
                                                dragVelocities, dragCoeffs);
         double tanLaunchAngle  = Math.tan(launchAngleRad);
 
+        double sg = 0.0;
+        if (req.twistRateInchesPerTurn() != null) {
+            // Clamp to physical bounds so CodeQL taint analysis sees bounded values.
+            // Real bullets: 0.17–0.95 in diameter, 30–1000 gr, 7–24 in/turn twist.
+            double dIn    = Math.max(0.001, Math.min(bullet.bulletDiameterMm() / 25.4, 5.0));
+            double massGr = Math.max(0.001, Math.min(bullet.bulletWeightGrams() * GRAINS_PER_GRAM, 10000.0));
+            double twist  = Math.max(0.001, Math.min(req.twistRateInchesPerTurn(), 1000.0));
+            double ldRatio = 4.5;
+            sg = (150.0 * Math.pow(dIn, 3)) / (twist * twist * massGr * (1.0 + ldRatio * ldRatio));
+        }
+
         return new ConvertedInputs(mvFps, weightLbs, bc, crosswindMph, airDensityRatio,
             zeroFt, maxRangeYd, stepYd, sightHeightFt, cosAngle,
-            launchAngleRad, tanLaunchAngle, dragVelocities, dragCoeffs);
+            launchAngleRad, tanLaunchAngle, dragVelocities, dragCoeffs,
+            req.twistRateInchesPerTurn(), sg);
     }
 
     /**
@@ -220,8 +238,14 @@ public class BallisticsEngine {
                     mradAdj = r1(sign * angleRad * 1000.0);
                 }
 
+                double spinDriftCmSI = 0.0;
+                if (ci.twistRateInchesPerTurn() != null) {
+                    double driftMoa = 1.25 * (ci.stabilityFactor() + 1.2) * Math.pow(tof, 1.83);
+                    spinDriftCmSI   = r1(driftMoa * rangeSI * Math.PI / 10800.0 * 100.0);
+                }
+
                 points.add(new TrajectoryPoint(
-                    rangeSI, dropCmSI, velocitySI, energySI, driftSI, tof, moaAdj, mradAdj
+                    rangeSI, dropCmSI, velocitySI, energySI, driftSI, tof, moaAdj, mradAdj, spinDriftCmSI
                 ));
 
                 if (state[3] * 12.0 > maxOrdinateIn) {

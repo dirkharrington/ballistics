@@ -254,7 +254,7 @@ jobs:
   # for CVEs and secrets.  Results appear in GitHub Security -> Code scanning tab.
   # Fails on CRITICAL or HIGH unfixed vulnerabilities.
   trivy:
-    name: Trivy Dependency Scan
+    name: Trivy Container Scan
     runs-on: ubuntu-latest
     permissions:
       contents: read

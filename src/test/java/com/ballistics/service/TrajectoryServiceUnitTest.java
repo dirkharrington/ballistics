@@ -54,7 +54,7 @@ class TrajectoryServiceUnitTest {
     void computeWithBlankBulletIdThrows() {
         // bulletId.isBlank() true: exercises the isBlank() true branch in resolveBullet
         TrajectoryRequest req = new TrajectoryRequest(
-            "  ", 100, 500, 25, 0, 0, 15, null, null, null, null);
+            "  ", 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         assertThatThrownBy(() -> service.compute("  ", req))
             .isInstanceOf(UnknownBulletException.class);
     }
@@ -63,7 +63,7 @@ class TrajectoryServiceUnitTest {
     void computeWithNullBulletIdThrows() {
         // null: exercises the bulletId == null true branch (short-circuits before isBlank)
         TrajectoryRequest req = new TrajectoryRequest(
-            null, 100, 500, 25, 0, 0, 15, null, null, null, null);
+            null, 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         assertThatThrownBy(() -> service.compute(null, req))
             .isInstanceOf(UnknownBulletException.class);
     }
@@ -80,7 +80,7 @@ class TrajectoryServiceUnitTest {
         ids.add("308-win-168gr");
         ids.add(null);
         ids.add("308-win-168gr");
-        CompareRequest req = new CompareRequest(ids, 100, 200, 100, 0, 0, 15, null, null, null, null);
+        CompareRequest req = new CompareRequest(ids, 100, 200, 100, 0, 0, 15, null, null, null, null, null);
         // Should NOT throw; the null is silently skipped; duplicate uses same future
         List<CompletableFuture<TrajectoryResult>> futures = service.compareAsync(req);
         // 2 entries (both are "308-win-168gr", the null is dropped from output)
@@ -92,7 +92,7 @@ class TrajectoryServiceUnitTest {
     @Test
     void compareReturnsSingleResult() {
         CompareRequest req = new CompareRequest(
-            List.of("308-win-168gr"), 100, 200, 100, 0, 0, 15, null, null, null, null);
+            List.of("308-win-168gr"), 100, 200, 100, 0, 0, 15, null, null, null, null, null);
         List<TrajectoryResult> results = service.compare(req);
         assertThat(results).hasSize(1);
         assertThat(results.get(0).bullet().id()).isEqualTo("308-win-168gr");
@@ -140,9 +140,9 @@ class TrajectoryServiceUnitTest {
     void batchWithUnknownIdThrowsBeforeWork() {
         // A single batch entry with unknown id: resolveBullet throws before any futures
         TrajectoryRequest req1 = new TrajectoryRequest(
-            "308-win-168gr", 100, 500, 25, 0, 0, 15, null, null, null, null);
+            "308-win-168gr", 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         TrajectoryRequest req2 = new TrajectoryRequest(
-            "unknown-id", 100, 500, 25, 0, 0, 15, null, null, null, null);
+            "unknown-id", 100, 500, 25, 0, 0, 15, null, null, null, null, null);
         BatchRequest batch = new BatchRequest(List.of(req1, req2));
         assertThatThrownBy(() -> service.batch(batch))
             .isInstanceOf(UnknownBulletException.class);

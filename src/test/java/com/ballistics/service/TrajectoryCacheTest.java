@@ -21,7 +21,7 @@ class TrajectoryCacheTest {
     @Test
     void identicalRequestsComputeOnlyOnce() {
         Bullet bullet = BulletCatalog.load().get(0);
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 1000, 25, 0, 0, 15, null, null, null, null, null);
 
         engine.compute(bullet, req);
         engine.compute(bullet, req);
@@ -40,7 +40,7 @@ class TrajectoryCacheTest {
         Bullet bulletHighBC = new Bullet("custom", "Test", "Custom",
             11.34, 853, 0.500, 7.82, 4000, "desc", "#000");
 
-        TrajectoryRequest req = new TrajectoryRequest("custom", 100, 1000, 100, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest("custom", 100, 1000, 100, 0, 0, 15, null, null, null, null, null);
 
         TrajectoryResult r1 = engine.compute(bulletLowBC,  req);
         TrajectoryResult r2 = engine.compute(bulletHighBC, req);
@@ -58,7 +58,7 @@ class TrajectoryCacheTest {
     void sameCatalogRequestComputesOnlyOnce() {
         // Regression: catalog bullets must still be cache-hit on identical calls
         Bullet bullet = BulletCatalog.load().get(0);
-        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest(bullet.id(), 100, 500, 100, 0, 0, 15, null, null, null, null, null);
 
         engine.compute(bullet, req);
         engine.compute(bullet, req);
@@ -76,7 +76,7 @@ class TrajectoryCacheTest {
         Bullet bulletB = new Bullet("custom", "Beta Load",  "Custom",
             11.34, 853, 0.505, 7.82, 4000, "desc", "#ff0000");
 
-        TrajectoryRequest req = new TrajectoryRequest("custom", 100, 300, 50, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest("custom", 100, 300, 50, 0, 0, 15, null, null, null, null, null);
 
         engine.compute(bulletA, req);
         engine.compute(bulletB, req);
@@ -94,7 +94,7 @@ class TrajectoryCacheTest {
         Bullet bulletHeavy = new Bullet("custom", "Heavy", "Custom",
             12.0, 853, 0.505, 7.82, 4500, "desc", "#000");
 
-        TrajectoryRequest req = new TrajectoryRequest("custom", 100, 300, 50, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest("custom", 100, 300, 50, 0, 0, 15, null, null, null, null, null);
 
         engine.compute(bulletLight, req);
         engine.compute(bulletHeavy, req);
@@ -112,7 +112,7 @@ class TrajectoryCacheTest {
         Bullet slow = new Bullet("custom", "Slow Load", "Custom",
             11.34, 760, 0.505, 7.82, 2750, "desc", "#000");
 
-        TrajectoryRequest req = new TrajectoryRequest("custom", 100, 300, 50, 0, 0, 15, null, null, null, null);
+        TrajectoryRequest req = new TrajectoryRequest("custom", 100, 300, 50, 0, 0, 15, null, null, null, null, null);
 
         engine.compute(fast, req);
         engine.compute(slow, req);
