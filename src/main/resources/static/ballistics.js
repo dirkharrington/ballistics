@@ -773,6 +773,7 @@ function updateReadout(results, dataIndex) {
         <td>${p.velocityMps} m/s</td>
         <td>${p.energyJoules} J</td>
         <td>${sign(p.windDriftCm)}${p.windDriftCm} cm</td>
+        ${p.spinDriftCm > 0 ? `<td>Spin Drift: ${p.spinDriftCm.toFixed(1)} cm</td>` : ''}
       </tr>`;
     }).join('');
   }

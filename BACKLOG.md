@@ -154,15 +154,3 @@ the reason (CodeQL §CWE-190 guard, not a physics constraint).
 
 Source: Sprint 1 devsecops review
 
----
-
-### SH-9 · Spin Drift Value in Crosshair Readout · FE · Size 1
-
-The wind drift chart shows `spinDriftCm` as a dashed overlay (satisfies the
-contract), but hovering the crosshair does not show a numeric value in the
-floating readout table.
-
-Add a `spinDriftCm` row to `updateReadout()` in `ballistics.js`, conditioned on
-`p.spinDriftCm > 0` so it only appears when spin drift data is present.
-
-Source: Sprint 1 devsecops review
