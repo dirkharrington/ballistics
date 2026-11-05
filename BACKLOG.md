@@ -78,6 +78,37 @@ BC to compare against published values. Common load-development task.
 
 ## P3 — Cleanup / Security
 
+### CI-1 · Skip full CI on markdown-only PRs · DevSecOps · Size 1 ⬅ highest priority
+
+The `pull_request` trigger in `.github/workflows/ci.yml` has no path filters.
+Every PR that touches only `.md` files (backlog updates, contract docs, ADRs)
+runs the full Maven build + JaCoCo + Jest + Trivy + OWASP stack — roughly 5–8
+minutes of CI for a documentation change.
+
+Add `paths-ignore` filters to both the `push` and `pull_request` triggers so
+that commits where every changed file matches `**/*.md` skip the workflow
+entirely. The push trigger on `main` should also exclude `*.md`-only merges.
+
+```yaml
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md']
+  pull_request:
+    paths-ignore: ['**/*.md']
+```
+
+**Acceptance:** A PR that changes only `BACKLOG.md` shows a green "skipped" CI
+status rather than a full run. A PR that changes any `.java` or `.js` file still
+triggers the full suite.
+
+**Note:** Any PR that touches both code and `.md` files still runs CI — the
+filter only fires when every changed path is ignored.
+
+Source: recurring cost of backlog/contract doc PRs triggering full builds
+
+---
+
 ### ⚠️ MH-5 · Rotate NVD API Key · DevSecOps · Size 1 — CI change ready, awaiting key rotation
 
 The `NVD_API_KEY` GitHub Actions secret is expired. The OWASP Dependency-Check
