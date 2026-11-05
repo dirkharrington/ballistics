@@ -1,8 +1,12 @@
 package com.ballistics.controller;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.ballistics.config.RequestBodySizeLimitFilter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -11,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -692,6 +697,54 @@ class JsonRpcControllerTest {
             .andExpect(jsonPath("$.error").exists())
             .andExpect(jsonPath("$.id").value("err"))
             .andExpect(jsonPath("$.result").doesNotExist());
+    }
+
+    // ── SH-4: Error data sanitisation ────────────────────────────────────────
+
+    @Test
+    void deserializationError_dataFieldIsSanitized_noClassNameLeaked() throws Exception {
+        // "bulletIds":"not-an-array" causes JacksonException in bindAndValidate;
+        // the data field must equal "Deserialization error" and not leak class names.
+        mockMvc.perform(post("/api/rpc")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "jsonrpc":"2.0",
+                      "method":"trajectory.compare",
+                      "params":{"bulletIds":"not-an-array","zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":50},
+                      "id":"sh4"
+                    }"""))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.error.code").value(-32602))
+            .andExpect(jsonPath("$.error.data").value("Deserialization error"))
+            .andExpect(jsonPath("$.error.data", not(containsStringIgnoringCase("Exception"))))
+            .andExpect(jsonPath("$.error.data", not(containsStringIgnoringCase("jackson"))));
+    }
+
+    // ── SH-6: DEBUG logging of method name ───────────────────────────────────
+
+    @Test
+    void processSingle_logsMethodNameAtDebug() throws Exception {
+        ch.qos.logback.classic.Logger classLogger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(JsonRpcController.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        Level prevLevel = classLogger.getLevel();
+        classLogger.setLevel(Level.DEBUG);
+        classLogger.addAppender(appender);
+        try {
+            mockMvc.perform(post("/api/rpc")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"jsonrpc\":\"2.0\",\"method\":\"bullets.list\",\"id\":\"sh6\"}"))
+                .andExpect(status().isOk());
+
+            assertThat(appender.list)
+                .anyMatch(e -> e.getLevel() == Level.DEBUG
+                    && e.getFormattedMessage().contains("bullets.list"));
+        } finally {
+            classLogger.detachAppender(appender);
+            classLogger.setLevel(prevLevel);
+        }
     }
 
     // ── Null body ─────────────────────────────────────────────────────────────

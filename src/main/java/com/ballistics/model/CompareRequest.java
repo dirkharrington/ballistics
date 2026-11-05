@@ -37,7 +37,11 @@ public record CompareRequest(
     @Min(0) @Max(360) Double windDirectionDeg,
 
     @Schema(description = "Drag model: \"G1\" (default) or \"G7\" (boat-tail long-range).", example = "G1", allowableValues = {"G1", "G7"})
-    @Pattern(regexp = "G[17]") String dragModel
+    @Pattern(regexp = "G[17]") String dragModel,
+
+    @Schema(description = "Barrel twist rate in inches per turn. When provided, spin drift is computed. Omit to disable.", example = "10")
+    @DecimalMin(value = "0", inclusive = false) @DecimalMax("100")
+    Double twistRateInchesPerTurn
 ) {
     // No compact constructor. Defaults are applied by TrajectoryRequest.
 
@@ -50,10 +54,11 @@ public record CompareRequest(
             windSpeedKph,
             altitudeMeters,
             temperatureC,
-            sightHeightMm,          // null or ≤ 0 → 38.1  (TrajectoryRequest compact ctor)
-            shootingAngleDegrees,   // null → 0.0
-            windDirectionDeg,       // null → 90.0
-            dragModel               // null → "G1"
+            sightHeightMm,              // null or ≤ 0 → 38.1  (TrajectoryRequest compact ctor)
+            shootingAngleDegrees,       // null → 0.0
+            windDirectionDeg,           // null → 90.0
+            dragModel,                  // null → "G1"
+            twistRateInchesPerTurn      // null → spin drift disabled
         );
     }
 }

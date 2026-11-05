@@ -52,7 +52,7 @@ public class BallisticsEngineBenchmark {
     public TrajectoryResult standardConditions() {
         return engine.compute(
             catalog.get(bulletId),
-            new TrajectoryRequest(bulletId, 100, maxRangeMeters, 25, 0, 0, 15, null, null, null, null)
+            new TrajectoryRequest(bulletId, 100, maxRangeMeters, 25, 0, 0, 15, null, null, null, null, null)
         );
     }
 
@@ -60,7 +60,7 @@ public class BallisticsEngineBenchmark {
     public TrajectoryResult withWindAndAltitude() {
         return engine.compute(
             catalog.get(bulletId),
-            new TrajectoryRequest(bulletId, 100, maxRangeMeters, 25, 16, 1524, 10, null, null, null, null)
+            new TrajectoryRequest(bulletId, 100, maxRangeMeters, 25, 16, 1524, 10, null, null, null, null, null)
         );
     }
 
@@ -69,7 +69,7 @@ public class BallisticsEngineBenchmark {
         return BulletCatalog.load().stream()
             .map(b -> engine.compute(
                 b,
-                new TrajectoryRequest(b.id(), 100, maxRangeMeters, 25, 16, 0, 15, null, null, null, null)
+                new TrajectoryRequest(b.id(), 100, maxRangeMeters, 25, 16, 0, 15, null, null, null, null, null)
             ))
             .toList();
     }

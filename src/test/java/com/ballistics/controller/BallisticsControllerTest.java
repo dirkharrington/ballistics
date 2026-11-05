@@ -29,10 +29,10 @@ class BallisticsControllerTest {
     // ── GET /api/bullets ──────────────────────────────────────────────────────
 
     @Test
-    void getBulletsReturns200WithTenBullets() throws Exception {
+    void getBulletsReturns200WithExpandedCatalog() throws Exception {
         mockMvc.perform(get("/api/bullets"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$", hasSize(10)))
+            .andExpect(jsonPath("$", hasSize(37)))
             .andExpect(jsonPath("$[0].id", notNullValue()))
             .andExpect(jsonPath("$[0].name", notNullValue()))
             .andExpect(jsonPath("$[0].ballisticCoefficient", greaterThan(0.0)));
@@ -437,6 +437,47 @@ class BallisticsControllerTest {
         mvcResult.getAsyncResult(5_000);
         // Emitter completes immediately with no events
         assertThat(mvcResult.getResponse().getContentAsString()).isEmpty();
+    }
+
+    // ── SH-7: twistRateInchesPerTurn boundary validation ─────────────────────
+
+    @Test
+    void twistRateZero_returns400() throws Exception {
+        mockMvc.perform(post("/api/trajectory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"bulletId":"308-win-168gr",
+                     "zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":25,
+                     "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15,
+                     "twistRateInchesPerTurn":0}
+                    """))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void twistRateAboveMax_returns400() throws Exception {
+        mockMvc.perform(post("/api/trajectory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"bulletId":"308-win-168gr",
+                     "zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":25,
+                     "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15,
+                     "twistRateInchesPerTurn":101}
+                    """))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void twistRateAtMax_returns200() throws Exception {
+        mockMvc.perform(post("/api/trajectory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"bulletId":"308-win-168gr",
+                     "zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":25,
+                     "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15,
+                     "twistRateInchesPerTurn":100}
+                    """))
+            .andExpect(status().isOk());
     }
 
     @Test
