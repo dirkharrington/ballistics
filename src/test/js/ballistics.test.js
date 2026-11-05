@@ -2176,6 +2176,37 @@ describe('updateReadout', () => {
     document.getElementById('rangeReadout').remove();
     expect(() => mod.updateReadout(results, 0)).not.toThrow();
   });
+
+  test('shows Spin Drift cell with correct value when spinDriftCm > 0', () => {
+    const spinResults = [{
+      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
+      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, spinDriftCm: 1.23 }]
+    }];
+    mod.updateReadout(spinResults, 0);
+    const row = document.querySelector('#readoutBody tr');
+    expect(row.textContent).toContain('Spin Drift');
+    expect(row.textContent).toContain('1.2 cm');
+  });
+
+  test('omits Spin Drift cell when spinDriftCm === 0', () => {
+    const noSpinResults = [{
+      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
+      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, spinDriftCm: 0 }]
+    }];
+    mod.updateReadout(noSpinResults, 0);
+    const row = document.querySelector('#readoutBody tr');
+    expect(row.textContent).not.toContain('Spin Drift');
+  });
+
+  test('omits Spin Drift cell when spinDriftCm is absent', () => {
+    const noSpinResults = [{
+      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
+      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1 }]
+    }];
+    mod.updateReadout(noSpinResults, 0);
+    const row = document.querySelector('#readoutBody tr');
+    expect(row.textContent).not.toContain('Spin Drift');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
