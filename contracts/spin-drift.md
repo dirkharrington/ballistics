@@ -85,6 +85,8 @@ where:
 
 Resulting `1 + (L/d)²` = `1 + 4.5² = 21.25` (constant — compute once per trajectory, not per point).
 
+> **Implementation note:** `BallisticsEngine.convertInputs` clamps `diameterIn`, `weightGrains`, and `twistIn` to their valid physical range via `Math.max`/`Math.min` before the Sg computation. This is a CodeQL CWE-190 taint-analysis guard (not a physics constraint) and has no effect on inputs within the declared valid range (`twistRateInchesPerTurn` ∈ (0, 100]).
+
 ### Step 2 — Litz spin drift formula
 
 ```

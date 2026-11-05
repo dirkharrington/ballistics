@@ -605,6 +605,30 @@ or the batch array is empty or has more than 20 items.
 `retryAfterSeconds` is ≥ 1. Unlike REST, no `Retry-After` HTTP header is set (HTTP
 status remains 200 for JSON-RPC responses).
 
+### Body too large (HTTP 413)
+
+When a request body exceeds the configured size limit (64 KiB), the request is rejected
+by `RequestBodySizeLimitFilter` **before** JSON-RPC parsing occurs. The response is an
+RFC 9457 `ProblemDetail` object — not a JSON-RPC envelope — with HTTP status 413 and
+`Content-Type: application/problem+json`.
+
+```
+HTTP/1.1 413 Request Entity Too Large
+Content-Type: application/problem+json
+
+{
+  "type": "about:blank",
+  "title": "Request Entity Too Large",
+  "status": 413
+}
+```
+
+**Rationale:** The body-size filter intercepts the request before the dispatcher servlet
+routes it to the JSON-RPC controller. At the point of rejection no JSON-RPC `id` is
+available, so constructing a conforming JSON-RPC envelope is not possible. The
+`-32003` error code documented in earlier drafts of this contract is therefore not used
+for this case; RFC 9457 `ProblemDetail` is the response format instead.
+
 ---
 
 ## Spring Boot implementation checklist
@@ -621,7 +645,7 @@ status remains 200 for JSON-RPC responses).
 - [ ] Batch > 20 items: single `-32600` response (not an array).
 - [ ] Empty batch array: single `-32600` response.
 - [ ] Non-parseable body: HTTP 400 + `-32700` (no `GlobalExceptionHandler` involvement).
-- [ ] Body too large: HTTP 413 + `-32003` (handled by existing body-size filter or a new `HandlerInterceptor`).
+- [x] Body too large: HTTP 413 + RFC 9457 `ProblemDetail` (`Content-Type: application/problem+json`). The body-size filter intercepts the request before the JSON-RPC controller receives it, so a JSON-RPC envelope is not possible (see §Body too large above).
 - [ ] 100% JaCoCo branch/instruction coverage on all new classes.
 - [ ] No new endpoints break existing REST endpoints.
 - [ ] `GET /api/rpc` returns HTTP 405 Method Not Allowed.
