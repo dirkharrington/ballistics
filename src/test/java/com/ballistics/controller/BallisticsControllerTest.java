@@ -439,6 +439,47 @@ class BallisticsControllerTest {
         assertThat(mvcResult.getResponse().getContentAsString()).isEmpty();
     }
 
+    // ── SH-7: twistRateInchesPerTurn boundary validation ─────────────────────
+
+    @Test
+    void twistRateZero_returns400() throws Exception {
+        mockMvc.perform(post("/api/trajectory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"bulletId":"308-win-168gr",
+                     "zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":25,
+                     "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15,
+                     "twistRateInchesPerTurn":0}
+                    """))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void twistRateAboveMax_returns400() throws Exception {
+        mockMvc.perform(post("/api/trajectory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"bulletId":"308-win-168gr",
+                     "zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":25,
+                     "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15,
+                     "twistRateInchesPerTurn":101}
+                    """))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void twistRateAtMax_returns200() throws Exception {
+        mockMvc.perform(post("/api/trajectory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"bulletId":"308-win-168gr",
+                     "zeroRangeMeters":100,"maxRangeMeters":500,"stepMeters":25,
+                     "windSpeedKph":0,"altitudeMeters":0,"temperatureC":15,
+                     "twistRateInchesPerTurn":100}
+                    """))
+            .andExpect(status().isOk());
+    }
+
     @Test
     void unknownBulletIdOver64CharsTriggersTruncateInErrorResponse() throws Exception {
         // 65-char bulletId exercises the truncate(s, 64) substring branch in GlobalExceptionHandler

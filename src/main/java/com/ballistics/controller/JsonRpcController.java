@@ -4,6 +4,8 @@ import com.ballistics.model.*;
 import com.ballistics.ratelimit.*;
 import com.ballistics.service.TrajectoryService;
 import com.ballistics.service.UnknownBulletException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import io.swagger.v3.oas.annotations.Operation;
@@ -42,6 +44,8 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping(path = "/api/rpc", produces = MediaType.APPLICATION_JSON_VALUE)
 public class JsonRpcController {
+
+    private static final Logger log = LoggerFactory.getLogger(JsonRpcController.class);
 
     private static final int BATCH_MAX = 20;
     private static final String JSONRPC_VERSION = "2.0";
@@ -169,6 +173,7 @@ public class JsonRpcController {
         String clientKey = keyResolver.resolve(httpReq);
 
         try {
+            log.debug("rpc method={}", method);
             Object result = dispatch(method, paramsNode, clientKey);
             return isNotification ? null : buildSuccess(idNode, result);
         } catch (MethodNotFoundException e) {
@@ -235,7 +240,7 @@ public class JsonRpcController {
         try {
             value = objectMapper.treeToValue(effectiveParams, type);
         } catch (JacksonException e) {
-            throw new InvalidParamsException(e.getMessage());
+            throw new InvalidParamsException("Deserialization error");
         }
         Set<ConstraintViolation<T>> violations = validator.validate(value);
         if (!violations.isEmpty()) {
