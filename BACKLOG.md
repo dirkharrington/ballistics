@@ -169,7 +169,7 @@ stub `hello_wasm()` proving the pipeline works end-to-end. No physics yet.
 
 ---
 
-### ~~WA-2 · Core Trajectory Engine in Rust · Rust · Size L~~ ✅ Done (PR #XX)
+### ~~WA-2 · Core Trajectory Engine in Rust · Rust · Size L~~ ✅ Done (PR #46)
 
 ---
 
