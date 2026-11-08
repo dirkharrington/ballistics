@@ -35,7 +35,6 @@ jobs:
               - 'engine/Cargo.lock'
               - 'engine/src/**'
               - 'engine/tests/**'
-              - '.github/workflows/ci.yml'
             java:
               - 'src/main/java/**'
               - 'src/test/java/**'
@@ -44,7 +43,6 @@ jobs:
               - 'src/main/resources/physics-tables.yaml'
               - 'src/main/resources/logback-spring.xml'
               - 'pom.xml'
-              - '.github/workflows/ci.yml'
             frontend:
               - 'src/main/resources/static/**'
               - 'src/test/js/**'
@@ -55,7 +53,6 @@ jobs:
               - 'package-lock.json'
               - 'babel.config.json'
               - 'vite.config.js'
-              - '.github/workflows/ci.yml'
 
   # ── Rust / WASM build ────────────────────────────────────────────────────────
   # Not a required status check — job-level if: is safe here.
