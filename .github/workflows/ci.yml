@@ -107,7 +107,11 @@ jobs:
         run: wasm-pack build engine/ --target web --release
 
       - name: Binary size gate
-        run: gzip -9 -k engine/pkg/ballistics_engine_bg.wasm && SIZE=$(wc -c < engine/pkg/ballistics_engine_bg.wasm.gz) && echo "WASM size: ${SIZE} bytes" && [ "${SIZE}" -le 153600 ]
+        run: |
+          gzip -9 -k engine/pkg/ballistics_engine_bg.wasm
+          SIZE=$(wc -c < engine/pkg/ballistics_engine_bg.wasm.gz)
+          echo "WASM size: ${SIZE} bytes"
+          [ "${SIZE}" -le 153600 ]
 
       - name: Upload WASM pkg
         uses: actions/upload-artifact@v4
