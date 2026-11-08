@@ -109,7 +109,7 @@ Source: recurring cost of backlog/contract doc PRs triggering full builds
 
 ---
 
-### CI-2 · Path-Filtered CI Jobs · DevSecOps · Size S
+~~### CI-2 · Path-Filtered CI Jobs · DevSecOps · Size S~~ ✅ Done — PR #45
 
 Each PR should only run the checks relevant to its changed files. Right now every PR triggers the full stack — Rust build, Maven + JaCoCo, and Jest — even when only one layer changed.
 

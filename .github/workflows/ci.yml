@@ -15,8 +15,52 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}   # cancel superseded PR runs only; never cancel main
 
 jobs:
+  # ── Layer change detection ────────────────────────────────────────────────────
+  # Downstream jobs gate on these outputs so only affected layers run.
+  # Changes to ci.yml itself set all three flags — every layer runs.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      engine:   ${{ steps.filter.outputs.engine }}
+      java:     ${{ steps.filter.outputs.java }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            engine:
+              - 'engine/Cargo.toml'
+              - 'engine/Cargo.lock'
+              - 'engine/src/**'
+              - 'engine/tests/**'
+              - '.github/workflows/ci.yml'
+            java:
+              - 'src/main/java/**'
+              - 'src/test/java/**'
+              - 'src/main/resources/application*.properties'
+              - 'src/main/resources/bullets.yaml'
+              - 'src/main/resources/physics-tables.yaml'
+              - 'src/main/resources/logback-spring.xml'
+              - 'pom.xml'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'src/main/resources/static/**'
+              - 'src/test/js/**'
+              - 'engine/loader.js'
+              - 'engine/loader.test.js'
+              - 'engine/engine.worker.js'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'babel.config.json'
+              - 'vite.config.js'
+              - '.github/workflows/ci.yml'
+
   # ── Rust / WASM build ────────────────────────────────────────────────────────
   rust-build:
+    needs: [changes]
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -73,22 +117,26 @@ jobs:
 
   # ── Java build & test ────────────────────────────────────────────────────────
   java-build:
+    needs: [changes, rust-build]
+    if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [rust-build]
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
 
     steps:
       - uses: actions/checkout@v6
 
+      # Only when the engine layer changed: a new WASM binary was built and uploaded.
       - name: Download WASM pkg
+        if: needs.changes.outputs.engine == 'true'
         uses: actions/download-artifact@v4
         with:
           name: wasm-pkg
           path: engine/pkg/
 
       - name: Copy WASM to static
+        if: needs.changes.outputs.engine == 'true'
         run: mkdir -p src/main/resources/static/wasm && cp -r engine/pkg/* src/main/resources/static/wasm/
 
       - name: Set up JDK 21
@@ -125,6 +173,8 @@ jobs:
 
   # ── Frontend build & test ────────────────────────────────────────────────────
   frontend-build:
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -175,6 +225,11 @@ jobs:
   # SARIF upload conflicts that fail the upload-sarif step.
   codeql:
     name: CodeQL SAST
+    needs: [changes]
+    # Gate per language: Java scan only on java-layer changes; JS scan only on frontend changes.
+    if: |
+      (matrix.language == 'java' && needs.changes.outputs.java == 'true') ||
+      (matrix.language == 'javascript' && needs.changes.outputs.frontend == 'true')
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -240,6 +295,8 @@ jobs:
   # New keys take up to 24 h to activate.
   dependency-check:
     name: OWASP Dependency-Check
+    needs: [changes]
+    if: needs.changes.outputs.java == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     # NVD infrastructure is unreliable; Trivy (below) is the hard CVE gate.
     # continue-on-error prevents a CVE hit from blocking the PR.
@@ -318,11 +375,16 @@ jobs:
           path: target/dependency-check-report.*
 
   # ── Trivy filesystem scan ─────────────────────────────────────────────────────
-  # Item 5 — Scans source-tree dependency manifests (pom.xml, package-lock.json)
-  # for CVEs and secrets.  Results appear in GitHub Security -> Code scanning tab.
-  # Fails on CRITICAL or HIGH unfixed vulnerabilities.
+  # Item 5 — Scans source-tree dependency manifests (pom.xml, package-lock.json,
+  # Cargo.toml) for CVEs and secrets.  Results appear in GitHub Security ->
+  # Code scanning tab.  Fails on CRITICAL or HIGH unfixed vulnerabilities.
   trivy:
     name: Trivy Container Scan
+    needs: [changes]
+    if: |
+      needs.changes.outputs.java == 'true' ||
+      needs.changes.outputs.frontend == 'true' ||
+      needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -362,7 +424,8 @@ jobs:
           ignore-unfixed: true
           version: v0.76.1
           # Skip build output and vendored dependency copies; Trivy already reads
-          # the lock files (pom.xml, package-lock.json) for the authoritative list.
+          # the lock files (pom.xml, package-lock.json, Cargo.toml) for the
+          # authoritative list.
           skip-dirs: 'target,node_modules'
 
       - name: Upload Trivy SARIF to GitHub Security
