@@ -222,6 +222,7 @@ jobs:
         run: |
           mvn --batch-mode compile \
             -Dskip.npm.test=true \
+            -Dskip.wasm.pack=true \
             -Dfrontend-maven-plugin.phase=none
 
       # JavaScript: CodeQL analyses source files directly — no build needed.
