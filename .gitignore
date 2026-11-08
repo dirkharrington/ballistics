@@ -5,3 +5,10 @@ node/
 *.class
 *.jar
 .DS_Store
+
+# Rust / WASM build outputs
+engine/target/
+engine/pkg/
+
+# WASM static assets (generated at build time; not committed)
+src/main/resources/static/wasm/
