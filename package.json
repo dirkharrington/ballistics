@@ -10,7 +10,8 @@
   "jest": {
     "testEnvironment": "jsdom",
     "roots": [
-      "src/test/js"
+      "src/test/js",
+      "engine"
     ],
     "testMatch": [
       "**/*.test.js"
@@ -23,7 +24,8 @@
       "src/main/resources/static/ballistics.js",
       "src/main/resources/static/tools.js",
       "src/main/resources/static/url-state.js",
-      "src/main/resources/static/custom-rounds.js"
+      "src/main/resources/static/custom-rounds.js",
+      "engine/loader.js"
     ],
     "transform": {
       "^.+\\.js$": "babel-jest"
