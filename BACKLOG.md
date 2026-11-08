@@ -109,7 +109,7 @@ Source: recurring cost of backlog/contract doc PRs triggering full builds
 
 ---
 
-### CI-2 · Path-Filtered CI Jobs · DevSecOps · Size S
+~~### CI-2 · Path-Filtered CI Jobs · DevSecOps · Size S~~ ✅ Done — PR #45
 
 Each PR should only run the checks relevant to its changed files. Right now every PR triggers the full stack — Rust build, Maven + JaCoCo, and Jest — even when only one layer changed.
 
@@ -121,7 +121,7 @@ Each PR should only run the checks relevant to its changed files. Right now ever
 | `src/main/**/*.java`, `pom.xml`, `src/test/**/*.java` | `java-build` only |
 | `src/main/resources/static/**`, `src/test/js/**`, `package.json`, `babel.config.json`, `vite.config.js` | `frontend-build` only |
 | Any mix of the above | each affected job |
-| Anything else (contracts, docs, CI config itself) | all jobs |
+| Anything else (contracts, docs, CI config itself) | required checks run but skip expensive steps |
 
 **Implementation approach:** Add a `changes` job that runs first using `dorny/paths-filter` (or equivalent) to detect which layers changed, then gate each downstream job on the corresponding output with `if: needs.changes.outputs.<layer> == 'true'`. The `rust-build` → `java-build` dependency from WA-1 (§8) is preserved when both run; when only `java-build` runs, it must not require the WASM artifact (use `-Dskip.wasm.pack=true` and skip the artifact download step when `rust-build` did not run).
 

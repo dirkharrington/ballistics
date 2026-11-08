@@ -15,8 +15,50 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}   # cancel superseded PR runs only; never cancel main
 
 jobs:
+  # ── Layer change detection ────────────────────────────────────────────────────
+  # Downstream jobs gate on these outputs so only affected layers run.
+  # Changes to ci.yml itself set all three flags — every layer runs.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      engine:   ${{ steps.filter.outputs.engine }}
+      java:     ${{ steps.filter.outputs.java }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            engine:
+              - 'engine/Cargo.toml'
+              - 'engine/Cargo.lock'
+              - 'engine/src/**'
+              - 'engine/tests/**'
+            java:
+              - 'src/main/java/**'
+              - 'src/test/java/**'
+              - 'src/main/resources/application*.properties'
+              - 'src/main/resources/bullets.yaml'
+              - 'src/main/resources/physics-tables.yaml'
+              - 'src/main/resources/logback-spring.xml'
+              - 'pom.xml'
+            frontend:
+              - 'src/main/resources/static/**'
+              - 'src/test/js/**'
+              - 'engine/loader.js'
+              - 'engine/loader.test.js'
+              - 'engine/engine.worker.js'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'babel.config.json'
+              - 'vite.config.js'
+
   # ── Rust / WASM build ────────────────────────────────────────────────────────
+  # Not a required status check — job-level if: is safe here.
   rust-build:
+    needs: [changes]
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -62,7 +104,11 @@ jobs:
         run: wasm-pack build engine/ --target web --release
 
       - name: Binary size gate
-        run: gzip -9 -k engine/pkg/ballistics_engine_bg.wasm && SIZE=$(wc -c < engine/pkg/ballistics_engine_bg.wasm.gz) && echo "WASM size: ${SIZE} bytes" && [ "${SIZE}" -le 153600 ]
+        run: |
+          gzip -9 -k engine/pkg/ballistics_engine_bg.wasm
+          SIZE=$(wc -c < engine/pkg/ballistics_engine_bg.wasm.gz)
+          echo "WASM size: ${SIZE} bytes"
+          [ "${SIZE}" -le 153600 ]
 
       - name: Upload WASM pkg
         uses: actions/upload-artifact@v4
@@ -72,32 +118,40 @@ jobs:
           retention-days: 1
 
   # ── Java build & test ────────────────────────────────────────────────────────
+  # Required status check — no job-level if:.  Work steps gate on java/engine
+  # outputs; the job always posts a green status quickly when nothing relevant changed.
   java-build:
+    needs: [changes, rust-build]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [rust-build]
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
 
     steps:
       - uses: actions/checkout@v6
+        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
 
+      # Only when the engine layer changed: a new WASM binary was built and uploaded.
       - name: Download WASM pkg
+        if: needs.changes.outputs.engine == 'true'
         uses: actions/download-artifact@v4
         with:
           name: wasm-pkg
           path: engine/pkg/
 
       - name: Copy WASM to static
+        if: needs.changes.outputs.engine == 'true'
         run: mkdir -p src/main/resources/static/wasm && cp -r engine/pkg/* src/main/resources/static/wasm/
 
       - name: Set up JDK 21
+        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
         uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
 
       - name: Cache Maven repository
+        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
         uses: actions/cache@v5
         with:
           path: ~/.m2/repository
@@ -105,6 +159,7 @@ jobs:
           restore-keys: ${{ runner.os }}-m2-
 
       - name: Cache frontend-maven-plugin Node + modules
+        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
         uses: actions/cache@v5
         with:
           path: |
@@ -114,17 +169,20 @@ jobs:
           restore-keys: ${{ runner.os }}-fmp-
 
       - name: Build and verify
+        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
         run: mvn --batch-mode verify -Dskip.npm.test=true -Dskip.wasm.pack=true
 
       - name: Upload JaCoCo report
-        if: always()
+        if: always() && (needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: target/site/jacoco/
 
   # ── Frontend build & test ────────────────────────────────────────────────────
+  # Required status check — no job-level if:.  Work steps gate on frontend output.
   frontend-build:
+    needs: [changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -132,13 +190,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        if: needs.changes.outputs.frontend == 'true'
 
       - name: Set up Node
+        if: needs.changes.outputs.frontend == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22.14.0'
 
       - name: Cache npm download cache
+        if: needs.changes.outputs.frontend == 'true'
         uses: actions/cache@v5
         with:
           path: ~/.npm
@@ -146,28 +207,32 @@ jobs:
           restore-keys: ${{ runner.os }}-npm-
 
       - name: Install
+        if: needs.changes.outputs.frontend == 'true'
         run: npm ci
 
       - name: npm audit
+        if: needs.changes.outputs.frontend == 'true'
         run: npm audit --audit-level=high
 
       - name: Build
+        if: needs.changes.outputs.frontend == 'true'
         run: npm run build
 
       - name: Test
+        if: needs.changes.outputs.frontend == 'true'
         run: npm test -- --ci
 
       - name: Upload JS coverage
-        if: always()
+        if: always() && needs.changes.outputs.frontend == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: js-coverage
           path: target/js-coverage/
 
   # ── CodeQL SAST ──────────────────────────────────────────────────────────────
-  # Item 3 — Static analysis for Java and JavaScript.
-  # Runs in parallel with the build job; results appear in the GitHub
-  # Security → Code scanning tab and block PRs on new findings.
+  # Both matrix entries are required status checks — no job-level if:.
+  # Steps gate per language so the expensive init+analyze only runs for the
+  # affected layer: java layer → java entry; frontend layer → javascript entry.
   #
   # PREREQUISITE — disable GitHub's Default Setup before enabling this workflow:
   #   Settings → Security → Code scanning → Default setup → Disable
@@ -175,6 +240,7 @@ jobs:
   # SARIF upload conflicts that fail the upload-sarif step.
   codeql:
     name: CodeQL SAST
+    needs: [changes]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -188,16 +254,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        if: |
+          (matrix.language == 'java' && needs.changes.outputs.java == 'true') ||
+          (matrix.language == 'javascript' && needs.changes.outputs.frontend == 'true')
 
       - name: Set up JDK 21
-        if: matrix.language == 'java'
+        if: matrix.language == 'java' && needs.changes.outputs.java == 'true'
         uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
 
       - name: Cache Maven repository
-        if: matrix.language == 'java'
+        if: matrix.language == 'java' && needs.changes.outputs.java == 'true'
         uses: actions/cache@v5
         with:
           path: ~/.m2/repository
@@ -205,6 +274,9 @@ jobs:
           restore-keys: ${{ runner.os }}-m2-
 
       - name: Initialize CodeQL
+        if: |
+          (matrix.language == 'java' && needs.changes.outputs.java == 'true') ||
+          (matrix.language == 'javascript' && needs.changes.outputs.frontend == 'true')
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
@@ -218,28 +290,29 @@ jobs:
       # Pass -Dfrontend-maven-plugin.phase=none to unbind the npm install/build
       # executions from the Maven lifecycle for this CodeQL-only compile.
       - name: Build Java (CodeQL traces javac)
-        if: matrix.language == 'java'
+        if: matrix.language == 'java' && needs.changes.outputs.java == 'true'
         run: |
           mvn --batch-mode compile \
             -Dskip.npm.test=true \
+            -Dskip.wasm.pack=true \
             -Dfrontend-maven-plugin.phase=none
 
       # JavaScript: CodeQL analyses source files directly — no build needed.
 
       - name: Perform CodeQL Analysis
+        if: |
+          (matrix.language == 'java' && needs.changes.outputs.java == 'true') ||
+          (matrix.language == 'javascript' && needs.changes.outputs.frontend == 'true')
         uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
 
   # ── OWASP Dependency-Check ───────────────────────────────────────────────────
-  # Item 4 — Fails on any dependency with CVSS >= 7 (high or critical).
-  # Results appear in GitHub Security -> Code scanning tab (SARIF upload).
-  #
-  # Data sources: NVD (primary) + Sonatype OSS Index (secondary).
-  # NVD_API_KEY secret must be set in GitHub repo settings (nvd.nist.gov).
-  # New keys take up to 24 h to activate.
+  # Not a required status check — job-level if: is safe here.
   dependency-check:
     name: OWASP Dependency-Check
+    needs: [changes]
+    if: needs.changes.outputs.java == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     # NVD infrastructure is unreliable; Trivy (below) is the hard CVE gate.
     # continue-on-error prevents a CVE hit from blocking the PR.
@@ -318,11 +391,10 @@ jobs:
           path: target/dependency-check-report.*
 
   # ── Trivy filesystem scan ─────────────────────────────────────────────────────
-  # Item 5 — Scans source-tree dependency manifests (pom.xml, package-lock.json)
-  # for CVEs and secrets.  Results appear in GitHub Security -> Code scanning tab.
-  # Fails on CRITICAL or HIGH unfixed vulnerabilities.
+  # Required status check — no job-level if:.  Work steps gate on any layer change.
   trivy:
     name: Trivy Container Scan
+    needs: [changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -330,14 +402,26 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        if: |
+          needs.changes.outputs.java == 'true' ||
+          needs.changes.outputs.frontend == 'true' ||
+          needs.changes.outputs.engine == 'true'
 
       - name: Set up JDK 21
+        if: |
+          needs.changes.outputs.java == 'true' ||
+          needs.changes.outputs.frontend == 'true' ||
+          needs.changes.outputs.engine == 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
 
       - name: Cache Maven repository
+        if: |
+          needs.changes.outputs.java == 'true' ||
+          needs.changes.outputs.frontend == 'true' ||
+          needs.changes.outputs.engine == 'true'
         uses: actions/cache@v5
         with:
           path: ~/.m2/repository
@@ -345,11 +429,19 @@ jobs:
           restore-keys: ${{ runner.os }}-m2-
 
       - name: Populate Maven local cache
+        if: |
+          needs.changes.outputs.java == 'true' ||
+          needs.changes.outputs.frontend == 'true' ||
+          needs.changes.outputs.engine == 'true'
         # Trivy resolves Maven metadata from ~/.m2; without this it fetches POMs from
         # Maven Central and hits 429 rate-limits on shared GitHub Actions runner IPs.
         run: mvn --batch-mode dependency:resolve -DskipTests -Dfrontend-maven-plugin.phase=none
 
       - name: Run Trivy filesystem scan
+        if: |
+          needs.changes.outputs.java == 'true' ||
+          needs.changes.outputs.frontend == 'true' ||
+          needs.changes.outputs.engine == 'true'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -362,11 +454,16 @@ jobs:
           ignore-unfixed: true
           version: v0.76.1
           # Skip build output and vendored dependency copies; Trivy already reads
-          # the lock files (pom.xml, package-lock.json) for the authoritative list.
+          # the lock files (pom.xml, package-lock.json, Cargo.toml) for the
+          # authoritative list.
           skip-dirs: 'target,node_modules'
 
       - name: Upload Trivy SARIF to GitHub Security
-        if: always()
+        if: |
+          always() &&
+          (needs.changes.outputs.java == 'true' ||
+           needs.changes.outputs.frontend == 'true' ||
+           needs.changes.outputs.engine == 'true')
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
