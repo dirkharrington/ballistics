@@ -15,15 +15,81 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}   # cancel superseded PR runs only; never cancel main
 
 jobs:
+  # ── Rust / WASM build ────────────────────────────────────────────────────────
+  rust-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v5
+        with:
+          path: ~/.rustup
+          key: ${{ runner.os }}-rustup-stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-${{ hashFiles('engine/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Cache cargo build cache
+        uses: actions/cache@v5
+        with:
+          path: engine/target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('engine/Cargo.lock', 'engine/src/**') }}
+          restore-keys: ${{ runner.os }}-cargo-target-
+
+      - name: Install Rust stable
+        run: rustup update stable && rustup default stable && rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+
+      - name: Cargo test
+        run: cargo test --manifest-path engine/Cargo.toml
+
+      - name: Cargo llvm-cov gate
+        run: cargo llvm-cov --manifest-path engine/Cargo.toml --all-features --fail-under-lines 99
+
+      - name: wasm-pack build
+        run: wasm-pack build engine/ --target web --release
+
+      - name: Binary size gate
+        run: gzip -9 -k engine/pkg/ballistics_engine_bg.wasm && SIZE=$(wc -c < engine/pkg/ballistics_engine_bg.wasm.gz) && echo "WASM size: ${SIZE} bytes" && [ "${SIZE}" -le 153600 ]
+
+      - name: Upload WASM pkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-pkg
+          path: engine/pkg/
+          retention-days: 1
+
   # ── Java build & test ────────────────────────────────────────────────────────
   java-build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: [rust-build]
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download WASM pkg
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-pkg
+          path: engine/pkg/
+
+      - name: Copy WASM to static
+        run: mkdir -p src/main/resources/static/wasm && cp -r engine/pkg/* src/main/resources/static/wasm/
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -48,7 +114,7 @@ jobs:
           restore-keys: ${{ runner.os }}-fmp-
 
       - name: Build and verify
-        run: mvn --batch-mode verify -Dskip.npm.test=true
+        run: mvn --batch-mode verify -Dskip.npm.test=true -Dskip.wasm.pack=true
 
       - name: Upload JaCoCo report
         if: always()

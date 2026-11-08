@@ -21,6 +21,7 @@
         <java.version>21</java.version>
         <jmh.version>1.37</jmh.version>
         <skip.npm.test>false</skip.npm.test>
+        <skip.wasm.pack>false</skip.wasm.pack>
         <!-- Security pins: Boot 4.1.1 natively manages older versions; keep until Boot ships ≥ pinned value -->
         <!-- CVE-2026-47884/47885/47892 — Boot 4.1.1 native: 7.0.9 -->
         <spring-framework.version>7.0.10</spring-framework.version>
@@ -274,6 +275,49 @@
                         <app.ratelimit.enabled>false</app.ratelimit.enabled>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+
+                    <!-- WA-1: build WASM binary from the engine/ Rust crate -->
+                    <execution>
+                        <id>wasm-pack-build</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <skip>${skip.wasm.pack}</skip>
+                            <executable>wasm-pack</executable>
+                            <workingDirectory>${project.basedir}/engine</workingDirectory>
+                            <arguments>
+                                <argument>build</argument>
+                                <argument>--target</argument>
+                                <argument>web</argument>
+                                <argument>--release</argument>
+                                <argument>--out-dir</argument>
+                                <argument>${project.basedir}/engine/pkg</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+
+                    <!-- WA-1: copy WASM output + hand-written JS files to static/ -->
+                    <execution>
+                        <id>copy-wasm-to-static</id>
+                        <phase>process-resources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <skip>${skip.wasm.pack}</skip>
+                            <executable>sh</executable>
+                            <arguments>
+                                <argument>-c</argument>
+                                <argument>mkdir -p ${project.basedir}/src/main/resources/static/wasm &amp;&amp; cp -r ${project.basedir}/engine/pkg/. ${project.basedir}/src/main/resources/static/wasm/ &amp;&amp; cp ${project.basedir}/engine/loader.js ${project.basedir}/src/main/resources/static/wasm/ &amp;&amp; cp ${project.basedir}/engine/engine.worker.js ${project.basedir}/src/main/resources/static/wasm/</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+
+                </executions>
             </plugin>
             <!-- Item 4 — OWASP Dependency-Check: fail build on CVSS ≥ 7 (high/critical).
                  Run manually: mvn dependency-check:check
