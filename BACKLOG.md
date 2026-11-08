@@ -169,18 +169,7 @@ stub `hello_wasm()` proving the pipeline works end-to-end. No physics yet.
 
 ---
 
-### WA-2 · Core Trajectory Engine in Rust · Rust · Size L
-
-Port the RK4 integrator and G1/G7 drag tables from `BallisticsEngine.java` to
-Rust. Same atmosphere model (ISA + altitude + temperature), Pejsa crosswind,
-shooting-angle correction, and spin-drift computation when
-`twistRateInchesPerTurn` is provided. Expose
-`compute_trajectory(params_json: &str, bullet_json: &str) -> String` as a WASM
-export.
-
-**Parity test:** For each of the 10 original catalog rounds, every trajectory
-point field must match the Java engine within ε = 0.01. Binary target: < 150 KB
-gzip.
+### ~~WA-2 · Core Trajectory Engine in Rust · Rust · Size L~~ ✅ Done (PR #XX)
 
 ---
 
