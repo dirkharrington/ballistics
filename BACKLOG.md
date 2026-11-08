@@ -78,7 +78,7 @@ BC to compare against published values. Common load-development task.
 
 ## P3 — Cleanup / Security
 
-### CI-1 · Skip full CI on markdown-only PRs · DevSecOps · Size 1 ⬅ highest priority
+~~### CI-1 · Skip full CI on markdown-only PRs · DevSecOps · Size 1~~ ✅ Done — PR #40
 
 The `pull_request` trigger in `.github/workflows/ci.yml` has no path filters.
 Every PR that touches only `.md` files (backlog updates, contract docs, ADRs)
