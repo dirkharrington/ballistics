@@ -109,6 +109,34 @@ Source: recurring cost of backlog/contract doc PRs triggering full builds
 
 ---
 
+### CI-2 · Path-Filtered CI Jobs · DevSecOps · Size S
+
+Each PR should only run the checks relevant to its changed files. Right now every PR triggers the full stack — Rust build, Maven + JaCoCo, and Jest — even when only one layer changed.
+
+**Desired behaviour per PR:**
+
+| Changed paths | Jobs that must run |
+|---|---|
+| `engine/**` (Rust/WASM) | `rust-build` only |
+| `src/main/**/*.java`, `pom.xml`, `src/test/**/*.java` | `java-build` only |
+| `src/main/resources/static/**`, `src/test/js/**`, `package.json`, `babel.config.json`, `vite.config.js` | `frontend-build` only |
+| Any mix of the above | each affected job |
+| Anything else (contracts, docs, CI config itself) | all jobs |
+
+**Implementation approach:** Add a `changes` job that runs first using `dorny/paths-filter` (or equivalent) to detect which layers changed, then gate each downstream job on the corresponding output with `if: needs.changes.outputs.<layer> == 'true'`. The `rust-build` → `java-build` dependency from WA-1 (§8) is preserved when both run; when only `java-build` runs, it must not require the WASM artifact (use `-Dskip.wasm.pack=true` and skip the artifact download step when `rust-build` did not run).
+
+**Acceptance:**
+- A PR touching only `engine/` triggers `rust-build` and skips `java-build` and `frontend-build`.
+- A PR touching only `src/main/resources/static/` triggers `frontend-build` and skips the others.
+- A PR touching only `.java` files triggers `java-build` (with `-Dskip.wasm.pack=true`) and skips the others.
+- A PR touching files from multiple layers triggers each affected job.
+- A PR touching `ci.yml` or `contracts/` triggers all jobs (safe default).
+- No existing check is silently dropped — all gates still run on a full-stack change.
+
+**Note:** CI-1 (markdown-only skip) is a prerequisite and already merged.
+
+---
+
 ### ⚠️ MH-5 · Rotate NVD API Key · DevSecOps · Size 1 — CI change ready, awaiting key rotation
 
 The `NVD_API_KEY` GitHub Actions secret is expired. The OWASP Dependency-Check
