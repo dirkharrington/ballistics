@@ -34,6 +34,7 @@ jobs:
               - 'engine/Cargo.lock'
               - 'engine/src/**'
               - 'engine/tests/**'
+              - '.github/workflows/ci.yml'
             java:
               - 'src/main/java/**'
               - 'src/test/java/**'
@@ -43,6 +44,7 @@ jobs:
               - 'src/main/resources/logback-spring.xml'
               - 'pom.xml'
               - 'owasp-suppressions.xml'
+              - '.github/workflows/ci.yml'
             frontend:
               - 'src/main/resources/static/**'
               - 'src/test/js/**'
@@ -53,9 +55,12 @@ jobs:
               - 'package-lock.json'
               - 'babel.config.json'
               - 'vite.config.js'
+              - '.github/workflows/ci.yml'
             container:
               - 'Dockerfile'
               - 'docker-compose.yml'
+              - '.dockerignore'
+              - '.github/workflows/ci.yml'
 
   # ── Rust / WASM build ────────────────────────────────────────────────────────
   # Not a required status check — job-level if: is safe here.
@@ -467,6 +472,10 @@ jobs:
           needs.changes.outputs.engine == 'true' ||
           needs.changes.outputs.container == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          # Pin the misconfig rules bundle so upstream rule additions can't
+          # fail unrelated PRs.  Update this digest when upgrading Trivy.
+          TRIVY_CHECKS_BUNDLE_REPOSITORY: ghcr.io/aquasecurity/trivy-checks@sha256:aed55d13b2971c90752a4500da2f99f678bca53de2a90cc2c3677d5fc67a50b8
         with:
           scan-type: fs
           scan-ref: .
