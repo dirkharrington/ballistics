@@ -279,7 +279,7 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
-                <version>3.5.0</version>
+                <version>3.6.4</version>
                 <executions>
 
                     <!-- WA-1: build WASM binary from the engine/ Rust crate -->
@@ -348,7 +348,7 @@
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
-                        <version>3.3.0</version>
+                        <version>3.6.4</version>
                         <executions>
                             <execution>
                                 <id>run-benchmarks</id>
