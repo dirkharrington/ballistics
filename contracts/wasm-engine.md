@@ -1,8 +1,9 @@
 # Contract: WASM Physics Engine (WA-1 through WA-5)
 
-Version: 1.0.0 — 2026-11-08  
+Version: 1.1.0 — 2026-11-09  
 ADR: [`adr-004-wasm-engine.md`](./adr-004-wasm-engine.md)  
 Build pipeline: [`wasm-build-pipeline.md`](./wasm-build-pipeline.md)  
+Threat model: [`../docs/architecture/wasm-threat-model.md`](../docs/architecture/wasm-threat-model.md)  
 Related: [`be-jsonrpc-contract.md`](./be-jsonrpc-contract.md), [`spin-drift.md`](./spin-drift.md)
 
 Builders implement this contract exactly. To change it, propose the change to the architect. Don't edit this file.
@@ -105,10 +106,10 @@ Defaults must be applied inside the Rust engine (not by the caller) to match Jav
 | `zeroRangeMeters` | number | no | 100 | >0, ≤3000 |
 | `maxRangeMeters` | number | no | 1000 | >0, ≤5000 |
 | `stepMeters` | number | no | 25 | >0, ≤500 |
-| `windSpeedKph` | number | no | 0 | ≥0 |
-| `altitudeMeters` | number | no | 0 | ≥0 |
+| `windSpeedKph` | number | no | 0 | ≥0, ≤200 |
+| `altitudeMeters` | number | no | 0 | ≥0, ≤10000 |
 | `temperatureC` | number | no | 15 | ≥−50, ≤60 |
-| `sightHeightMm` | number | no | 38.1 | ≤150 |
+| `sightHeightMm` | number | no | 38.1 | ≥0, ≤150 |
 | `shootingAngleDegrees` | number | no | 0 | ≥−45, ≤45 |
 | `windDirectionDeg` | number | no | 90 | ≥0, ≤360 |
 | `dragModel` | string | no | "G1" | "G1" or "G7" |
@@ -116,22 +117,26 @@ Defaults must be applied inside the Rust engine (not by the caller) to match Jav
 
 > **Note:** `bulletId` is accepted but unused by the Rust engine; the bullet properties come from `bullet_json`. It is included so the same `params` object used for JSON-RPC calls can be passed to the WASM boundary without transformation.
 
+> **Divergence note (wind / altitude upper bounds):** As of PR #59, `engine/src/types.rs::validate()` only enforces `windSpeedKph ≥ 0` and `altitudeMeters ≥ 0` — no upper bound is checked. The upper bounds `≤200` and `≤10000` are sourced from `contracts/url-state.md` (the UI-level guard). These are the authoritative contract values; a future patch to `validate()` should add the corresponding upper-bound checks to bring the Rust implementation into sync.
+
 ### 3.2 `Bullet` (input — `bullet_json`)
 
 Matches `Bullet` in `be-jsonrpc-contract.md`.
 
-| Field | JSON type | Required |
-|---|---|---|
-| `id` | string | yes |
-| `name` | string | yes |
-| `caliber` | string | yes |
-| `bulletWeightGrams` | number | yes |
-| `muzzleVelocityMps` | number | yes |
-| `ballisticCoefficient` | number | yes |
-| `bulletDiameterMm` | number | yes |
-| `muzzleEnergyJoules` | number | yes |
-| `description` | string | yes |
-| `hexColor` | string | yes |
+| Field | JSON type | Required | Constraint |
+|---|---|---|---|
+| `id` | string | yes | — |
+| `name` | string | yes | — |
+| `caliber` | string | yes | — |
+| `bulletWeightGrams` | number | yes | >0, finite |
+| `muzzleVelocityMps` | number | yes | >0, finite |
+| `ballisticCoefficient` | number | yes | >0, finite |
+| `bulletDiameterMm` | number | yes | >0, finite |
+| `muzzleEnergyJoules` | number | yes | — |
+| `description` | string | yes | — |
+| `hexColor` | string | yes | — |
+
+> **Note:** The four physics-critical fields (`bulletWeightGrams`, `muzzleVelocityMps`, `ballisticCoefficient`, `bulletDiameterMm`) are validated by `Bullet::validate()` in `engine/src/types.rs`. `muzzleEnergyJoules` is informational (displayed in the DOPE card) and is not used in RK4 integration, so no range is enforced.
 
 ### 3.3 `TrajectoryResult` (output — return value)
 
