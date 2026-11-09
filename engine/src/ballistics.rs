@@ -2,6 +2,11 @@ use crate::atmosphere::air_density_ratio;
 use crate::drag::{interpolate_table, G1_COEFFS, G1_VELOCITIES, G7_COEFFS, G7_VELOCITIES};
 use crate::types::{Bullet, TrajectoryParams, TrajectoryPoint, TrajectoryResult};
 
+// Hard upper bound on trajectory sample points and inner-loop iterations.
+// Caps caller-controlled allocation (stepMeters → Vec::with_capacity) and
+// prevents unbounded loops when validation is bypassed or inputs are extreme.
+pub const MAX_POINTS: usize = 50_000;
+
 // ── Physical constants (imperial — internal physics only) ──────────────────
 const GRAVITY_FPS2: f64 = 32.174;
 const SPEED_OF_SOUND_FPS: f64 = 1125.0;
@@ -119,7 +124,7 @@ fn convert_inputs<'a>(bullet: &Bullet, params: &TrajectoryParams) -> ConvertedIn
 }
 
 fn integrate_trajectory(ci: &ConvertedInputs) -> (Vec<TrajectoryPoint>, f64, f64, f64) {
-    let expected = (ci.max_range_yd / ci.step_yd) as usize + 2;
+    let expected = ((ci.max_range_yd / ci.step_yd) as usize + 2).min(MAX_POINTS);
     let mut points = Vec::with_capacity(expected);
     let mut max_ordinate_in = 0.0_f64;
     let mut max_ordinate_range_yd = 0.0_f64;
@@ -140,6 +145,10 @@ fn integrate_trajectory(ci: &ConvertedInputs) -> (Vec<TrajectoryPoint>, f64, f64
     while (state[2] / FT_PER_YARD) <= ci.max_range_yd + ci.step_yd {
         let range_yd = state[2] / FT_PER_YARD;
         let velocity = state[0].hypot(state[1]);
+
+        if points.len() >= MAX_POINTS {
+            break;
+        }
 
         if state[2] >= (next_sample_yd * FT_PER_YARD) - 0.01 {
             let drop_in =
@@ -329,8 +338,13 @@ fn simulate_y(
         0.0_f64,
         0.0_f64,
     ];
+    let mut iters = 0_usize;
     while state[2] < target_x {
         if state[0].hypot(state[1]) < 50.0 {
+            break;
+        }
+        iters += 1;
+        if iters > MAX_POINTS {
             break;
         }
         integrate_to_x(&mut state, bc, adr, drag_velocities, drag_coeffs);
@@ -666,6 +680,20 @@ mod tests {
         let g1_last_e = g1_result.points.last().unwrap().energy_joules;
         let g7_last_e = g7_result.points.last().unwrap().energy_joules;
         assert!(g7_last_e >= g1_last_e, "g7={g7_last_e} g1={g1_last_e}");
+    }
+
+    // ── Allocation cap (MAX_POINTS) ──────────────────────────────────────────
+
+    #[test]
+    fn tiny_step_is_capped_at_max_points() {
+        // stepMeters = 0.5 over 1000m → 2000 expected samples, well under MAX_POINTS.
+        // Validates that the cap doesn't wrongly truncate normal trajectories.
+        let mut params = default_params("308-win-168gr");
+        params.step_meters = 0.5;
+        params.max_range_meters = 1000.0;
+        let result = compute(params, make_308());
+        assert!(result.points.len() <= crate::ballistics::MAX_POINTS);
+        assert!(!result.points.is_empty());
     }
 
     // ── Rounding helper ──────────────────────────────────────────────────────

@@ -35,7 +35,10 @@ pub static G7_COEFFS: &[f64] = &[
 
 /// Mirrors Java's Arrays.binarySearch + interpolation.
 pub fn interpolate_table(velocity: f64, velocities: &[f64], coeffs: &[f64]) -> f64 {
-    if velocity <= velocities[0] {
+    // NaN or negative velocity: return sub-sonic table floor (safe fallback).
+    // Without this guard, NaN causes partition_point to return i=0, then i-1 wraps
+    // to usize::MAX and panics — with panic=abort that kills the WASM instance.
+    if velocity.is_nan() || velocity <= velocities[0] {
         return coeffs[0];
     }
     let last = velocities.len() - 1;
@@ -90,6 +93,14 @@ mod tests {
         assert_eq!(G7_VELOCITIES.len(), G7_COEFFS.len());
         assert_eq!(G1_VELOCITIES.len(), G1_COEFFS.len());
         assert_eq!(G1_VELOCITIES.len(), G7_VELOCITIES.len());
+    }
+
+    #[test]
+    fn nan_velocity_returns_first_coeff_without_panic() {
+        // Regression: without the NaN guard, partition_point returns 0 and i-1
+        // underflows, causing an out-of-bounds panic (abort in release mode).
+        let result = interpolate_table(f64::NAN, G1_VELOCITIES, G1_COEFFS);
+        assert_eq!(result, G1_COEFFS[0]);
     }
 
     #[test]
