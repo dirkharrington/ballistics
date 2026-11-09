@@ -28,6 +28,12 @@ pub fn compute_trajectory(params_json: &str, bullet_json: &str) -> String {
         Ok(b) => b,
         Err(e) => return error_json(&format!("bullet parse error: {e}")),
     };
+    if let Err(e) = params.validate() {
+        return error_json(&format!("params validation error: {e}"));
+    }
+    if let Err(e) = bullet.validate() {
+        return error_json(&format!("bullet validation error: {e}"));
+    }
     let result = ballistics::compute(params, bullet);
     match serde_json::to_string(&result) {
         Ok(json) => json,
@@ -36,7 +42,7 @@ pub fn compute_trajectory(params_json: &str, bullet_json: &str) -> String {
 }
 
 fn error_json(msg: &str) -> String {
-    format!("{{\"error\":\"{}\"}}", msg.replace('"', "\\\""))
+    serde_json::json!({"error": msg}).to_string()
 }
 
 #[cfg(test)]
@@ -115,10 +121,45 @@ mod tests {
     }
 
     #[test]
-    fn compute_trajectory_error_json_escapes_quotes() {
-        // Ensure the helper correctly escapes embedded quotes
-        let msg = error_json("say \"hello\"");
+    fn error_json_escapes_quotes_and_backslashes() {
+        // Regression: hand-rolled escaping only handled `"` — serde_json handles all.
+        let msg = error_json("say \"hello\" and c:\\path");
         let parsed: serde_json::Value = serde_json::from_str(&msg).expect("valid json");
-        assert!(parsed["error"].as_str().unwrap().contains("hello"));
+        let s = parsed["error"].as_str().unwrap();
+        assert!(s.contains('"'), "expected embedded quote in: {s}");
+        assert!(s.contains('\\'), "expected embedded backslash in: {s}");
+    }
+
+    #[test]
+    fn compute_trajectory_zero_muzzle_velocity_returns_error_envelope() {
+        let params = r#"{"bulletId":"x","maxRangeMeters":500,"stepMeters":100}"#;
+        let bullet = r##"{"id":"x","name":"x","caliber":"x","bulletWeightGrams":10.89,
+            "muzzleVelocityMps":0,"ballisticCoefficient":0.475,"bulletDiameterMm":7.82,
+            "muzzleEnergyJoules":3552.0,"description":"x","hexColor":"#fff"}"##;
+        let result = compute_trajectory(params, bullet);
+        let parsed: serde_json::Value = serde_json::from_str(&result).expect("valid json");
+        assert!(parsed.get("error").is_some(), "expected error envelope, got: {result}");
+    }
+
+    #[test]
+    fn compute_trajectory_subzero_temperature_returns_error_envelope() {
+        let params = r#"{"bulletId":"x","temperatureC":-273.15,"maxRangeMeters":500,"stepMeters":100}"#;
+        let bullet = r##"{"id":"x","name":"x","caliber":"x","bulletWeightGrams":10.89,
+            "muzzleVelocityMps":807.7,"ballisticCoefficient":0.475,"bulletDiameterMm":7.82,
+            "muzzleEnergyJoules":3552.0,"description":"x","hexColor":"#fff"}"##;
+        let result = compute_trajectory(params, bullet);
+        let parsed: serde_json::Value = serde_json::from_str(&result).expect("valid json");
+        assert!(parsed.get("error").is_some(), "expected error envelope, got: {result}");
+    }
+
+    #[test]
+    fn compute_trajectory_huge_max_range_returns_error_envelope() {
+        let params = r#"{"bulletId":"x","maxRangeMeters":1e300,"stepMeters":100}"#;
+        let bullet = r##"{"id":"x","name":"x","caliber":"x","bulletWeightGrams":10.89,
+            "muzzleVelocityMps":807.7,"ballisticCoefficient":0.475,"bulletDiameterMm":7.82,
+            "muzzleEnergyJoules":3552.0,"description":"x","hexColor":"#fff"}"##;
+        let result = compute_trajectory(params, bullet);
+        let parsed: serde_json::Value = serde_json::from_str(&result).expect("valid json");
+        assert!(parsed.get("error").is_some(), "expected error envelope, got: {result}");
     }
 }
