@@ -25,11 +25,14 @@ import java.io.IOException;
 @Order(Integer.MIN_VALUE)
 public class SecurityHeadersFilter implements Filter {
 
+    // 'wasm-unsafe-eval' is required for WebAssembly compilation in Chromium.
+    // DO NOT replace or supplement it with 'unsafe-eval' — that would re-enable
+    // eval() and string-to-code execution, which 'wasm-unsafe-eval' deliberately avoids.
     private static final String CSP =
         "default-src 'self'; " +
         "font-src 'self'; " +
         "img-src 'self' data:; " +
-        "script-src 'self'; " +
+        "script-src 'self' 'wasm-unsafe-eval'; " +
         "style-src 'self' 'unsafe-inline'; " +
         "connect-src 'self'; " +
         "frame-ancestors 'none'";

@@ -48,4 +48,17 @@ class SecurityHeadersTest {
         mvc.perform(get("/v3/api-docs"))
             .andExpect(header().doesNotExist("Content-Security-Policy"));
     }
+
+    @Test
+    void cspContainsWasmUnsafeEvalAndNotUnsafeEval() throws Exception {
+        // 'wasm-unsafe-eval' is required for WebAssembly compilation in Chromium.
+        // 'unsafe-eval' must remain absent — it re-enables eval() which wasm-unsafe-eval avoids.
+        // The negative assertion matches the literal token "'unsafe-eval'" (with surrounding
+        // quotes) to avoid a false positive match against "'wasm-unsafe-eval'".
+        mvc.perform(get("/actuator/health"))
+            .andExpect(header().string("Content-Security-Policy",
+                org.hamcrest.Matchers.containsString("'wasm-unsafe-eval'")))
+            .andExpect(header().string("Content-Security-Policy",
+                org.hamcrest.Matchers.not(org.hamcrest.Matchers.matchesPattern(".*(?<!'wasm)'unsafe-eval'.*"))));
+    }
 }
