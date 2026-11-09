@@ -16,13 +16,13 @@ concurrency:
 jobs:
   # ── Layer change detection ────────────────────────────────────────────────────
   # Downstream jobs gate on these outputs so only affected layers run.
-  # Changes to ci.yml itself set all three flags — every layer runs.
   changes:
     runs-on: ubuntu-latest
     outputs:
-      engine:   ${{ steps.filter.outputs.engine }}
-      java:     ${{ steps.filter.outputs.java }}
-      frontend: ${{ steps.filter.outputs.frontend }}
+      engine:    ${{ steps.filter.outputs.engine }}
+      java:      ${{ steps.filter.outputs.java }}
+      frontend:  ${{ steps.filter.outputs.frontend }}
+      container: ${{ steps.filter.outputs.container }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
@@ -42,6 +42,7 @@ jobs:
               - 'src/main/resources/physics-tables.yaml'
               - 'src/main/resources/logback-spring.xml'
               - 'pom.xml'
+              - 'owasp-suppressions.xml'
             frontend:
               - 'src/main/resources/static/**'
               - 'src/test/js/**'
@@ -52,6 +53,9 @@ jobs:
               - 'package-lock.json'
               - 'babel.config.json'
               - 'vite.config.js'
+            container:
+              - 'Dockerfile'
+              - 'docker-compose.yml'
 
   # ── Rust / WASM build ────────────────────────────────────────────────────────
   # Not a required status check — job-level if: is safe here.
@@ -405,6 +409,8 @@ jobs:
 
   # ── Trivy filesystem scan ─────────────────────────────────────────────────────
   # Required status check — no job-level if:.  Work steps gate on any layer change.
+  # container layer (Dockerfile, docker-compose.yml) also triggers this job so
+  # Dockerfile misconfigurations are caught on container-only PRs.
   trivy:
     name: Trivy Container Scan
     needs: [changes]
@@ -418,13 +424,15 @@ jobs:
         if: |
           needs.changes.outputs.java == 'true' ||
           needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true'
+          needs.changes.outputs.engine == 'true' ||
+          needs.changes.outputs.container == 'true'
 
       - name: Set up JDK 21
         if: |
           needs.changes.outputs.java == 'true' ||
           needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true'
+          needs.changes.outputs.engine == 'true' ||
+          needs.changes.outputs.container == 'true'
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
         with:
           java-version: '21'
@@ -434,7 +442,8 @@ jobs:
         if: |
           needs.changes.outputs.java == 'true' ||
           needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true'
+          needs.changes.outputs.engine == 'true' ||
+          needs.changes.outputs.container == 'true'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.m2/repository
@@ -445,7 +454,8 @@ jobs:
         if: |
           needs.changes.outputs.java == 'true' ||
           needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true'
+          needs.changes.outputs.engine == 'true' ||
+          needs.changes.outputs.container == 'true'
         # Trivy resolves Maven metadata from ~/.m2; without this it fetches POMs from
         # Maven Central and hits 429 rate-limits on shared GitHub Actions runner IPs.
         run: mvn --batch-mode dependency:resolve -DskipTests -Dfrontend-maven-plugin.phase=none
@@ -454,12 +464,13 @@ jobs:
         if: |
           needs.changes.outputs.java == 'true' ||
           needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true'
+          needs.changes.outputs.engine == 'true' ||
+          needs.changes.outputs.container == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
-          scanners: vuln,secret
+          scanners: vuln,secret,misconfig
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
@@ -476,7 +487,8 @@ jobs:
           always() &&
           (needs.changes.outputs.java == 'true' ||
            needs.changes.outputs.frontend == 'true' ||
-           needs.changes.outputs.engine == 'true')
+           needs.changes.outputs.engine == 'true' ||
+           needs.changes.outputs.container == 'true')
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: trivy-results.sarif
