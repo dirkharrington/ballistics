@@ -431,7 +431,8 @@ jobs:
         if: |
           needs.changes.outputs.java == 'true' ||
           needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true'
+          needs.changes.outputs.engine == 'true' ||
+          needs.changes.outputs.container == 'true'
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
         with:
           java-version: '21'
@@ -441,7 +442,8 @@ jobs:
         if: |
           needs.changes.outputs.java == 'true' ||
           needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true'
+          needs.changes.outputs.engine == 'true' ||
+          needs.changes.outputs.container == 'true'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.m2/repository
@@ -452,7 +454,8 @@ jobs:
         if: |
           needs.changes.outputs.java == 'true' ||
           needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true'
+          needs.changes.outputs.engine == 'true' ||
+          needs.changes.outputs.container == 'true'
         # Trivy resolves Maven metadata from ~/.m2; without this it fetches POMs from
         # Maven Central and hits 429 rate-limits on shared GitHub Actions runner IPs.
         run: mvn --batch-mode dependency:resolve -DskipTests -Dfrontend-maven-plugin.phase=none
