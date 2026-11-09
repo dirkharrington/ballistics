@@ -149,6 +149,79 @@ CVEs that Trivy (filesystem scan) can miss.
 
 ---
 
+### CI-3 · Toolchain & Runtime Version Alignment · DevSecOps · Size M
+
+Standardise every tool and runtime on its current LTS release, eliminate
+floating version references, and ensure the CI environment, Dockerfile, and
+docker-compose images are internally consistent.
+
+**Current inventory (audited 2026-11-09):**
+
+| Tool | Location | Pinned to | Problem |
+|------|----------|-----------|---------|
+| Java (CI) | `.github/workflows/ci.yml` `java-version` | `21` (LTS) | Behind Dockerfile |
+| Java (runtime) | `Dockerfile` stages `extract` / `jlink` / final | `eclipse-temurin:25` (LTS) | Ahead of CI |
+| Java (build) | `Dockerfile` stage `build` | `maven:3-eclipse-temurin-27-alpine` | **27 is non-LTS**; mismatches runtime |
+| Node (CI) | `.github/workflows/ci.yml` `node-version` | `22.14.0` | May be behind latest Node 22 LTS patch |
+| Rust | CI + `engine/` | `stable` (floating) | No `rust-toolchain.toml`; can break silently on stable releases |
+| Ubuntu (CI) | `.github/workflows/ci.yml` `runs-on` | `ubuntu-latest` (floating) | Floats; can break on GitHub-side runner upgrades |
+| Alpine | `Dockerfile` final stage | `3.23` | Re-pin digest on upgrade |
+| wasm-pack | CI | `0.15.1` | Check for newer release |
+| cargo-llvm-cov | CI | `0.9.1` | Check for newer release |
+| Trivy | CI | `v0.76.1` + checks bundle pinned | Update bundle digest when version bumps |
+| Prometheus | `docker-compose.yml` | `v3.4.0` (digest-pinned) | Re-pin digest on upgrade |
+| Grafana | `docker-compose.yml` | `12.0.0` (digest-pinned) | Re-pin digest on upgrade |
+
+**Work items:**
+
+1. **Standardise Java on 25 LTS everywhere.**
+   - CI: bump `java-version` from `21` to `25`.
+   - Dockerfile build stage: replace `maven:3-eclipse-temurin-27-alpine` with `maven:3-eclipse-temurin-25-alpine` and re-pin SHA digest.
+   - `pom.xml`: confirm `<java.version>25</java.version>` and update `maven.compiler.source/target` if set.
+   - Re-run `./mvnw verify` to confirm all tests pass on 25.
+
+2. **Pin CI runner to `ubuntu-24.04`.**
+   - Replace every `runs-on: ubuntu-latest` with `runs-on: ubuntu-24.04` (Ubuntu 24.04 LTS, Noble Numbat).
+   - Update when Ubuntu 26.04 LTS ships and GitHub Actions supports it.
+
+3. **Add `engine/rust-toolchain.toml` to pin Rust stable.**
+   ```toml
+   [toolchain]
+   channel = "stable"
+   # Update to the next stable release when upgrading; pin the exact version.
+   # Example: channel = "1.84.0"
+   ```
+   CI's `rustup update stable` will still apply; the file makes the version
+   explicit in the repo and surfaces breakage on new releases before it hits
+   main.
+
+4. **Bump Node to latest Node 22 LTS patch** in `ci.yml` `node-version`.
+
+5. **Check and bump wasm-pack and cargo-llvm-cov** to their latest stable
+   releases; update `--version` pins and re-run Rust CI.
+
+6. **Bump Trivy** to its latest release; re-fetch the checks-bundle digest
+   (`ghcr.io/aquasecurity/trivy-checks@sha256:...`) and update `TRIVY_CHECKS_BUNDLE_REPOSITORY` in `ci.yml`.
+
+7. **Re-pin all Dockerfile image digests** after any base-image version change
+   (`docker buildx imagetools inspect <image>:<tag>` → multi-arch index digest).
+
+8. **Re-pin docker-compose image digests** for Prometheus and Grafana if either
+   is bumped to a newer release.
+
+**Acceptance:**
+- Java version is `25` in CI, Dockerfile build stage, and runtime stages; `pom.xml` target matches.
+- CI runners are pinned to `ubuntu-24.04`.
+- `engine/rust-toolchain.toml` exists and specifies a concrete stable version.
+- Node version in CI is the latest Node 22 LTS patch.
+- All Dockerfile `FROM` lines use digest-pinned tags.
+- `mvn verify` passes; Jest passes; Rust tests pass; Trivy scan exits 0.
+- No floating `latest` or unversioned references remain in CI or Docker configs.
+
+**Devsecops gate:** standard — PASS or PASS WITH NOTES before merge.
+
+---
+
 ## WASM — Sprint 1 · Must Have (~6 weeks)
 
 > **ADRs:** Rust + wasm-pack (not Emscripten/TeaVM/AssemblyScript). JSON at the
