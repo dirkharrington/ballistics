@@ -22,6 +22,7 @@
         <jmh.version>1.37</jmh.version>
         <skip.npm.test>false</skip.npm.test>
         <skip.wasm.pack>false</skip.wasm.pack>
+        <wasm.required>false</wasm.required>
         <!-- Security pins: Boot 4.1.1 natively manages older versions; keep until Boot ships ≥ pinned value -->
         <!-- CVE-2026-47884/47885/47892 — Boot 4.1.1 native: 7.0.9 -->
         <spring-framework.version>7.0.10</spring-framework.version>
@@ -154,6 +155,9 @@
                         <phase>generate-resources</phase>
                         <configuration>
                             <arguments>run build</arguments>
+                            <environmentVariables>
+                                <WASM_REQUIRED>${wasm.required}</WASM_REQUIRED>
+                            </environmentVariables>
                         </configuration>
                     </execution>
                     <execution>
@@ -282,10 +286,10 @@
                 <version>3.6.4</version>
                 <executions>
 
-                    <!-- WA-1: build WASM binary from the engine/ Rust crate -->
+                    <!-- WA-3: build WASM binary from the engine/ Rust crate -->
                     <execution>
                         <id>wasm-pack-build</id>
-                        <phase>generate-resources</phase>
+                        <phase>generate-sources</phase>
                         <goals><goal>exec</goal></goals>
                         <configuration>
                             <skip>${skip.wasm.pack}</skip>
@@ -302,17 +306,16 @@
                         </configuration>
                     </execution>
 
-                    <!-- WA-1: copy WASM output + hand-written JS files to static/ -->
+                    <!-- WA-3: stage WASM output + hand-written engine files for Vite -->
                     <execution>
-                        <id>copy-wasm-to-static</id>
-                        <phase>process-resources</phase>
+                        <id>stage-wasm</id>
+                        <phase>generate-sources</phase>
                         <goals><goal>exec</goal></goals>
                         <configuration>
                             <skip>${skip.wasm.pack}</skip>
                             <executable>sh</executable>
                             <arguments>
-                                <argument>-c</argument>
-                                <argument>mkdir -p ${project.basedir}/src/main/resources/static/wasm &amp;&amp; cp -r ${project.basedir}/engine/pkg/. ${project.basedir}/src/main/resources/static/wasm/ &amp;&amp; cp ${project.basedir}/engine/loader.js ${project.basedir}/src/main/resources/static/wasm/ &amp;&amp; cp ${project.basedir}/engine/engine.worker.js ${project.basedir}/src/main/resources/static/wasm/</argument>
+                                <argument>${project.basedir}/engine/stage.sh</argument>
                             </arguments>
                         </configuration>
                     </execution>

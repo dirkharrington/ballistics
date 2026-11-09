@@ -34,6 +34,7 @@ jobs:
               - 'engine/Cargo.lock'
               - 'engine/src/**'
               - 'engine/tests/**'
+              - 'engine/stage.sh'
               - '.github/workflows/ci.yml'
             java:
               - 'src/main/java/**'
@@ -44,13 +45,13 @@ jobs:
               - 'src/main/resources/logback-spring.xml'
               - 'pom.xml'
               - 'owasp-suppressions.xml'
+              - 'engine/stage.sh'
               - '.github/workflows/ci.yml'
             frontend:
               - 'src/main/resources/static/**'
               - 'src/test/js/**'
-              - 'engine/loader.js'
-              - 'engine/loader.test.js'
-              - 'engine/engine.worker.js'
+              - 'engine/*.js'
+              - 'engine/*.d.ts'
               - 'package.json'
               - 'package-lock.json'
               - 'babel.config.json'
@@ -115,6 +116,9 @@ jobs:
       - name: wasm-pack build
         run: wasm-pack build engine/ --target web --release
 
+      - name: Verify TypeScript types generated
+        run: test -f engine/pkg/ballistics_engine.d.ts
+
       - name: Binary size gate
         run: |
           gzip -9 -k engine/pkg/ballistics_engine_bg.wasm
@@ -161,9 +165,9 @@ jobs:
           name: wasm-pkg
           path: engine/pkg/
 
-      - name: Copy WASM to static
+      - name: Stage WASM artifacts
         if: needs.changes.outputs.engine == 'true'
-        run: mkdir -p src/main/resources/static/wasm && cp -r engine/pkg/* src/main/resources/static/wasm/
+        run: sh engine/stage.sh
 
       - name: Set up JDK 21
         if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
@@ -192,7 +196,20 @@ jobs:
 
       - name: Build and verify
         if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
-        run: mvn --batch-mode verify -Dskip.npm.test=true -Dskip.wasm.pack=true
+        run: |
+          WASM_FLAG=""
+          if [ "${{ needs.changes.outputs.engine }}" = "true" ]; then
+            WASM_FLAG="-Dwasm.required=true"
+          fi
+          mvn --batch-mode verify -Dskip.npm.test=true -Dskip.wasm.pack=true ${WASM_FLAG}
+
+      - name: Verify JAR WASM content
+        if: needs.changes.outputs.engine == 'true'
+        run: |
+          WASM_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/assets/.*\.wasm$' || true)
+          WORKER_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/assets/engine\.worker-.*\.js$' || true)
+          [ "${WASM_COUNT}" -eq 1 ] || { echo "Expected exactly 1 WASM file in JAR, found ${WASM_COUNT}"; exit 1; }
+          [ "${WORKER_COUNT}" -ge 1 ] || { echo "Expected at least 1 engine.worker JS file in JAR, found ${WORKER_COUNT}"; exit 1; }
 
       - name: Upload JaCoCo report
         if: always() && (needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true')
