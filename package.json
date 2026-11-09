@@ -51,8 +51,8 @@
     "@tootallnate/once": "3.0.1"
   },
   "devDependencies": {
-    "@babel/core": "^7.29.0",
-    "@babel/preset-env": "^7.29.2",
+    "@babel/core": "^8.0.0",
+    "@babel/preset-env": "^8.0.7",
     "babel-jest": "^30.4.1",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
