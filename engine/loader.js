@@ -23,14 +23,22 @@ export function initEngine() {
   if (_initPromise !== null) {
     return _initPromise;
   }
-  _initPromise = init();
+  _initPromise = init().catch(e => {
+    _initPromise = null;
+    throw new WasmUnavailableError(e.message);
+  });
   return _initPromise;
 }
 
 export function computeTrajectory(params, bullet) {
-  const result = JSON.parse(
-    compute_trajectory(JSON.stringify(params), JSON.stringify(bullet))
-  );
+  let result;
+  try {
+    result = JSON.parse(
+      compute_trajectory(JSON.stringify(params), JSON.stringify(bullet))
+    );
+  } catch (e) {
+    throw new BallisticsEngineError('malformed engine response: ' + e.message);
+  }
   if (result.error !== undefined) {
     throw new BallisticsEngineError(result.error);
   }

@@ -55,6 +55,19 @@ describe('initEngine()', () => {
       global.WebAssembly = saved;
     }
   });
+
+  it('wraps init() failure as WasmUnavailableError and resets _initPromise so next call retries', async () => {
+    mockInit.mockRejectedValueOnce(new Error('CSP blocked fetch'));
+    const firstAttempt = loader.initEngine();
+    await expect(firstAttempt).rejects.toBeInstanceOf(loader.WasmUnavailableError);
+    await expect(firstAttempt).rejects.toThrow('CSP blocked fetch');
+    expect(mockInit).toHaveBeenCalledTimes(1);
+
+    // After rejection the cache is cleared — next call must invoke init() again
+    mockInit.mockResolvedValueOnce(undefined);
+    await expect(loader.initEngine()).resolves.toBeUndefined();
+    expect(mockInit).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('computeTrajectory()', () => {
@@ -85,5 +98,13 @@ describe('computeTrajectory()', () => {
 
     expect(() => loader.computeTrajectory(params, bullet)).toThrow(loader.BallisticsEngineError);
     expect(() => loader.computeTrajectory(params, bullet)).toThrow('invalid bullet data');
+  });
+
+  it('throws BallisticsEngineError (not SyntaxError) when WASM returns malformed JSON', () => {
+    mockComputeTrajectory.mockReturnValue('not valid json {{');
+
+    expect(() => loader.computeTrajectory(params, bullet)).toThrow(loader.BallisticsEngineError);
+    expect(() => loader.computeTrajectory(params, bullet)).toThrow(/malformed engine response/);
+    expect(() => loader.computeTrajectory(params, bullet)).not.toThrow(SyntaxError);
   });
 });
