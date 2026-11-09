@@ -90,7 +90,17 @@ The `serde_json` crate serialises all outputs. Rust panics inside WASM become `u
 
 ---
 
-## 4. Worker isolation (WA-5 — future)
+## 4. Worker isolation (WA-5)
+
+> **2026-11-09:** The WA-5 threat delta is in [`contracts/wasm-integration.md`](../../contracts/wasm-integration.md) §9, which defines mitigations M1–M8. In summary:
+> - The module worker is served same-origin from `/assets/` with no CSP change, and no `blob:` workers are allowed.
+> - Message shapes are validated and ids are correlated.
+> - Startup and request timeouts apply.
+> - Engine strings are never rendered as HTML.
+> - Staging uses an allowlist.
+> - A test asserts that `.wasm` is served as `application/wasm`.
+>
+> The lifecycle now uses `pagehide` rather than `beforeunload`. `worker.terminate()` is permitted only for a wedged worker (request timeout).
 
 ### Design intent
 

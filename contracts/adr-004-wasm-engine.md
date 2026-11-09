@@ -1,7 +1,7 @@
 # ADR 004 — Client-Side WASM Physics Engine
 
 Date: 2026-11-08  
-Status: **Accepted**  
+Status: **Accepted**. Invariant 5 is amended by [ADR 005](../docs/adr/005-wasm-runtime-integration.md): the main thread may import the engine for the inline-WASM fallback tier.  
 Deciders: Architect  
 Related stories: WA-1, WA-2, WA-3, WA-4, WA-5  
 Contract: [`wasm-engine.md`](./wasm-engine.md), [`wasm-build-pipeline.md`](./wasm-build-pipeline.md)

@@ -1,8 +1,16 @@
 # Contract: WASM Build Pipeline (WA-1)
 
-Version: 1.0.0 — 2026-11-08  
-ADR: [`adr-004-wasm-engine.md`](./adr-004-wasm-engine.md)  
+Version: 1.1.0 — 2026-11-09  
+ADR: [`adr-004-wasm-engine.md`](./adr-004-wasm-engine.md), [`../docs/adr/005-wasm-runtime-integration.md`](../docs/adr/005-wasm-runtime-integration.md)  
 Engine contract: [`wasm-engine.md`](./wasm-engine.md)
+
+> **1.1.0 amendment:** `wasm-integration.md` §2 supersedes §2–§4 below where they conflict:
+> - Staging uses `engine/stage.sh` with an explicit allowlist.
+> - Both WASM executions move to `generate-sources`, so they run before the Vite build.
+> - `src/main/resources/static/wasm/` is a **staging** directory consumed by Vite through `virtual:wasm-engine`. The browser loads content-hashed files from `/assets/`, never from `/wasm/`.
+> - The CI copy step becomes `sh engine/stage.sh`.
+>
+> The 1.0.0 layout never placed the WASM in the JAR: `static/**` is excluded from Maven resources, and Vite runs first with `emptyOutDir`.
 
 Builders implement this contract exactly. To change it, propose the change to the architect. Don't edit this file.
 
