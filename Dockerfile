@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Stage 1: build ───────────────────────────────────────────────────────────
-FROM maven:3-eclipse-temurin-26-alpine@sha256:232a4e81490a806193c71ba2d170fdbc467bae2549674853d8b84f44d06a9018 AS build
+FROM maven:3-eclipse-temurin-27-alpine@sha256:da769f72b34d193553bdd6c2bc7706caad361afa2a28866f2aa8430e2c5e0f36 AS build
 
 WORKDIR /build
 
