@@ -206,8 +206,8 @@ jobs:
       - name: Verify JAR WASM content
         if: needs.changes.outputs.engine == 'true'
         run: |
-          WASM_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/assets/.*\.wasm$' || true)
-          WORKER_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/assets/engine\.worker-.*\.js$' || true)
+          WASM_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/.*\.wasm$' || true)
+          WORKER_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/.*/engine\.worker.*\.js$' || true)
           [ "${WASM_COUNT}" -eq 1 ] || { echo "Expected exactly 1 WASM file in JAR, found ${WASM_COUNT}"; exit 1; }
           [ "${WORKER_COUNT}" -ge 1 ] || { echo "Expected at least 1 engine.worker JS file in JAR, found ${WORKER_COUNT}"; exit 1; }
 
