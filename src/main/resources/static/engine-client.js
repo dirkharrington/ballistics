@@ -181,7 +181,7 @@ export async function computeWithEngine(params, bullet) {
       } catch (e) {
         if (!(e instanceof BallisticsEngineError)) {
           tier = EngineTier.JS;
-          throw new WasmUnavailableError('inline wasm fault');
+          throw new BallisticsEngineError('inline wasm fault: ' + e.message, { cause: e });
         }
         throw e;
       }

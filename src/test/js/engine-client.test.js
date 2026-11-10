@@ -502,8 +502,8 @@ describe('compute INLINE: non-BallisticsEngineError (e.g. WASM RuntimeError) deg
     expect(getEngineTier()).toBe(EngineTier.INLINE);
 
     const err = await computeWithEngine({}, {}).catch(e => e);
-    expect(err).toBeInstanceOf(WasmUnavailableError);
-    expect(err.message).toBe('inline wasm fault');
+    expect(err).toBeInstanceOf(BallisticsEngineError);
+    expect(err.message).toBe('inline wasm fault: unreachable');
     expect(getEngineTier()).toBe(EngineTier.JS);
   });
 });
