@@ -480,14 +480,31 @@ describe('compute INLINE: success', () => {
   });
 });
 
-describe('compute INLINE: thrown error is rethrown', () => {
-  test('error propagates', async () => {
+describe('compute INLINE: BallisticsEngineError is rethrown, tier stays INLINE', () => {
+  test('BallisticsEngineError propagates unchanged', async () => {
     wasmMock.createEngineWorker.mockReturnValue(null);
     wasmMock.initEngine.mockResolvedValue(undefined);
     wasmMock.computeTrajectory.mockImplementation(() => { throw new BallisticsEngineError('bad'); });
     await startEngine();
 
     await expect(computeWithEngine({}, {})).rejects.toThrow(BallisticsEngineError);
+    expect(getEngineTier()).toBe(EngineTier.INLINE);
+  });
+});
+
+describe('compute INLINE: non-BallisticsEngineError (e.g. WASM RuntimeError) degrades tier to JS', () => {
+  test('RuntimeError → WasmUnavailableError thrown, tier set to JS', async () => {
+    wasmMock.createEngineWorker.mockReturnValue(null);
+    wasmMock.initEngine.mockResolvedValue(undefined);
+    const runtimeError = Object.assign(new Error('unreachable'), { name: 'RuntimeError' });
+    wasmMock.computeTrajectory.mockImplementation(() => { throw runtimeError; });
+    await startEngine();
+    expect(getEngineTier()).toBe(EngineTier.INLINE);
+
+    const err = await computeWithEngine({}, {}).catch(e => e);
+    expect(err).toBeInstanceOf(WasmUnavailableError);
+    expect(err.message).toBe('inline wasm fault');
+    expect(getEngineTier()).toBe(EngineTier.JS);
   });
 });
 

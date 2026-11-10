@@ -176,7 +176,15 @@ export async function computeWithEngine(params, bullet) {
     }
 
     if (tier === EngineTier.INLINE) {
-      return computeTrajectory(params, bullet);
+      try {
+        return computeTrajectory(params, bullet);
+      } catch (e) {
+        if (!(e instanceof BallisticsEngineError)) {
+          tier = EngineTier.JS;
+          throw new WasmUnavailableError('inline wasm fault');
+        }
+        throw e;
+      }
     }
 
     throw new WasmUnavailableError('no WASM tier available');

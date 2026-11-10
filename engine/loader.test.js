@@ -107,4 +107,17 @@ describe('computeTrajectory()', () => {
     expect(() => loader.computeTrajectory(params, bullet)).toThrow(/malformed engine response/);
     expect(() => loader.computeTrajectory(params, bullet)).not.toThrow(SyntaxError);
   });
+
+  it('lets WASM RuntimeError propagate without wrapping as BallisticsEngineError', () => {
+    const runtimeError = Object.assign(new Error('unreachable'), { name: 'RuntimeError' });
+    mockComputeTrajectory.mockImplementation(() => { throw runtimeError; });
+
+    expect(() => loader.computeTrajectory(params, bullet)).toThrow(runtimeError);
+    try {
+      loader.computeTrajectory(params, bullet);
+    } catch (e) {
+      expect(e).not.toBeInstanceOf(loader.BallisticsEngineError);
+      expect(e.name).toBe('RuntimeError');
+    }
+  });
 });
