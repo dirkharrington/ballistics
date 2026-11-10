@@ -208,8 +208,8 @@ let _bcSimulateFn = null;
  * @param {number}   tempC            temperature in °C
  * @returns {number|null} solved BC rounded to 4 dp, or null if interpolation failed
  */
-function calcBC(simulateBulletFn, weightG, mvMps, measuredDropCm, rangeM, altM, tempC) {
-  const bullet = {
+async function calcBC(simulateBulletFn, weightG, mvMps, measuredDropCm, rangeM, altM, tempC) {
+  const base = {
     id: 'bc-solve', name: 'BC Solve', caliber: 'Custom',
     bulletWeightGrams:    weightG,
     muzzleVelocityMps:    mvMps,
@@ -234,8 +234,8 @@ function calcBC(simulateBulletFn, weightG, mvMps, measuredDropCm, rangeM, altM, 
   let lo = 0.001, hi = 1.5;
   for (let i = 0; i < 64; i++) {
     const mid = (lo + hi) / 2;
-    bullet.ballisticCoefficient = mid;
-    const result = simulateBulletFn(bullet, req);
+    const bullet = { ...base, ballisticCoefficient: mid };
+    const result = await simulateBulletFn(bullet, req);
     const drop   = interpolateAt(result.points, rangeM, 'dropCm');
     if (drop === null) return null;
     // drop < measuredDropCm → too much drop (BC too low) → raise lo
@@ -252,7 +252,7 @@ function calcBC(simulateBulletFn, weightG, mvMps, measuredDropCm, rangeM, altM, 
 function initBcSolver(simulateBulletFn) {
   _bcSimulateFn = simulateBulletFn;
 
-  document.getElementById('bcCalcBtn')?.addEventListener('click', () => {
+  document.getElementById('bcCalcBtn')?.addEventListener('click', async () => {
     const weightG = +document.getElementById('bcCalcWeightG').value;
     const mvMps   = +document.getElementById('bcCalcMvMps').value;
     const dropCm  = +document.getElementById('bcCalcDropCm').value;
@@ -260,6 +260,7 @@ function initBcSolver(simulateBulletFn) {
     const altM    = +(document.getElementById('bcCalcAltM').value  || 0);
     const tempC   = +(document.getElementById('bcCalcTempC').value ?? 15);
     const result  = document.getElementById('bcCalcResult');
+    const btn     = document.getElementById('bcCalcBtn');
     if (!result) return;
 
     if (!(weightG > 0) || !(mvMps > 0) || dropCm === 0 || !(rangeM > 0)) {
@@ -267,13 +268,20 @@ function initBcSolver(simulateBulletFn) {
       return;
     }
 
-    const bc = calcBC(_bcSimulateFn, weightG, mvMps, dropCm, rangeM, altM, tempC);
-    if (bc === null) {
+    if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); }
+    try {
+      const bc = await calcBC(_bcSimulateFn, weightG, mvMps, dropCm, rangeM, altM, tempC);
+      if (bc === null) {
+        result.textContent = 'Could not converge. Check inputs.';
+      } else {
+        const label = document.createElement('span'); label.className = 'tool-label'; label.textContent = 'G1 BC';
+        const val   = document.createElement('span'); val.className   = 'tool-value'; val.textContent   = bc.toFixed(4);
+        result.replaceChildren(label, val);
+      }
+    } catch (_) {
       result.textContent = 'Could not converge. Check inputs.';
-    } else {
-      const label = document.createElement('span'); label.className = 'tool-label'; label.textContent = 'G1 BC';
-      const val   = document.createElement('span'); val.className   = 'tool-value'; val.textContent   = bc.toFixed(4);
-      result.replaceChildren(label, val);
+    } finally {
+      if (btn) { btn.disabled = false; btn.removeAttribute('aria-busy'); }
     }
   });
 }

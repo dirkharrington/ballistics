@@ -17,6 +17,10 @@ HTMLCanvasElement.prototype.getContext = jest.fn(() => ({}));
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 function buildDOM() {
   document.body.innerHTML = `
+  <main class="main">
+    <div id="computingOverlay" class="computing-overlay" role="status" aria-live="polite" hidden>
+      <span class="computing-spinner" aria-hidden="true"></span><span>Computing…</span>
+    </div>
     <div id="bulletList"></div>
     <input id="zeroRange"   value="100" />
     <input id="maxRange"    value="500" />
@@ -116,13 +120,39 @@ function buildDOM() {
       <button id="bcCalcBtn">CALCULATE</button>
       <div id="bcCalcResult" class="tool-results"></div>
     </div>
+  </main>
   `;
 }
 
+jest.mock('../../main/resources/static/engine-client.js', () => {
+  const WasmUnavailableError = class WasmUnavailableError extends Error {
+    constructor(m) { super(m); this.name = 'WasmUnavailableError'; }
+  };
+  const BallisticsEngineError = class BallisticsEngineError extends Error {
+    constructor(m) { super(m); this.name = 'BallisticsEngineError'; }
+  };
+  return {
+    WasmUnavailableError,
+    BallisticsEngineError,
+    EngineTier: { PENDING: 'PENDING', WORKER: 'WORKER', INLINE: 'INLINE', JS: 'JS' },
+    STARTUP_TIMEOUT_MS: 10000,
+    REQUEST_TIMEOUT_MS: 15000,
+    startEngine: jest.fn(() => Promise.resolve('JS')),
+    computeWithEngine: jest.fn(() => Promise.reject(new WasmUnavailableError('no wasm'))),
+    onBusyChange: jest.fn(() => () => {}),
+    shutdownEngine: jest.fn(),
+    toEngineParams: jest.fn((b, r) => ({ bulletId: b.id, ...r })),
+    toEngineBullet: jest.fn((b) => ({ ...b })),
+    _resetEngineClient: jest.fn(),
+  };
+});
+
+const engineClient = require('../../main/resources/static/engine-client.js');
 const mod = require('../../main/resources/static/ballistics.js');
 
 // Reset state and DOM before each test
 beforeEach(() => {
+  jest.useFakeTimers();
   buildDOM();
   localStorage.clear();
   mod._resetState();
@@ -131,8 +161,19 @@ beforeEach(() => {
   mockChartUpdate.mockClear();
   global.fetch.mockReset();
   global.alert.mockClear();
+  engineClient.startEngine.mockReset().mockResolvedValue('JS');
+  engineClient.computeWithEngine.mockReset().mockRejectedValue(
+    new engineClient.WasmUnavailableError('no wasm')
+  );
+  engineClient.onBusyChange.mockReset().mockReturnValue(() => {});
+  engineClient.shutdownEngine.mockReset();
+  global.console.warn.mockClear();
   // Reset URL so syncUrl side-effects from previous tests don't bleed into init()
   history.replaceState(null, '', '/');
+});
+
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -367,9 +408,9 @@ describe('airDensityRatio', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// simulateBullet
+// simulateBulletJS (synchronous JS fallback)
 // ─────────────────────────────────────────────────────────────────────────────
-describe('simulateBullet', () => {
+describe('simulateBulletJS', () => {
   const bullet308 = {
     id: '308-win-168gr', name: '.308', ballisticCoefficient: 0.475,
     bulletWeightGrams: 10.89, muzzleVelocityMps: 807, muzzleEnergyJoules: 3552
@@ -380,7 +421,7 @@ describe('simulateBullet', () => {
   };
 
   test('returns result object with expected shape', () => {
-    const result = mod.simulateBullet(bullet308, req);
+    const result = mod.simulateBulletJS(bullet308, req);
     expect(result.bullet).toBe(bullet308);
     expect(result.request).toBe(req);
     expect(Array.isArray(result.points)).toBe(true);
@@ -389,7 +430,7 @@ describe('simulateBullet', () => {
   });
 
   test('produces trajectory points with positive velocity', () => {
-    const result = mod.simulateBullet(bullet308, req);
+    const result = mod.simulateBulletJS(bullet308, req);
     expect(result.points.length).toBeGreaterThan(0);
     result.points.forEach(p => {
       expect(p.velocityMps).toBeGreaterThan(0);
@@ -398,19 +439,19 @@ describe('simulateBullet', () => {
   });
 
   test('first point velocity matches muzzle velocity', () => {
-    const result = mod.simulateBullet(bullet308, req);
+    const result = mod.simulateBulletJS(bullet308, req);
     const pts = result.points;
     expect(pts[0].velocityMps).toBeCloseTo(bullet308.muzzleVelocityMps, 0);
   });
 
   test('wind drift is zero when windSpeedKph is 0', () => {
-    const result = mod.simulateBullet(bullet308, req);
+    const result = mod.simulateBulletJS(bullet308, req);
     result.points.forEach(p => expect(p.windDriftCm).toBe(0));
   });
 
   test('wind drift is computed when wind is nonzero', () => {
     const windReq = { ...req, windSpeedKph: 16 };
-    const result = mod.simulateBullet(bullet308, windReq);
+    const result = mod.simulateBulletJS(bullet308, windReq);
     expect(result.points).not.toHaveLength(0);
     expect(result.request.windSpeedKph).toBe(16);
   });
@@ -418,8 +459,8 @@ describe('simulateBullet', () => {
   test('90° wind direction produces same drift as no direction specified', () => {
     const windReq90  = { ...req, windSpeedKph: 16, windDirectionDeg: 90  };
     const windReqDef = { ...req, windSpeedKph: 16 };                        // default = 90
-    const r90  = mod.simulateBullet(bullet308, windReq90);
-    const rDef = mod.simulateBullet(bullet308, windReqDef);
+    const r90  = mod.simulateBulletJS(bullet308, windReq90);
+    const rDef = mod.simulateBulletJS(bullet308, windReqDef);
     const last90  = r90.points[r90.points.length - 1].windDriftCm;
     const lastDef = rDef.points[rDef.points.length - 1].windDriftCm;
     // Explicit 90° must equal the implicit default of 90°
@@ -430,15 +471,15 @@ describe('simulateBullet', () => {
 
   test('0° (headwind) produces zero crosswind drift', () => {
     const headWind = { ...req, windSpeedKph: 16, windDirectionDeg: 0 };
-    const result = mod.simulateBullet(bullet308, headWind);
+    const result = mod.simulateBulletJS(bullet308, headWind);
     result.points.forEach(p => expect(p.windDriftCm).toBeCloseTo(0, 1));
   });
 
   test('270° and 90° crosswinds produce equal-magnitude opposite-sign drift', () => {
     const leftWind  = { ...req, windSpeedKph: 16, windDirectionDeg: 270 };
     const rightWind = { ...req, windSpeedKph: 16, windDirectionDeg: 90  };
-    const leftResult  = mod.simulateBullet(bullet308, leftWind);
-    const rightResult = mod.simulateBullet(bullet308, rightWind);
+    const leftResult  = mod.simulateBulletJS(bullet308, leftWind);
+    const rightResult = mod.simulateBulletJS(bullet308, rightWind);
     const lastLeft  = leftResult.points[leftResult.points.length - 1].windDriftCm;
     const lastRight = rightResult.points[rightResult.points.length - 1].windDriftCm;
     // 270° and 90° are perfect opposites (sin(270°)=−1, sin(90°)=+1),
@@ -452,7 +493,7 @@ describe('simulateBullet', () => {
       bulletWeightGrams: 3.56, muzzleVelocityMps: 987
     };
     const longReq = { ...req, maxRangeMeters: 1000, stepMeters: 50 };
-    const result = mod.simulateBullet(bullet223, longReq);
+    const result = mod.simulateBulletJS(bullet223, longReq);
     expect(result.supersonicLimitMeters).toBe(longReq.maxRangeMeters);
   });
 
@@ -461,7 +502,7 @@ describe('simulateBullet', () => {
       id: 'slow', ballisticCoefficient: 0.1,
       bulletWeightGrams: 3.24, muzzleVelocityMps: 12
     };
-    const result = mod.simulateBullet(slowBullet, req);
+    const result = mod.simulateBulletJS(slowBullet, req);
     expect(result).toBeDefined();
     expect(result.supersonicLimitMeters).toBe(0);
   });
@@ -471,25 +512,25 @@ describe('simulateBullet', () => {
       id: 'ultra', ballisticCoefficient: 0.05,
       bulletWeightGrams: 3.24, muzzleVelocityMps: 9
     };
-    const result = mod.simulateBullet(ultraSlow, req);
+    const result = mod.simulateBulletJS(ultraSlow, req);
     expect(result).toBeDefined();
   });
 
   test('max ordinate is positive for normal bullet', () => {
-    const result = mod.simulateBullet(bullet308, req);
+    const result = mod.simulateBulletJS(bullet308, req);
     expect(result.maxOrdinateCm).toBeGreaterThan(0);
   });
 
   test('high altitude simulation produces valid trajectory', () => {
-    const seaResult = mod.simulateBullet(bullet308, { ...req, altitudeMeters: 0 });
-    const altResult = mod.simulateBullet(bullet308, { ...req, altitudeMeters: 1524 });
+    const seaResult = mod.simulateBulletJS(bullet308, { ...req, altitudeMeters: 0 });
+    const altResult = mod.simulateBulletJS(bullet308, { ...req, altitudeMeters: 1524 });
     expect(seaResult.points.length).toBeGreaterThan(0);
     expect(altResult.points.length).toBeGreaterThan(0);
   });
 
   // ── G7 drag model (Task 10) ──────────────────────────────────────────────
   test('G7 model produces valid trajectory with expected shape', () => {
-    const result = mod.simulateBullet(bullet308, { ...req, dragModel: 'G7' });
+    const result = mod.simulateBulletJS(bullet308, { ...req, dragModel: 'G7' });
     expect(result.points.length).toBeGreaterThan(0);
     result.points.forEach(p => {
       expect(p.velocityMps).toBeGreaterThan(0);
@@ -513,8 +554,8 @@ describe('simulateBullet', () => {
     // Verifies the G7 code path — dragTable selection, findZeroAngleFps, integrateTrajectoryFps —
     // runs without error and produces a sensible zeroed trajectory.
     const longReq = { ...req, maxRangeMeters: 500, stepMeters: 100 };
-    const g1Result = mod.simulateBullet(bullet308, { ...longReq, dragModel: 'G1' });
-    const g7Result = mod.simulateBullet(bullet308, { ...longReq, dragModel: 'G7' });
+    const g1Result = mod.simulateBulletJS(bullet308, { ...longReq, dragModel: 'G1' });
+    const g7Result = mod.simulateBulletJS(bullet308, { ...longReq, dragModel: 'G7' });
     // Both produce trajectories
     expect(g1Result.points.length).toBeGreaterThan(0);
     expect(g7Result.points.length).toBeGreaterThan(0);
@@ -528,8 +569,8 @@ describe('simulateBullet', () => {
   });
 
   test('absent dragModel defaults to G1 behaviour', () => {
-    const noModel  = mod.simulateBullet(bullet308, { ...req });
-    const explicit = mod.simulateBullet(bullet308, { ...req, dragModel: 'G1' });
+    const noModel  = mod.simulateBulletJS(bullet308, { ...req });
+    const explicit = mod.simulateBulletJS(bullet308, { ...req, dragModel: 'G1' });
     const last = noModel.points.length - 1;
     expect(noModel.points[last].dropCm).toBeCloseTo(explicit.points[last].dropCm, 1);
   });
@@ -616,7 +657,7 @@ describe('integrateTrajectoryFps', () => {
       zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 25,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15
     };
-    const full   = mod.simulateBullet(bullet, req);
+    const full   = mod.simulateBulletJS(bullet, req);
     const rhoReq = 1.0;  // sea-level at 15°C is ≈ 1
     const angleV = mod.findZeroAngleFps(mvFps, bc, rhoReq, 100 * 3.28084, 38.1 / 25.4 / 12);
     const { points } = mod.integrateTrajectoryFps(
@@ -662,19 +703,19 @@ describe('computeClientSide', () => {
 
   beforeEach(() => mod._setBullets(mockBullets));
 
-  test('returns results for all valid bullet IDs', () => {
-    const results = mod.computeClientSide(req);
+  test('returns results for all valid bullet IDs', async () => {
+    const results = await mod.computeClientSide(req);
     expect(results).toHaveLength(2);
   });
 
-  test('filters out unknown bullet IDs', () => {
-    const results = mod.computeClientSide({ ...req, bulletIds: ['a', 'unknown'] });
+  test('filters out unknown bullet IDs', async () => {
+    const results = await mod.computeClientSide({ ...req, bulletIds: ['a', 'unknown'] });
     expect(results).toHaveLength(1);
     expect(results[0].bullet.id).toBe('a');
   });
 
-  test('returns empty array for all unknown IDs', () => {
-    const results = mod.computeClientSide({ ...req, bulletIds: ['x', 'y'] });
+  test('returns empty array for all unknown IDs', async () => {
+    const results = await mod.computeClientSide({ ...req, bulletIds: ['x', 'y'] });
     expect(results).toHaveLength(0);
   });
 });
@@ -1764,15 +1805,15 @@ describe('sight height parameter', () => {
   };
 
   test('simulateBullet uses default 38.1 mm when sightHeightMm is absent', () => {
-    const r1 = mod.simulateBullet(baseBullet, { ...baseReq });
-    const r2 = mod.simulateBullet(baseBullet, { ...baseReq, sightHeightMm: 38.1 });
+    const r1 = mod.simulateBulletJS(baseBullet, { ...baseReq });
+    const r2 = mod.simulateBulletJS(baseBullet, { ...baseReq, sightHeightMm: 38.1 });
     // Explicit 38.1 should match the default
     expect(r1.points[1].dropCm).toBeCloseTo(r2.points[1].dropCm, 1);
   });
 
   test('higher sight height requires steeper launch angle — max ordinate increases', () => {
-    const low  = mod.simulateBullet(baseBullet, { ...baseReq, sightHeightMm: 10 });
-    const high = mod.simulateBullet(baseBullet, { ...baseReq, sightHeightMm: 100 });
+    const low  = mod.simulateBulletJS(baseBullet, { ...baseReq, sightHeightMm: 10 });
+    const high = mod.simulateBulletJS(baseBullet, { ...baseReq, sightHeightMm: 100 });
     // 90 mm extra sight height → ~0.9 mrad steeper launch angle → bullet peaks ~4 cm higher
     expect(high.maxOrdinateCm).toBeGreaterThan(low.maxOrdinateCm + 1);
   });
@@ -1813,30 +1854,30 @@ describe('shooting angle correction', () => {
   };
 
   test('angle=0 produces same drop as no angle specified', () => {
-    const withNull  = mod.simulateBullet(baseBullet, { ...baseReq });
-    const withZero  = mod.simulateBullet(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
+    const withNull  = mod.simulateBulletJS(baseBullet, { ...baseReq });
+    const withZero  = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
     const last = withNull.points.length - 1;
     expect(withZero.points[last].dropCm).toBeCloseTo(withNull.points[last].dropCm, 1);
   });
 
   test('uphill angle (+20°) reduces apparent drop magnitude vs flat', () => {
-    const flat   = mod.simulateBullet(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
-    const uphill = mod.simulateBullet(baseBullet, { ...baseReq, shootingAngleDegrees: 20 });
+    const flat   = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
+    const uphill = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: 20 });
     const i = flat.points.length - 1;
     // drop is negative past zero; |uphill| < |flat| (cos(20°) ≈ 0.94)
     expect(Math.abs(uphill.points[i].dropCm)).toBeLessThan(Math.abs(flat.points[i].dropCm));
   });
 
   test('downhill angle (-20°) reduces apparent drop magnitude vs flat', () => {
-    const flat = mod.simulateBullet(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
-    const down = mod.simulateBullet(baseBullet, { ...baseReq, shootingAngleDegrees: -20 });
+    const flat = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
+    const down = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: -20 });
     const i = flat.points.length - 1;
     expect(Math.abs(down.points[i].dropCm)).toBeLessThan(Math.abs(flat.points[i].dropCm));
   });
 
   test('uphill and downhill produce same drop magnitude (cos is symmetric)', () => {
-    const up   = mod.simulateBullet(baseBullet, { ...baseReq, shootingAngleDegrees:  30 });
-    const down = mod.simulateBullet(baseBullet, { ...baseReq, shootingAngleDegrees: -30 });
+    const up   = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees:  30 });
+    const down = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: -30 });
     const i = up.points.length - 1;
     expect(Math.abs(up.points[i].dropCm)).toBeCloseTo(Math.abs(down.points[i].dropCm), 1);
   });
@@ -2464,7 +2505,7 @@ describe('exportCSV', () => {
 
   test('builds CSV rows and triggers download when results are present', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBullet(bullet, {
+    const result = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2539,7 +2580,7 @@ describe('exportJSON', () => {
 
   test('creates a JSON blob with all result data and triggers download', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBullet(bullet, {
+    const result = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2585,7 +2626,7 @@ describe('exportMarkdown', () => {
 
   test('creates Markdown with table headers and bullet name heading', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBullet(bullet, {
+    const result = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2744,7 +2785,7 @@ describe('export button click handler', () => {
 
   test('clicking .export-btn triggers exportPNG for that chart', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBullet(bullet, {
+    const result = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2792,7 +2833,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
     // Directly set state via the exported helper would need a setter — use the
     // existing chart-interaction tests pattern: call onHover to set index
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBullet(bullet, {
+    const result = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2820,7 +2861,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
     // Manually set crosshairIndex to a value beyond the data array length
     // We do this by calling onHover with an element at a large index via the chart mock
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBullet(bullet, {
+    const result = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2854,7 +2895,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
 describe('updateReadout edge cases', () => {
   test('returns early when there is no point at dataIndex (L525 branch)', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBullet(bullet, {
+    const result = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 100, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2867,7 +2908,7 @@ describe('updateReadout edge cases', () => {
   test('renders empty row when a result has no point at dataIndex (L536 branch)', () => {
     const bullet = mod.getMockBullets()[0];
     // Two results: one normal, one without a point at index 1
-    const fullResult = mod.simulateBullet(bullet, {
+    const fullResult = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2883,7 +2924,7 @@ describe('updateReadout edge cases', () => {
 
   test('uses fallback color when bullet id is not in BULLET_COLORS (L547 || branch)', () => {
     const bullet = mod.getMockBullets()[0];
-    const fullResult = mod.simulateBullet(bullet, {
+    const fullResult = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 100, stepMeters: 50,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2936,7 +2977,7 @@ describe('readoutPin unpin with populated charts (L815 forEach arrow fn)', () =>
 
     // Populate charts by running a simulation
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBullet(bullet, {
+    const result = mod.simulateBulletJS(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -3512,6 +3553,9 @@ describe('auto-init guard', () => {
     // If the guard true-branch was entered, init() ran and issued the bullets fetch
     expect(global.fetch).toHaveBeenCalled();
     expect(freshMod).toBeDefined();
+    // Clean up window listeners registered by the fresh module instance so they
+    // don't bleed into later tests via the shared window object.
+    freshMod._resetState();
   });
 });
 
@@ -4702,6 +4746,179 @@ describe('MH-1: adjustment chart callbacks', () => {
     te.touches = [touch];
     canvas.dispatchEvent(te);
     expect(listener).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// simulateBullet — async WASM facade (FE-5)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('simulateBullet async facade', () => {
+  const bullet = {
+    id: '308-win-168gr', name: '.308', ballisticCoefficient: 0.475,
+    bulletWeightGrams: 10.89, muzzleVelocityMps: 807
+  };
+  const req = {
+    zeroRangeMeters: 100, maxRangeMeters: 300, stepMeters: 100,
+    windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15
+  };
+
+  test('returns engine result when computeWithEngine succeeds', async () => {
+    const engineResult = { bullet, request: req, points: [{ rangeMeters: 0 }] };
+    engineClient.computeWithEngine.mockResolvedValue(engineResult);
+    const result = await mod.simulateBullet(bullet, req);
+    expect(result.points).toBe(engineResult.points);
+  });
+
+  test('falls back to simulateBulletJS on WasmUnavailableError without warning', async () => {
+    engineClient.computeWithEngine.mockRejectedValue(
+      new engineClient.WasmUnavailableError('no wasm')
+    );
+    const result = await mod.simulateBullet(bullet, req);
+    expect(result.points.length).toBeGreaterThan(0);
+    expect(global.console.warn).not.toHaveBeenCalled();
+  });
+
+  test('falls back to simulateBulletJS on other error and warns', async () => {
+    engineClient.computeWithEngine.mockRejectedValue(new Error('compute failed'));
+    const result = await mod.simulateBullet(bullet, req);
+    expect(result.points.length).toBeGreaterThan(0);
+    expect(global.console.warn).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _setComputing / overlay (FE-5)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('_setComputing overlay', () => {
+  test('shows overlay after COMPUTING_OVERLAY_DELAY_MS on true', () => {
+    const overlay = document.getElementById('computingOverlay');
+    mod._setComputing(true);
+    expect(overlay.hasAttribute('hidden')).toBe(true); // not shown immediately
+    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS);
+    expect(overlay.hasAttribute('hidden')).toBe(false);
+  });
+
+  test('hides overlay immediately on false', () => {
+    const overlay = document.getElementById('computingOverlay');
+    mod._setComputing(true);
+    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS);
+    expect(overlay.hasAttribute('hidden')).toBe(false);
+    mod._setComputing(false);
+    expect(overlay.hasAttribute('hidden')).toBe(true);
+  });
+
+  test('cancels pending timer when false arrives before delay', () => {
+    const overlay = document.getElementById('computingOverlay');
+    mod._setComputing(true);
+    mod._setComputing(false);
+    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS + 100);
+    expect(overlay.hasAttribute('hidden')).toBe(true);
+  });
+
+  test('busy=true when overlay already visible (no hidden attr) → no new timer (line 82 && false)', () => {
+    const overlay = document.getElementById('computingOverlay');
+    overlay.removeAttribute('hidden'); // make overlay visible
+    mod._setComputing(true); // _computingTimer is null but overlay has no 'hidden' → condition false
+    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS + 100);
+    expect(overlay.hasAttribute('hidden')).toBe(false); // unchanged, no timer fired
+  });
+
+  test('busy=true when overlay element absent → timer still starts (line 82 !overlay branch)', () => {
+    const overlay = document.getElementById('computingOverlay');
+    overlay.remove(); // remove overlay from DOM
+    expect(() => {
+      mod._setComputing(true);
+      jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS);
+    }).not.toThrow();
+  });
+
+  test('timer callback when overlay element absent → no crash (line 87 false branch)', () => {
+    mod._setComputing(true);
+    document.getElementById('computingOverlay').remove(); // remove before timer fires
+    expect(() => jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS)).not.toThrow();
+  });
+
+  test('timer callback when main element absent → no crash (line 88 false branch)', () => {
+    mod._setComputing(true);
+    document.querySelector('main.main').remove(); // remove before timer fires
+    expect(() => jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS)).not.toThrow();
+  });
+
+  test('busy=false when overlay absent → no crash (line 93 false branch)', () => {
+    document.getElementById('computingOverlay').remove();
+    expect(() => mod._setComputing(false)).not.toThrow();
+  });
+
+  test('busy=false when main absent → no crash (line 94 false branch)', () => {
+    document.querySelector('main.main').remove();
+    expect(() => mod._setComputing(false)).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// init() wiring (FE-5)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('init() engine wiring', () => {
+  test('calls onBusyChange and startEngine', async () => {
+    engineClient.startEngine.mockResolvedValue('JS');
+    mod.init();
+    expect(engineClient.onBusyChange).toHaveBeenCalledWith(mod._setComputing);
+    expect(engineClient.startEngine).toHaveBeenCalled();
+    await Promise.resolve();
+  });
+
+  test('sets data-engine-tier on documentElement after startEngine resolves', async () => {
+    engineClient.startEngine.mockResolvedValue('WORKER');
+    mod.init();
+    await engineClient.startEngine.mock.results[0].value;
+    await Promise.resolve();
+    expect(document.documentElement.dataset.engineTier).toBe('WORKER');
+  });
+
+  test('pagehide listener calls shutdownEngine', () => {
+    mod.init();
+    window.dispatchEvent(new Event('pagehide'));
+    expect(engineClient.shutdownEngine).toHaveBeenCalled();
+  });
+
+  test('pageshow with persisted=true calls startEngine again', async () => {
+    engineClient.startEngine.mockResolvedValue('INLINE');
+    mod.init();
+    const callsBefore = engineClient.startEngine.mock.calls.length;
+    window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+    expect(engineClient.startEngine).toHaveBeenCalledTimes(callsBefore + 1);
+  });
+
+  test('pageshow with persisted=false does not call startEngine again', () => {
+    mod.init();
+    const callsBefore = engineClient.startEngine.mock.calls.length;
+    window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: false }));
+    expect(engineClient.startEngine).toHaveBeenCalledTimes(callsBefore);
+  });
+
+  test('calling init() twice aborts previous listener controller (line 1461)', () => {
+    mod.init(); // first call: _initListenerController = null → false branch
+    expect(() => mod.init()).not.toThrow(); // second call: controller exists → abort (true branch)
+  });
+});
+
+describe('_resetState coverage gaps', () => {
+  test('_resetState while _computingTimer is set clears it (line 1729)', () => {
+    mod._setComputing(true); // sets _computingTimer
+    mod._resetState(); // _computingTimer !== null → clears it (true branch)
+    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS + 100);
+    // overlay should still be hidden (timer was cleared)
+    expect(document.getElementById('computingOverlay').hasAttribute('hidden')).toBe(true);
+  });
+
+  test('_resetState when overlay absent → no crash (line 1733 false branch)', () => {
+    document.getElementById('computingOverlay').remove();
+    expect(() => mod._resetState()).not.toThrow();
+  });
+
+  test('_resetState when main absent → no crash (line 1734 false branch)', () => {
+    document.querySelector('main.main').remove();
+    expect(() => mod._resetState()).not.toThrow();
   });
 });
 
