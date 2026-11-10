@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Stage 0: Rust/WASM builder ───────────────────────────────────────────────
-FROM rust:latest@sha256:8a4e90c7946b74626488b1446f712c0fe0ed1a596cbd3d871684bc9c5433ae07 AS wasm-builder
+FROM rust:1.99.1@sha256:8a4e90c7946b74626488b1446f712c0fe0ed1a596cbd3d871684bc9c5433ae07 AS wasm-builder
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY engine/ engine/
 RUN wasm-pack build engine/ --target web --release
 
 # ── Stage 1: build ───────────────────────────────────────────────────────────
-FROM maven:3-eclipse-temurin-27-alpine@sha256:da769f72b34d193553bdd6c2bc7706caad361afa2a28866f2aa8430e2c5e0f36 AS build
+FROM maven:3-eclipse-temurin-25-alpine@sha256:c9580801980afad4a46ef80927538baf863df198cf4d48879065e408be46d7a2 AS build
 
 WORKDIR /build
 
@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn package -DskipTests -Dwasm.required=true -q
 
 # ── Stage 2: extract layered JAR ─────────────────────────────────────────────
-FROM eclipse-temurin:25-jre-alpine@sha256:c707c0d18cb9e8556380719f80d96a7529d0746fbb42143893949b98ed2f8943 AS extract
+FROM eclipse-temurin:25-jre-alpine@sha256:e1898fd6a11fc965a994d8ace186fd3585aeb636cf8f05f47a723fcfee0b0918 AS extract
 
 WORKDIR /extract
 COPY --from=build /build/target/*.jar app.jar
@@ -59,7 +59,7 @@ COPY --from=build /build/target/*.jar app.jar
 RUN java -Djarmode=layertools -jar app.jar extract --destination extracted
 
 # ── Stage 3: minimal JRE via jlink ───────────────────────────────────────────
-FROM eclipse-temurin:25-jdk-alpine@sha256:30d9f87d702c2c1c601ed0d31e0c88ea1ea474ee7676cda7b7a59e759181c4dd AS jlink
+FROM eclipse-temurin:25-jdk-alpine@sha256:c7c3d0bdf7f2bbc5a05a6712ed334d198360105634ea9adf76fca94f381b1e3f AS jlink
 
 RUN jlink \
     --no-header-files \
@@ -73,7 +73,7 @@ RUN jlink \
     --output /jre
 
 # ── Stage 4: runtime ─────────────────────────────────────────────────────────
-FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+FROM alpine:3.23@sha256:469c9ea410b9215eaee7976ba6c0639039b444be8e5d638f7abbada189971eb2
 
 RUN addgroup -S spring && adduser -S spring -G spring
 
