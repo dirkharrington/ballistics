@@ -31,11 +31,10 @@ export function initEngine() {
 }
 
 export function computeTrajectory(params, bullet) {
+  const raw = compute_trajectory(JSON.stringify(params), JSON.stringify(bullet));
   let result;
   try {
-    result = JSON.parse(
-      compute_trajectory(JSON.stringify(params), JSON.stringify(bullet))
-    );
+    result = JSON.parse(raw);
   } catch (e) {
     throw new BallisticsEngineError('malformed engine response: ' + e.message);
   }

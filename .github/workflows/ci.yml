@@ -206,10 +206,12 @@ jobs:
       - name: Verify JAR WASM content
         if: needs.changes.outputs.engine == 'true'
         run: |
-          WASM_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/.*\.wasm$' || true)
-          WORKER_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/.*/engine\.worker.*\.js$' || true)
-          [ "${WASM_COUNT}" -ge 1 ] || { echo "Expected at least 1 WASM file in JAR, found ${WASM_COUNT}"; exit 1; }
-          [ "${WORKER_COUNT}" -ge 1 ] || { echo "Expected at least 1 engine.worker JS file in JAR, found ${WORKER_COUNT}"; exit 1; }
+          WASM_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/assets/[^/]*\.wasm$' || true)
+          WORKER_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/assets/engine\.worker-[^/]*\.js$' || true)
+          UNHASHED_COUNT=$(unzip -l target/*.jar | grep -c 'BOOT-INF/classes/static/wasm/' || true)
+          [ "${WASM_COUNT}" -eq 1 ] || { echo "Expected exactly 1 WASM file in static/assets/, found ${WASM_COUNT}"; exit 1; }
+          [ "${WORKER_COUNT}" -ge 1 ] || { echo "Expected at least 1 engine.worker JS file in static/assets/, found ${WORKER_COUNT}"; exit 1; }
+          [ "${UNHASHED_COUNT}" -eq 0 ] || { echo "Found ${UNHASHED_COUNT} unhashed file(s) in static/wasm/ — must not be served without cache-busting"; exit 1; }
 
       - name: Upload JaCoCo report
         if: always() && (needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true')
