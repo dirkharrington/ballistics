@@ -124,6 +124,14 @@
                                 <exclude>static/**</exclude>
                             </excludes>
                         </resource>
+                        <!-- Copy staged WASM artifacts after Vite clears static/.
+                             process-resources runs after generate-resources (Vite),
+                             so these land on top of the Vite output, not under it. -->
+                        <resource>
+                            <directory>src/main/resources/static/wasm</directory>
+                            <targetPath>static/wasm</targetPath>
+                            <filtering>false</filtering>
+                        </resource>
                     </resources>
                 </configuration>
             </plugin>
