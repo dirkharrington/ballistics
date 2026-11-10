@@ -25,7 +25,10 @@
       "src/main/resources/static/tools.js",
       "src/main/resources/static/url-state.js",
       "src/main/resources/static/custom-rounds.js",
-      "engine/loader.js"
+      "engine/loader.js",
+      "engine/worker-core.js",
+      "engine/engine.worker.js",
+      "src/main/resources/static/engine-client.js"
     ],
     "transform": {
       "^.+\\.js$": "babel-jest"
@@ -33,7 +36,8 @@
     "moduleNameMapper": {
       "^chart\\.js$": "<rootDir>/src/test/js/__mocks__/chart.js",
       "^virtual:bullet-catalog$": "<rootDir>/src/test/js/__mocks__/bullet-catalog.js",
-      "^virtual:physics-tables$": "<rootDir>/src/test/js/__mocks__/physics-tables.js"
+      "^virtual:physics-tables$": "<rootDir>/src/test/js/__mocks__/physics-tables.js",
+      "^virtual:wasm-engine$": "<rootDir>/src/test/js/__mocks__/wasm-engine.js"
     },
     "coverageThreshold": {
       "global": {

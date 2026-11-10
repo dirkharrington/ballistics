@@ -1,10 +1,42 @@
 import { defineConfig } from 'vite'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+
+function wasmEnginePlugin() {
+  const virtualId = 'virtual:wasm-engine'
+  const stubId = '\0virtual:wasm-engine-stub'
+  const entryPath = resolve(__dirname, 'src/main/resources/static/wasm/engine-entry.js')
+  let warned = false
+  return {
+    name: 'wasm-engine',
+    resolveId(id) {
+      if (id === virtualId) {
+        if (existsSync(entryPath)) return entryPath
+        return stubId
+      }
+    },
+    load(id) {
+      if (id === stubId) {
+        if (process.env.WASM_REQUIRED === 'true') {
+          this.error('WASM engine artifacts missing: run wasm-pack + engine/stage.sh')
+        } else if (!warned) {
+          warned = true
+          this.warn('WASM engine artifacts missing: run wasm-pack + engine/stage.sh')
+        }
+        return `export class WasmUnavailableError extends Error { constructor(m) { super(m); this.name = 'WasmUnavailableError'; } }
+export class BallisticsEngineError extends Error { constructor(m) { super(m); this.name = 'BallisticsEngineError'; } }
+export function initEngine() { return Promise.reject(new WasmUnavailableError('WASM engine not built')); }
+export function computeTrajectory() { throw new WasmUnavailableError('WASM engine not built'); }
+export function createEngineWorker() { return null; }
+`
+      }
+    }
+  }
+}
 
 function bulletCatalogPlugin() {
   const virtualId = 'virtual:bullet-catalog'
@@ -59,5 +91,8 @@ export default defineConfig({
     outDir: '../../../../target/classes/static',
     emptyOutDir: true,
   },
-  plugins: [bulletCatalogPlugin(), physicsTablesPlugin()],
+  plugins: [bulletCatalogPlugin(), physicsTablesPlugin(), wasmEnginePlugin()],
+  worker: {
+    format: 'es',
+  },
 })

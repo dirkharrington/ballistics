@@ -413,6 +413,39 @@ header {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
+  position: relative;
+}
+
+/* ── Computing overlay ── */
+.computing-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 16, 24, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  color: var(--accent, #00d4ff);
+  letter-spacing: 1px;
+  pointer-events: none;
+  z-index: 10;
+}
+.computing-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--accent, #00d4ff);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: computing-spin 0.7s linear infinite;
+}
+@keyframes computing-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .computing-spinner { animation: none; }
 }
 
 /* ── tab bar ── */

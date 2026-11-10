@@ -5,6 +5,10 @@ const {
   interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC,
 } = require('../../main/resources/static/tools.js');
 
+function flushPromises() {
+  return new Promise(r => setTimeout(r, 0));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // calcMoaMrad
 // ─────────────────────────────────────────────────────────────────────────────
@@ -565,45 +569,53 @@ describe('renderDopeCard', () => {
 // calcBC / initBcSolver
 // ─────────────────────────────────────────────────────────────────────────────
 describe('calcBC', () => {
-  test('returns a finite number within [0.001, 1.5]', () => {
+  test('returns a finite number within [0.001, 1.5]', async () => {
     const sim = makeSimFn();
-    const bc = calcBC(sim, 10.89, 807, -45, 500, 0, 15);
+    const bc = await calcBC(sim, 10.89, 807, -45, 500, 0, 15);
     if (bc !== null) {
       expect(bc).toBeGreaterThanOrEqual(0.001);
       expect(bc).toBeLessThanOrEqual(1.5);
     }
   });
 
-  test('returns null when interpolation fails (range outside points)', () => {
+  test('returns null when interpolation fails (range outside points)', async () => {
     // Sim that always returns empty points
     const badSim = jest.fn(() => ({ bullet: {}, points: [] }));
-    const result = calcBC(badSim, 10, 800, -40, 500, 0, 15);
+    const result = await calcBC(badSim, 10, 800, -40, 500, 0, 15);
     expect(result).toBeNull();
   });
 
-  test('calls simulateBulletFn 64 times', () => {
+  test('calls simulateBulletFn 64 times', async () => {
     const sim = makeSimFn();
-    calcBC(sim, 10.89, 807, -40, 400, 0, 15);
+    await calcBC(sim, 10.89, 807, -40, 400, 0, 15);
     expect(sim).toHaveBeenCalledTimes(64);
   });
 
-  test('rounds result to 4 decimal places', () => {
+  test('rounds result to 4 decimal places', async () => {
     const sim = makeSimFn();
-    const bc = calcBC(sim, 10.89, 807, -40, 400, 0, 15);
+    const bc = await calcBC(sim, 10.89, 807, -40, 400, 0, 15);
     if (bc !== null) {
       const decimals = (bc.toString().split('.')[1] || '').length;
       expect(decimals).toBeLessThanOrEqual(4);
     }
   });
 
-  test('lo = mid branch: measuredDropCm = 0 forces lo upward every iteration', () => {
+  test('lo = mid branch: measuredDropCm = 0 forces lo upward every iteration', async () => {
     // Stub drop is always negative → drop < 0 = measuredDropCm → lo = mid every time
     const sim = makeSimFn();
-    const bc = calcBC(sim, 10.89, 807, 0, 500, 0, 15);
+    const bc = await calcBC(sim, 10.89, 807, 0, 500, 0, 15);
     if (bc !== null) {
       expect(bc).toBeGreaterThanOrEqual(0.001);
       expect(bc).toBeLessThanOrEqual(1.5);
     }
+  });
+
+  test('passes a fresh bullet object per iteration', async () => {
+    const sim = makeSimFn();
+    await calcBC(sim, 10.89, 807, -40, 400, 0, 15);
+    const bullets = sim.mock.calls.map(c => c[0]);
+    const unique = new Set(bullets);
+    expect(unique.size).toBe(64);
   });
 });
 
@@ -641,7 +653,7 @@ describe('initBcSolver', () => {
     expect(document.getElementById('bcCalcResult').textContent).toContain('Fill all fields');
   });
 
-  test('CALCULATE with valid inputs populates result', () => {
+  test('CALCULATE with valid inputs populates result', async () => {
     const sim = makeSimFn();
     initBcSolver(sim);
     document.getElementById('bcCalcWeightG').value = '10.89';
@@ -649,11 +661,12 @@ describe('initBcSolver', () => {
     document.getElementById('bcCalcDropCm').value  = '-45';
     document.getElementById('bcCalcRangeM').value  = '500';
     document.getElementById('bcCalcBtn').click();
+    await flushPromises();
     const html = document.getElementById('bcCalcResult').innerHTML;
     expect(html).toContain('G1 BC');
   });
 
-  test('CALCULATE shows convergence error when sim returns no points', () => {
+  test('CALCULATE shows convergence error when sim returns no points', async () => {
     const badSim = jest.fn(() => ({ bullet: {}, points: [] }));
     initBcSolver(badSim);
     document.getElementById('bcCalcWeightG').value = '10';
@@ -661,6 +674,7 @@ describe('initBcSolver', () => {
     document.getElementById('bcCalcDropCm').value  = '-40';
     document.getElementById('bcCalcRangeM').value  = '500';
     document.getElementById('bcCalcBtn').click();
+    await flushPromises();
     expect(document.getElementById('bcCalcResult').textContent).toContain('Could not converge');
   });
 
@@ -669,14 +683,19 @@ describe('initBcSolver', () => {
     expect(() => initBcSolver(makeSimFn())).not.toThrow();
   });
 
-  test('bcCalcResult absent → no throw', () => {
+  test('bcCalcResult absent → no throw', async () => {
     document.getElementById('bcCalcResult').remove();
     initBcSolver(makeSimFn());
+    document.getElementById('bcCalcWeightG').value = '10.89';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '-45';
+    document.getElementById('bcCalcRangeM').value  = '500';
     document.getElementById('bcCalcBtn').click();
+    await flushPromises();
     // Should not throw even without the result container
   });
 
-  test('empty altM string uses 0 via || 0 branch', () => {
+  test('empty altM string uses 0 via || 0 branch', async () => {
     const sim = makeSimFn();
     initBcSolver(sim);
     document.getElementById('bcCalcWeightG').value = '10.89';
@@ -685,10 +704,11 @@ describe('initBcSolver', () => {
     document.getElementById('bcCalcRangeM').value  = '500';
     document.getElementById('bcCalcAltM').value    = ''; // "" || 0 = 0 → covers || 0
     document.getElementById('bcCalcBtn').click();
+    await flushPromises();
     expect(document.getElementById('bcCalcResult').innerHTML).toContain('G1 BC');
   });
 
-  test('non-input tempC element covers ?? 15 fallback branch', () => {
+  test('non-input tempC element covers ?? 15 fallback branch', async () => {
     // Replace bcCalcTempC input with a div so .value = undefined → undefined ?? 15 = 15
     const div = document.createElement('div');
     div.id = 'bcCalcTempC';
@@ -701,6 +721,59 @@ describe('initBcSolver', () => {
     document.getElementById('bcCalcRangeM').value  = '500';
     document.getElementById('bcCalcAltM').value    = '0';
     document.getElementById('bcCalcBtn').click();
+    await flushPromises();
     expect(document.getElementById('bcCalcResult').innerHTML).toContain('G1 BC');
+  });
+
+  test('button is disabled with aria-busy during calculation', async () => {
+    const sim = jest.fn(async (bullet, req) => {
+      const pts = [];
+      for (let r = 0; r <= req.maxRangeMeters; r += req.stepMeters) {
+        pts.push({ rangeMeters: r, dropCm: -(r * r) / 100000 });
+      }
+      return { bullet, points: pts };
+    });
+    initBcSolver(sim);
+    document.getElementById('bcCalcWeightG').value = '10.89';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '-45';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    const btn = document.getElementById('bcCalcBtn');
+    document.getElementById('bcCalcBtn').click();
+    // Check disabled state before the async work resolves
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute('aria-busy')).toBe('true');
+    await flushPromises();
+    // After completion, button should be re-enabled
+    expect(btn.disabled).toBe(false);
+    expect(btn.getAttribute('aria-busy')).toBeNull();
+  });
+
+  test('computeFn rejects → shows convergence error', async () => {
+    const badSim = jest.fn(() => Promise.reject(new Error('compute error')));
+    initBcSolver(badSim);
+    document.getElementById('bcCalcWeightG').value = '10.89';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '-45';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    document.getElementById('bcCalcBtn').click();
+    await flushPromises();
+    expect(document.getElementById('bcCalcResult').textContent).toContain('Could not converge');
+  });
+
+  test('btn absent when click handler runs → no crash (lines 271 and 284 false branches)', async () => {
+    const sim = makeSimFn();
+    const btn = document.getElementById('bcCalcBtn');
+    initBcSolver(sim); // registers listener on btn
+    // Fill valid inputs
+    document.getElementById('bcCalcWeightG').value = '10.89';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '-45';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    // Remove button from DOM so getElementById returns null inside handler
+    btn.remove();
+    btn.click(); // fire on detached element: document.getElementById('bcCalcBtn') = null
+    await flushPromises();
+    // No crash — btn guard covers null case
   });
 });

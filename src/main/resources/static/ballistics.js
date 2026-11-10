@@ -4,6 +4,7 @@ import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
+import { computeWithEngine, startEngine, onBusyChange, shutdownEngine, toEngineParams, toEngineBullet, WasmUnavailableError } from './engine-client.js';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -69,6 +70,30 @@ const M_PER_YARD    = 0.9144;
 const CM_PER_INCH   = 2.54;
 const J_PER_FTLB    = 1.35582;
 const MPH_PER_KPH   = 0.621371;
+
+// ── Overlay state ─────────────────────────────────────────────────────────────
+export const COMPUTING_OVERLAY_DELAY_MS = 150;
+let _computingTimer = null;
+
+export function _setComputing(busy) {
+  const overlay = document.getElementById('computingOverlay');
+  const main    = document.querySelector('main.main');
+  if (busy) {
+    if (_computingTimer === null && (!overlay || overlay.hasAttribute('hidden'))) {
+      _computingTimer = setTimeout(() => {
+        _computingTimer = null;
+        const ov = document.getElementById('computingOverlay');
+        const mn = document.querySelector('main.main');
+        if (ov) ov.removeAttribute('hidden');
+        if (mn) mn.setAttribute('aria-busy', 'true');
+      }, COMPUTING_OVERLAY_DELAY_MS);
+    }
+  } else {
+    if (_computingTimer !== null) { clearTimeout(_computingTimer); _computingTimer = null; }
+    if (overlay) overlay.setAttribute('hidden', '');
+    if (main) main.removeAttribute('aria-busy');
+  }
+}
 
 // ── Module state ──────────────────────────────────────────────────────────────
 let bullets = [];
@@ -236,7 +261,7 @@ function integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd
   return { points, maxOrdIn, maxOrdRangeYd, supersonicLimYd };
 }
 
-function simulateBullet(bullet, req) {
+export function simulateBulletJS(bullet, req) {
   const bc    = bullet.ballisticCoefficient;
   const mvFps = bullet.muzzleVelocityMps * FPS_PER_MPS;
   const wLbs  = bullet.bulletWeightGrams / G_PER_LB;
@@ -274,13 +299,26 @@ function simulateBullet(bullet, req) {
   };
 }
 
+export async function simulateBullet(bullet, req) {
+  try {
+    const result = await computeWithEngine(toEngineParams(bullet, req), toEngineBullet(bullet));
+    return { ...result, bullet, request: req };
+  } catch (err) {
+    if (!(err instanceof WasmUnavailableError)) {
+      console.warn('[engine] WASM compute failed; using JS fallback:', err?.message);
+    }
+    return simulateBulletJS(bullet, req);
+  }
+}
+
 // ── Compute trajectories client-side for all selected bullet IDs ──────────────
-function computeClientSide(req) {
-  return req.bulletIds.map(id => {
+async function computeClientSide(req) {
+  const results = await Promise.all(req.bulletIds.map(id => {
     const bullet = bullets.find(b => b.id === id);
     if (!bullet) return null;
     return simulateBullet(bullet, req);
-  }).filter(Boolean);
+  }));
+  return results.filter(Boolean);
 }
 
 // ── Bullet list UI ────────────────────────────────────────────────────────────
@@ -431,7 +469,7 @@ async function runSimulation() {
           });
         } catch (networkErr) {
           // Network/DNS/CORS errors → OFFLINE fallback
-          computeClientSide(req).forEach(r => results.push(r));
+          (await computeClientSide(req)).forEach(r => results.push(r));
           setOfflineMode(true);
           renderResults(results, req);
           lastResults = results;
@@ -449,7 +487,7 @@ async function runSimulation() {
             return;
           }
           // 4xx non-JSON or 5xx → existing OFFLINE fallback
-          computeClientSide(req).forEach(r => results.push(r));
+          (await computeClientSide(req)).forEach(r => results.push(r));
           setOfflineMode(true);
         } else {
           (await res.json()).forEach(r => results.push(r));
@@ -584,7 +622,7 @@ async function runCustom() {
       ballisticCoefficient: bc, bulletDiameterMm: dia,
       muzzleEnergyJoules: Math.round(0.5 * (weight / 1000) * mv * mv)
     };
-    result = simulateBullet(bullet, { ...req, bulletIds: ['custom'] });
+    result = await simulateBullet(bullet, { ...req, bulletIds: ['custom'] });
   }
   lastResults = [result];
   renderResults([result], req);
@@ -1288,7 +1326,7 @@ async function runSweep() {
   } catch {
     const bullet = bullets.find(b => b.id === bulletId);
     if (!bullet) { if (btn) btn.querySelector('span').textContent = 'SWEEP'; return; }
-    results = requests.map(r => simulateBullet(bullet, r));
+    results = await Promise.all(requests.map(r => simulateBullet(bullet, r)));
   }
 
   sweepResults = results;
@@ -1417,7 +1455,19 @@ async function copyLink() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+let _initListenerController = null;
+
 async function init() {
+  if (_initListenerController) _initListenerController.abort();
+  _initListenerController = new AbortController();
+  const { signal } = _initListenerController;
+  onBusyChange(_setComputing);
+  startEngine().then(tier => { document.documentElement.dataset.engineTier = tier; });
+  window.addEventListener('pagehide', shutdownEngine, { signal });
+  window.addEventListener('pageshow', e => {
+    if (e.persisted) startEngine().then(tier => { document.documentElement.dataset.engineTier = tier; });
+  }, { signal });
+
   // Load saved preferences and URL params; URL takes per-key precedence over localStorage
   const fromUrl = decodeState(window.location.search);
   const merged  = { ...loadPrefs(), ...fromUrl.params };
@@ -1676,6 +1726,12 @@ function _resetState()   {
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
   sweepMode = false; sweepResults = null; lastReq = null;
   if (retryTimer !== null) { clearInterval(retryTimer); retryTimer = null; }
+  if (_computingTimer !== null) { clearTimeout(_computingTimer); _computingTimer = null; }
+  if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
+  const overlay = document.getElementById('computingOverlay');
+  const main = document.querySelector('main.main');
+  if (overlay) overlay.setAttribute('hidden', '');
+  if (main) main.removeAttribute('aria-busy');
 }
 function _setBullets(b)      { bullets = b; }
 function _setSelectedIds(s)  { selectedIds = s; }
@@ -1690,7 +1746,7 @@ if (document.getElementById('bulletList')) {
 
 export {
   getMockBullets, interpolateDragTable, g1Drag, airDensityRatio,
-  findZeroAngleFps, integrateTrajectoryFps, simulateBullet, computeClientSide,
+  findZeroAngleFps, integrateTrajectoryFps, computeClientSide,
   renderBulletList, toggleBullet, updateBulletCards, runSimulation, streamCompare,
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
