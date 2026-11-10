@@ -137,17 +137,6 @@ Each PR should only run the checks relevant to its changed files. Right now ever
 
 ---
 
-### ⚠️ MH-5 · Rotate NVD API Key · DevSecOps · Size 1 — CI change ready, awaiting key rotation
-
-The `NVD_API_KEY` GitHub Actions secret is expired. The OWASP Dependency-Check
-job has `-DfailOnError=true` already set in `ci.yml`; the remaining step is
-to rotate the key at nvd.nist.gov/developers/request-an-api-key and update
-`secrets.NVD_API_KEY` in repo Settings → Secrets.
-
-**Value:** Restores full dependency-CVE coverage. OWASP catches Java library
-CVEs that Trivy (filesystem scan) can miss.
-
----
 
 ### ~~CI-3 · Toolchain & Runtime Version Alignment · DevSecOps · Size M~~ ✓ DONE (PR #69)
 
