@@ -1,10 +1,38 @@
 import { defineConfig } from 'vite'
-import { readFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, readdirSync, existsSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+
+function serviceWorkerPlugin() {
+  let resolvedOutDir;
+  return {
+    name: 'sw-build',
+    configResolved(config) {
+      if (config.command === 'build') {
+        resolvedOutDir = resolve(config.root, config.build.outDir);
+      }
+    },
+    closeBundle() {
+      if (!resolvedOutDir) return;
+      let hash = Date.now().toString(36);
+      try {
+        const assetsDir = resolve(resolvedOutDir, 'assets');
+        const wasmFile = readdirSync(assetsDir).find(f => /\.wasm$/.test(f));
+        if (wasmFile) {
+          const m = wasmFile.match(/[-.]([0-9a-f]{8,})\.[^.]+$/i);
+          if (m) hash = m[1];
+        }
+      } catch { /* no WASM assets yet */ }
+      const swSrc = readFileSync(
+        resolve(__dirname, 'src/main/resources/static/sw.js'), 'utf-8');
+      const swOut = swSrc.replace("let _wasmHash = 'v1';", `let _wasmHash = '${hash}';`);
+      writeFileSync(resolve(resolvedOutDir, 'sw.js'), swOut);
+    },
+  };
+}
 
 function wasmEnginePlugin() {
   const virtualId = 'virtual:wasm-engine'
@@ -91,7 +119,7 @@ export default defineConfig({
     outDir: '../../../../target/classes/static',
     emptyOutDir: true,
   },
-  plugins: [bulletCatalogPlugin(), physicsTablesPlugin(), wasmEnginePlugin()],
+  plugins: [serviceWorkerPlugin(), bulletCatalogPlugin(), physicsTablesPlugin(), wasmEnginePlugin()],
   worker: {
     format: 'es',
   },

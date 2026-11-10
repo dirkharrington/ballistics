@@ -17,9 +17,9 @@ export function _getWasmHash() { return _wasmHash; }
 export function _setWasmHash(h) { _wasmHash = h; }
 export function getCacheName() { return `${CACHE_PREFIX}-${_wasmHash}`; }
 
-/** Extract the content hash from a Vite-hashed WASM filename like `engine.a1b2c3d4.wasm`. */
+/** Extract the content hash from a Vite-hashed WASM filename like `engine-a1b2c3d4.wasm` or `engine.a1b2c3d4.wasm`. */
 export function extractWasmHash(pathname) {
-  const m = pathname.match(/\.([0-9a-f]{8,})\.wasm$/i);
+  const m = pathname.match(/[-.]([0-9a-f]{8,})\.wasm$/i);
   return m ? m[1] : null;
 }
 
@@ -250,6 +250,21 @@ export async function cacheFirstNetworkFallback(request) {
   }
 }
 
+export async function networkFirstCacheFallback(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(getCacheName());
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    return new Response('Offline', { status: 503, statusText: 'Offline' });
+  }
+}
+
 export async function handleTrajectoriesCompareOffline(request) {
   try {
     return await fetch(request.clone());
@@ -331,6 +346,18 @@ export function handleFetch(event) {
   }
 
   if (request.method !== 'GET') return;
+
+  // Navigation requests (HTML pages) go network-first to avoid stale deploys
+  if (request.mode === 'navigate') {
+    event.respondWith(networkFirstCacheFallback(request));
+    return;
+  }
+
+  // Other /api/* GETs (e.g. catalog refresh) pass through without SW interception;
+  // /api/bullets is handled below by the cache-first fallthrough
+  if (url.pathname.startsWith('/api/') && url.pathname !== BULLETS_API_URL) {
+    return;
+  }
 
   if (url.pathname.endsWith('.wasm')) {
     const hash = extractWasmHash(url.pathname);

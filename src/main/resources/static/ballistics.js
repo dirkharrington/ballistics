@@ -491,7 +491,7 @@ async function runSimulation() {
           setOfflineMode(true);
         } else {
           (await res.json()).forEach(r => results.push(r));
-          setOfflineMode(false);
+          if (res.headers?.get('X-Served-By') !== 'sw-offline') setOfflineMode(false);
         }
         renderResults(results, req);
       }

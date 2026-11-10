@@ -80,8 +80,12 @@ beforeEach(() => {
 
 // ── extractWasmHash ───────────────────────────────────────────────────────────
 describe('extractWasmHash', () => {
-  test('extracts hash from Vite-hashed WASM path', () => {
+  test('extracts hash from Vite-hashed WASM path (dot separator)', () => {
     expect(sw.extractWasmHash('/assets/engine.a1b2c3d4.wasm')).toBe('a1b2c3d4');
+  });
+
+  test('extracts hash from Vite-hashed WASM path (hyphen separator)', () => {
+    expect(sw.extractWasmHash('/assets/engine-a1b2c3d4.wasm')).toBe('a1b2c3d4');
   });
 
   test('extracts longer hash', () => {
@@ -309,6 +313,55 @@ describe('cacheFirstNetworkFallback', () => {
   });
 });
 
+// ── networkFirstCacheFallback ─────────────────────────────────────────────────
+describe('networkFirstCacheFallback', () => {
+  test('returns network response and caches it when network succeeds', async () => {
+    const clonedResp = new Response('live', { status: 200 });
+    const networkResp = new Response('live', { status: 200 });
+    networkResp.clone = jest.fn().mockReturnValue(clonedResp);
+    global.fetch.mockResolvedValueOnce(networkResp);
+    const mockCache = { put: jest.fn() };
+    global.caches.open.mockResolvedValueOnce(mockCache);
+
+    const req = makeRequest('GET', 'http://localhost/index.html');
+    const result = await sw.networkFirstCacheFallback(req);
+    expect(result).toBe(networkResp);
+    expect(mockCache.put).toHaveBeenCalledWith(req, clonedResp);
+  });
+
+  test('does not cache non-ok network responses', async () => {
+    const errorResp = new Response('error', { status: 500 });
+    errorResp.clone = jest.fn().mockReturnValue(new Response('error', { status: 500 }));
+    global.fetch.mockResolvedValueOnce(errorResp);
+    const mockCache = { put: jest.fn() };
+    global.caches.open.mockResolvedValueOnce(mockCache);
+
+    const req = makeRequest('GET', 'http://localhost/index.html');
+    const result = await sw.networkFirstCacheFallback(req);
+    expect(result).toBe(errorResp);
+    expect(mockCache.put).not.toHaveBeenCalled();
+  });
+
+  test('falls back to cache when network fails', async () => {
+    const cachedResp = new Response('cached', { status: 200 });
+    global.fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    global.caches.match.mockResolvedValueOnce(cachedResp);
+
+    const req = makeRequest('GET', 'http://localhost/index.html');
+    const result = await sw.networkFirstCacheFallback(req);
+    expect(result).toBe(cachedResp);
+  });
+
+  test('returns 503 when both network and cache fail', async () => {
+    global.fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    global.caches.match.mockResolvedValueOnce(undefined);
+
+    const req = makeRequest('GET', 'http://localhost/index.html');
+    const result = await sw.networkFirstCacheFallback(req);
+    expect(result.status).toBe(503);
+  });
+});
+
 // ── handleTrajectoriesCompareOffline ─────────────────────────────────────────
 describe('handleTrajectoriesCompareOffline', () => {
   const bullets = [
@@ -493,9 +546,35 @@ describe('handleFetch', () => {
     expect(event.respondWith).not.toHaveBeenCalled();
   });
 
-  test('intercepts GET /*.wasm and updates wasmHash when hash present', () => {
+  test('navigate mode uses network-first (not cache-first)', () => {
+    const req = { ...makeRequest('GET', 'http://localhost/index.html'), mode: 'navigate' };
+    const event = makeEvent(req);
+    global.fetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+    sw.handleFetch(event);
+    expect(event.respondWith).toHaveBeenCalled();
+  });
+
+  test('non-bullets /api/* GET passes through without interception', () => {
+    const req = makeRequest('GET', 'http://localhost/api/health');
+    const event = makeEvent(req);
+    sw.handleFetch(event);
+    expect(event.respondWith).not.toHaveBeenCalled();
+  });
+
+  test('intercepts GET /*.wasm and updates wasmHash when hash present (dot separator)', () => {
     sw._setWasmHash('v1');
     const req = makeRequest('GET', 'http://localhost/assets/engine.a1b2c3d4.wasm');
+    const event = makeEvent(req);
+    global.caches.match.mockResolvedValueOnce(undefined);
+    global.fetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+    sw.handleFetch(event);
+    expect(event.respondWith).toHaveBeenCalled();
+    expect(sw._getWasmHash()).toBe('a1b2c3d4');
+  });
+
+  test('intercepts GET /*.wasm and updates wasmHash when hash present (hyphen separator)', () => {
+    sw._setWasmHash('v1');
+    const req = makeRequest('GET', 'http://localhost/assets/engine-a1b2c3d4.wasm');
     const event = makeEvent(req);
     global.caches.match.mockResolvedValueOnce(undefined);
     global.fetch.mockResolvedValueOnce(new Response('', { status: 200 }));
