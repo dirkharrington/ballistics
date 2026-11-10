@@ -1688,6 +1688,62 @@ describe('init', () => {
     expect(mod._getState().crosshairIndex).toBeNull();
     expect(pinBtn.textContent).toBe('PIN');
   });
+
+  test('registers service worker when navigator.serviceWorker is present', async () => {
+    const register = jest.fn().mockResolvedValue({});
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { register }, configurable: true, writable: true,
+    });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await mod.init();
+    expect(register).toHaveBeenCalledWith('/sw.js', { type: 'module' });
+    delete navigator.serviceWorker;
+  });
+
+  test('logs warning when SW registration rejects', async () => {
+    const register = jest.fn().mockRejectedValue(new Error('SW init error'));
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { register }, configurable: true, writable: true,
+    });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await mod.init();
+    // Allow the rejected promise to settle
+    await Promise.resolve();
+    expect(global.console.warn).toHaveBeenCalledWith(expect.stringMatching(/SW registration failed/), expect.any(Error));
+    delete navigator.serviceWorker;
+  });
+
+  test('skips SW registration when serviceWorker not supported', async () => {
+    // jsdom has no navigator.serviceWorker — confirm no crash
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await expect(mod.init()).resolves.toBeUndefined();
+  });
+
+  test('sets offline mode on init when navigator.onLine is false', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await mod.init();
+    const pill = document.getElementById('statusPill');
+    expect(pill.className).toContain('status-offline');
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+  });
+
+  test('offline window event calls setOfflineMode(true)', async () => {
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await mod.init();
+    window.dispatchEvent(new Event('offline'));
+    const pill = document.getElementById('statusPill');
+    expect(pill.className).toContain('status-offline');
+  });
+
+  test('online window event calls probeServer (triggers fetch)', async () => {
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await mod.init();
+    global.fetch.mockRejectedValueOnce(new Error('still offline'));
+    window.dispatchEvent(new Event('online'));
+    await Promise.resolve();
+    expect(global.fetch).toHaveBeenLastCalledWith('/api/rpc', expect.objectContaining({ method: 'POST' }));
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
