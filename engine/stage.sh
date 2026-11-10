@@ -31,7 +31,7 @@ cp "${PKG_DIR}/ballistics_engine.d.ts"    "${WASM_DIR}/ballistics_engine.d.ts"
 
 # hand-written engine source files — copied only when present so the script
 # succeeds on branches where FE files have not yet been added
-copy_if_exists() { [ -f "$1" ] && cp "$1" "$2"; }
+copy_if_exists() { [ -f "$1" ] && cp "$1" "$2"; return 0; }
 
 copy_if_exists "${SCRIPT_DIR}/loader.js"        "${WASM_DIR}/loader.js"
 copy_if_exists "${SCRIPT_DIR}/loader.d.ts"      "${WASM_DIR}/loader.d.ts"
