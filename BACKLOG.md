@@ -229,7 +229,7 @@ docker-compose images are internally consistent.
 > unchanged through Sprint 2 — WASM is additive, replacing the in-browser JS
 > mirror only.
 
-### WA-1 · Engine Scaffold & Toolchain · BE (Rust) · CI/CD · Size S
+~~### WA-1 · Engine Scaffold & Toolchain · BE (Rust) · CI/CD · Size S~~ ✅ Done — PR #42
 
 Set up a Cargo workspace at `engine/` in the repo root. Add wasm-pack config and
 a Maven `exec-maven-plugin` step to run `wasm-pack build` during `mvn package`.
@@ -246,7 +246,7 @@ stub `hello_wasm()` proving the pipeline works end-to-end. No physics yet.
 
 ---
 
-~~### WA-3 · JS/TS Bindings & Loader · FE · Build · Size S~~ ✅ Done — PR #66 (FE), PR #65 (BE stage.sh)
+~~### WA-3 · JS/TS Bindings & Loader · FE · Build · Size S~~ ✅ Done — PRs #65, #66, #67
 
 Write `engine/loader.js` (ESM) that async-initialises the WASM module once and
 exposes a typed `computeTrajectory(request, bullet)` function. Generate
@@ -258,7 +258,7 @@ TypeScript types generated.
 
 ---
 
-~~### WA-4 · Replace `simulateBullet()` with WASM · FE · Size M~~ ✅ Done — PR #66
+~~### WA-4 · Replace `simulateBullet()` with WASM · FE · Size M~~ ✅ Done — PRs #65, #66, #67
 
 In `ballistics.js`, replace calls to `simulateBullet()` with the WASM loader.
 Rename the existing JS implementation to `simulateBulletJS()` for use as
@@ -268,7 +268,7 @@ Jest tests mock the WASM loader and cover both WASM-success and fallback paths.
 
 ---
 
-~~### WA-5 · Web Worker Offload · FE · Size S~~ ✅ Done — PR #66
+~~### WA-5 · Web Worker Offload · FE · Size S~~ ✅ Done — PRs #65, #66, #67
 
 Move WASM computation to a dedicated Web Worker (`engine.worker.js`). Main
 thread communicates via postMessage. Add a "Computing…" overlay for in-flight
