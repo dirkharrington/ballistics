@@ -4498,6 +4498,66 @@ describe('MH-4: runSweep', () => {
     await mod.runSweep();
     expect(mockChart.destroy).toHaveBeenCalled();
   });
+
+  // WA-7: WASM-first batch path
+  test('WA-7: uses WASM batch when computeWithEngine resolves — no fetch call', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    const engineResult = {
+      points: [
+        { rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: 100, dropCm: -5, velocityMps: 760, energyJoules: 3150, windDriftCm: 2, timeOfFlightSec: 0.13 },
+      ],
+      supersonicLimitMeters: 820, maxOrdinateCm: 3, maxOrdinateRangeMeters: 50,
+    };
+    engineClient.computeWithEngine.mockResolvedValue(engineResult);
+
+    await mod.runSweep();
+
+    // One call per sweep variant (5 variants)
+    expect(engineClient.computeWithEngine).toHaveBeenCalledTimes(5);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(global.console.warn).not.toHaveBeenCalled();
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+    expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
+  });
+
+  test('WA-7: WasmUnavailableError falls back to API silently — no console.warn', async () => {
+    // Default mock already throws WasmUnavailableError; just confirm warn is suppressed
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeSweepApiResult()),
+    });
+
+    await mod.runSweep();
+
+    expect(global.console.warn).not.toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalled();
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('WA-7: warns and falls back to API when computeWithEngine throws non-WasmUnavailable error', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    engineClient.computeWithEngine.mockRejectedValue(
+      new engineClient.BallisticsEngineError('physics fault')
+    );
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeSweepApiResult()),
+    });
+
+    await mod.runSweep();
+
+    expect(global.console.warn).toHaveBeenCalledWith(
+      '[engine] WASM sweep batch failed:',
+      'physics fault'
+    );
+    expect(global.fetch).toHaveBeenCalled();
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
