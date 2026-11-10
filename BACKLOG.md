@@ -298,7 +298,7 @@ No UI changes.
 
 ---
 
-### WA-8 · Physics Parity Audit + ADR · Test/Audit · Size S
+~~### WA-8 · Physics Parity Audit + ADR · Test/Audit · Size S~~ ✅ Done — PR #70
 
 Systematic comparison of Java engine vs Rust/WASM engine across the full catalog
 at multiple ranges and conditions. Document any intentional differences. Write
