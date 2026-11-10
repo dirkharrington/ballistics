@@ -306,31 +306,32 @@ describe('events from stale worker after degrade are ignored', () => {
   });
 });
 
-describe('ready arrives when startupTimer already null (line 50 false branch)', () => {
-  test('no crash, tier stays resolved', async () => {
+describe('late ready from timed-out worker is ignored by stale-worker guard', () => {
+  test('no crash, tier not corrupted to WORKER (finding 1)', async () => {
     let fw;
     workerFactory = () => { fw = new FakeWorker(); return fw; };
     wasmMock.createEngineWorker.mockImplementation(() => workerFactory());
     wasmMock.initEngine.mockResolvedValue(undefined);
     const p = startEngine();
-    jest.advanceTimersByTime(STARTUP_TIMEOUT_MS); // timer fires, startupTimer = null
+    jest.advanceTimersByTime(STARTUP_TIMEOUT_MS);
     await flushPromises();
-    fw.emit({ type: 'ready' }); // startupTimer is null: covers line 50 false branch
+    fw.emit({ type: 'ready' }); // stale: w !== worker (worker=null after timeout)
     const tier = await p;
-    expect(tier).toBe(EngineTier.INLINE); // already resolved as INLINE by timer
+    expect(tier).toBe(EngineTier.INLINE);
+    expect(getEngineTier()).toBe(EngineTier.INLINE); // guard blocked; tier not corrupted to WORKER
   });
 });
 
-describe('init_error arrives when startupTimer already null (line 57 false branch)', () => {
-  test('no crash, tier stays resolved', async () => {
+describe('late init_error from timed-out worker is ignored by stale-worker guard', () => {
+  test('no crash, tier stays INLINE not re-triggered', async () => {
     let fw;
     workerFactory = () => { fw = new FakeWorker(); return fw; };
     wasmMock.createEngineWorker.mockImplementation(() => workerFactory());
     wasmMock.initEngine.mockResolvedValue(undefined);
     const p = startEngine();
-    jest.advanceTimersByTime(STARTUP_TIMEOUT_MS); // timer fires, startupTimer = null
+    jest.advanceTimersByTime(STARTUP_TIMEOUT_MS);
     await flushPromises();
-    fw.emit({ type: 'init_error', message: 'late' }); // startupTimer is null: covers line 57 false branch
+    fw.emit({ type: 'init_error', message: 'late' }); // stale: w !== worker (worker=null after timeout)
     const tier = await p;
     expect(tier).toBe(EngineTier.INLINE);
   });
@@ -350,7 +351,7 @@ describe('error message with unknown id is ignored (line 77)', () => {
   });
 });
 
-describe('error event from stale worker after degrade → guard returns (line 92)', () => {
+describe('error event from stale worker after degrade is ignored by guard', () => {
   test('old worker error event does not change tier', async () => {
     let fw;
     workerFactory = () => { fw = new FakeWorker(); return fw; };
@@ -366,6 +367,38 @@ describe('error event from stale worker after degrade → guard returns (line 92
     // Second error from stale fw: w !== worker && tier !== PENDING → guard returns (line 92)
     fw.emitError();
     expect(getEngineTier()).toBe(EngineTier.JS);
+  });
+});
+
+describe('stale worker A error during new worker B startup does not drop B (finding 1)', () => {
+  test('old error event while new worker starting → new worker still reaches WORKER', async () => {
+    let fwA;
+    workerFactory = () => { fwA = new FakeWorker(); return fwA; };
+    wasmMock.createEngineWorker.mockImplementation(() => workerFactory());
+
+    const p1 = startEngine();
+    fwA.emit({ type: 'ready' });
+    await p1;
+    expect(getEngineTier()).toBe(EngineTier.WORKER);
+
+    shutdownEngine();
+
+    let fwB;
+    workerFactory = () => { fwB = new FakeWorker(); return fwB; };
+    wasmMock.createEngineWorker.mockImplementation(() => workerFactory());
+    const p2 = startEngine(); // B starts, tier=PENDING
+
+    // Stale worker A fires error while B is pending: must be ignored (A !== B)
+    fwA.emitError();
+    await flushPromises();
+
+    // B completes normally
+    fwB.emit({ type: 'ready' });
+    await flushPromises();
+
+    const tier = await p2;
+    expect(tier).toBe(EngineTier.WORKER);
+    expect(getEngineTier()).toBe(EngineTier.WORKER);
   });
 });
 
@@ -412,6 +445,24 @@ describe('_resetEngineClient while startupTimer active clears timer (line 231)',
     expect(getEngineTier()).toBe(EngineTier.PENDING);
     jest.advanceTimersByTime(STARTUP_TIMEOUT_MS);
     expect(getEngineTier()).toBe(EngineTier.PENDING);
+  });
+});
+
+describe('shutdownEngine while compute awaits startup settles promise (finding 2)', () => {
+  test('startup promise settles after shutdown → no hanging inFlight', async () => {
+    let fw;
+    workerFactory = () => { fw = new FakeWorker(); return fw; };
+    wasmMock.createEngineWorker.mockImplementation(() => workerFactory());
+
+    const p = startEngine(); // sets startupResolver, timer running
+
+    let settled = false;
+    p.then(() => { settled = true; });
+
+    shutdownEngine(); // calls startupResolver(PENDING) → settles the promise
+
+    await flushPromises();
+    expect(settled).toBe(true); // promise settled, not hanging
   });
 });
 

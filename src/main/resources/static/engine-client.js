@@ -13,6 +13,7 @@ const pending = new Map();
 const busyListeners = new Set();
 let inFlight = 0;
 let startupTimer = null;
+let startupResolver = null;
 
 function notifyBusy(val) {
   busyListeners.forEach(fn => fn(val));
@@ -45,9 +46,11 @@ function degradeToJS(rejectMessage) {
 
 function bindWorker(w, resolveStartup) {
   w.addEventListener('message', ({ data }) => {
+    if (w !== worker) return;
     if (data === null || typeof data !== 'object') return;
 
     if (data.type === 'ready') {
+      /* istanbul ignore else */
       if (startupTimer !== null) { clearTimeout(startupTimer); startupTimer = null; }
       tier = EngineTier.WORKER;
       resolveStartup(EngineTier.WORKER);
@@ -55,14 +58,13 @@ function bindWorker(w, resolveStartup) {
     }
 
     if (data.type === 'init_error') {
+      /* istanbul ignore else */
       if (startupTimer !== null) { clearTimeout(startupTimer); startupTimer = null; }
       try { w.postMessage({ type: 'terminate' }); } catch (_) {}
       worker = null;
       tryInline(resolveStartup);
       return;
     }
-
-    if (w !== worker) return;
 
     if (data.type === 'result') {
       const entry = pending.get(data.id);
@@ -89,8 +91,8 @@ function bindWorker(w, resolveStartup) {
   });
 
   w.addEventListener('error', () => {
+    if (w !== worker) return;
     if (startupTimer !== null) { clearTimeout(startupTimer); startupTimer = null; }
-    if (w !== worker && tier !== EngineTier.PENDING) return;
     if (tier === EngineTier.PENDING) {
       try { w.postMessage({ type: 'terminate' }); } catch (_) {}
       worker = null;
@@ -125,6 +127,7 @@ export function startEngine() {
   if (startupPromise !== null) return startupPromise;
 
   startupPromise = new Promise((resolve) => {
+    startupResolver = resolve;
     let w;
     try { w = createEngineWorker(); } catch (_) { w = null; }
 
@@ -189,6 +192,7 @@ export function onBusyChange(listener) {
 
 export function shutdownEngine() {
   if (startupTimer !== null) { clearTimeout(startupTimer); startupTimer = null; }
+  if (startupResolver !== null) { startupResolver(EngineTier.PENDING); startupResolver = null; }
   const prevWorker = worker;
   worker = null;
   tier = EngineTier.PENDING;
@@ -231,6 +235,7 @@ export function toEngineBullet(bullet) {
 
 export function _resetEngineClient() {
   if (startupTimer !== null) { clearTimeout(startupTimer); startupTimer = null; }
+  startupResolver = null;
   const prevWorker = worker;
   worker = null;
   tier = EngineTier.PENDING;
