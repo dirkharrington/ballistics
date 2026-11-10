@@ -1,5 +1,19 @@
 # syntax=docker/dockerfile:1
 
+# ── Stage 0: Rust/WASM builder ───────────────────────────────────────────────
+FROM rust:latest@sha256:8a4e90c7946b74626488b1446f712c0fe0ed1a596cbd3d871684bc9c5433ae07 AS wasm-builder
+
+WORKDIR /app
+
+# Install wasm-pack (same version as CI) and the wasm32 target.
+# This layer is cached as long as the Rust toolchain and wasm-pack version are unchanged.
+RUN rustup target add wasm32-unknown-unknown && \
+    cargo install wasm-pack --locked --version 0.15.1
+
+COPY engine/ engine/
+
+RUN wasm-pack build engine/ --target web --release
+
 # ── Stage 1: build ───────────────────────────────────────────────────────────
 FROM maven:3-eclipse-temurin-27-alpine@sha256:da769f72b34d193553bdd6c2bc7706caad361afa2a28866f2aa8430e2c5e0f36 AS build
 
@@ -13,8 +27,25 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn -B dependency:resolve dependency:resolve-plugins dependency:go-offline -q
 
 COPY src ./src
+
+# Frontend build config (required by frontend-maven-plugin for npm install + Vite build).
+COPY package.json package-lock.json vite.config.js ./
+
+# Hand-written engine files staged alongside the WASM output.
+# loader.d.ts, protocol.d.ts, worker-core.js, engine-entry.js are authored by the
+# frontend layer; they must be present in the integrated build.
+COPY engine/stage.sh engine/stage.sh
+COPY engine/loader.js engine/protocol.d.ts engine/loader.d.ts \
+     engine/worker-core.js engine/engine.worker.js engine/engine-entry.js engine/
+
+# Copy WASM artifacts built in the wasm-builder stage.
+COPY --from=wasm-builder /app/engine/pkg/ engine/pkg/
+
+# Stage all engine assets into src/main/resources/static/wasm/ for Vite to bundle.
+RUN sh engine/stage.sh
+
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn package -DskipTests -q
+    mvn package -DskipTests -Dwasm.required=true -q
 
 # ── Stage 2: extract layered JAR ─────────────────────────────────────────────
 FROM eclipse-temurin:25-jre-alpine@sha256:c707c0d18cb9e8556380719f80d96a7529d0746fbb42143893949b98ed2f8943 AS extract
