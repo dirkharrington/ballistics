@@ -149,7 +149,7 @@ CVEs that Trivy (filesystem scan) can miss.
 
 ---
 
-### ~~CI-3 · Toolchain & Runtime Version Alignment · DevSecOps · Size M~~ ✓ DONE (PR #68)
+### ~~CI-3 · Toolchain & Runtime Version Alignment · DevSecOps · Size M~~ ✓ DONE (PR #69)
 
 Standardise every tool and runtime on its current LTS release, eliminate
 floating version references, and ensure the CI environment, Dockerfile, and
