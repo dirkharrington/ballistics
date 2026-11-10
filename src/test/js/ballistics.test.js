@@ -1363,6 +1363,26 @@ describe('runSimulation', () => {
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
     expect(mod._getState().offlineMode).toBe(false);
   });
+
+  test('batch compare with X-Served-By: sw-offline — does not clear offline mode', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    mod.setOfflineMode(true);
+
+    global.fetch.mockImplementation(async (url) => {
+      if (url.includes('stream')) return { ok: false, status: 503 };
+      return {
+        ok: true,
+        json: async () => mockApiResults,
+        headers: { get: (h) => h === 'X-Served-By' ? 'sw-offline' : null },
+      };
+    });
+
+    await mod.runSimulation();
+
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+    expect(mod._getState().offlineMode).toBe(true);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
