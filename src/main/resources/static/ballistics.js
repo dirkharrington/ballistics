@@ -1311,22 +1311,43 @@ async function runSweep() {
   };
 
   const requests = buildSweepRequests(base, sweepParam, bulletId);
+  const bullet   = bullets.find(b => b.id === bulletId);
 
   let results;
-  try {
-    const res = await fetch(`${API_BASE}/rpc`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ jsonrpc: '2.0', method: 'trajectory.batch', id: 1, params: { requests } }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (data.error) throw new Error('RPC error');
-    results = data.result;
-  } catch {
-    const bullet = bullets.find(b => b.id === bulletId);
-    if (!bullet) { if (btn) btn.querySelector('span').textContent = 'SWEEP'; return; }
-    results = await Promise.all(requests.map(r => simulateBullet(bullet, r)));
+
+  // 1. Try WASM batch first — all sweep variants computed in the worker
+  if (bullet) {
+    try {
+      results = await Promise.all(
+        requests.map(async r => {
+          const res = await computeWithEngine(toEngineParams(bullet, r), toEngineBullet(bullet));
+          return { ...res, bullet, request: r };
+        })
+      );
+    } catch (err) {
+      if (!(err instanceof WasmUnavailableError)) {
+        console.warn('[engine] WASM sweep batch failed:', err?.message);
+      }
+      results = null; // fall through to API
+    }
+  }
+
+  // 2. Fall back to API when WASM is unavailable
+  if (!results) {
+    try {
+      const res = await fetch(`${API_BASE}/rpc`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ jsonrpc: '2.0', method: 'trajectory.batch', id: 1, params: { requests } }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error('RPC error');
+      results = data.result;
+    } catch {
+      if (!bullet) { if (btn) btn.querySelector('span').textContent = 'SWEEP'; return; }
+      results = await Promise.all(requests.map(r => simulateBulletJS(bullet, r)));
+    }
   }
 
   sweepResults = results;
