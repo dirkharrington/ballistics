@@ -279,7 +279,7 @@ synchronous stand-in. 100% coverage maintained.
 
 ## WASM — Sprint 2 · Should Have (~3 weeks)
 
-### WA-6 · Offline Mode (Service Worker) · FE · PWA · Size M
+~~### WA-6 · Offline Mode (Service Worker) · FE · PWA · Size M~~ ✅ Done — PR #TBD
 
 Register a Service Worker that caches: the WASM binary, the bullets catalog
 (`/api/bullets`), and all static assets. When offline, intercept API calls and

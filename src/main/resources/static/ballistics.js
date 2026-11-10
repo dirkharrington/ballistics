@@ -1461,6 +1461,17 @@ async function init() {
   if (_initListenerController) _initListenerController.abort();
   _initListenerController = new AbortController();
   const { signal } = _initListenerController;
+  // Service Worker registration (requires HTTPS or localhost; see sw.js)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', { type: 'module' })
+      .catch(err => console.warn('SW registration failed:', err));
+  }
+
+  // Online/offline indicator
+  window.addEventListener('offline', () => setOfflineMode(true), { signal });
+  window.addEventListener('online', probeServer, { signal });
+  if (!navigator.onLine) setOfflineMode(true);
+
   onBusyChange(_setComputing);
   startEngine().then(tier => { document.documentElement.dataset.engineTier = tier; });
   window.addEventListener('pagehide', shutdownEngine, { signal });

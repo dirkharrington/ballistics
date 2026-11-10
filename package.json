@@ -21,6 +21,7 @@
     ],
     "coverageDirectory": "target/js-coverage",
     "collectCoverageFrom": [
+      "src/main/resources/static/sw.js",
       "src/main/resources/static/ballistics.js",
       "src/main/resources/static/tools.js",
       "src/main/resources/static/url-state.js",
