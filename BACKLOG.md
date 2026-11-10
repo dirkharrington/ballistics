@@ -289,7 +289,7 @@ Version cache by WASM binary hash to bust on engine upgrades.
 
 ---
 
-### ~~WA-7 · Client-Side Batch Sweep · FE · Size S~~ ✅ Done — PR #TBD
+### ~~WA-7 · Client-Side Batch Sweep · FE · Size S~~ ✅ Done — PR #71
 
 ~~Rewrite MH-4 sweep mode to run all 5 condition variants in the WASM worker
 instead of calling `POST /api/trajectories/batch`. Instant results, no network,
