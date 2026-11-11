@@ -223,6 +223,10 @@ export function toEngineParams(bullet, req) {
   for (const k of keys) {
     if (req[k] !== null && req[k] !== undefined) result[k] = req[k];
   }
+  if (req.latitudeDeg != null) {
+    result.latitudeDeg = req.latitudeDeg;
+    if (req.azimuthDeg != null) result.azimuthDeg = req.azimuthDeg;
+  }
   return result;
 }
 

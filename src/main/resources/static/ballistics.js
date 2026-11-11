@@ -54,6 +54,7 @@ function csvCell(str) {
 // Java engine and JS client share a single source of truth.
 
 // ── Physics constants (imperial unit system used by the RK4 engine) ───────────
+const EARTH_ROTATION_RADS = 7.2921e-5; // Earth's angular velocity in rad/s (WA-13 Coriolis)
 const G_FPS2        = 32.174;   // gravitational acceleration ft/s²  (≈ 9.807 m/s²)
 const DT_S          = 0.0005;   // RK4 time step 0.5 ms — chosen so energy error
                                  // stays below 0.01% up to 2000 m; halving adds
@@ -289,6 +290,16 @@ export function simulateBulletJS(bullet, req) {
   const { points, maxOrdIn, maxOrdRangeYd, supersonicLimYd } =
     integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle, dragTable);
 
+  if (req.latitudeDeg != null) {
+    const latRad = req.latitudeDeg * Math.PI / 180;
+    const azRad  = (req.azimuthDeg ?? 0) * Math.PI / 180;
+    const factor = EARTH_ROTATION_RADS * Math.sin(latRad) * Math.cos(azRad) * bullet.muzzleVelocityMps;
+    points.forEach(p => {
+      const t = p.timeOfFlightSec;
+      p.coriolisDeflectionCm = Math.round(factor * t * t * 100 * 10) / 10;
+    });
+  }
+
   return {
     bullet,
     request:               req,
@@ -424,6 +435,8 @@ async function runSimulation() {
   btn.classList.add('loading');
 
   const twistRaw = document.getElementById('twistRate')?.value;
+  const latRaw   = document.getElementById('latitudeDeg')?.value;
+  const azRaw    = document.getElementById('azimuthDeg')?.value;
   const req = {
     bulletIds:                [...selectedIds],
     zeroRangeMeters:          +document.getElementById('zeroRange').value,
@@ -436,7 +449,9 @@ async function runSimulation() {
     sightHeightMm:            +document.getElementById('sightHeight').value,
     shootingAngleDegrees:     +document.getElementById('shootingAngle').value,
     dragModel:                document.getElementById('dragModel').value,
-    ...(twistRaw ? { twistRateInchesPerTurn: +twistRaw } : {})
+    ...(twistRaw ? { twistRateInchesPerTurn: +twistRaw } : {}),
+    ...(latRaw   ? { latitudeDeg: +latRaw } : {}),
+    ...(azRaw    ? { azimuthDeg:  +azRaw  } : {}),
   };
   lastReq = req;
   const total   = req.bulletIds.length;
@@ -602,7 +617,9 @@ async function runCustom() {
     temperatureC:          +document.getElementById('temperature').value,
     sightHeightMm:         +document.getElementById('sightHeight').value,
     shootingAngleDegrees:  +document.getElementById('shootingAngle').value,
-    dragModel:             document.getElementById('dragModel').value
+    dragModel:             document.getElementById('dragModel').value,
+    ...(document.getElementById('latitudeDeg')?.value ? { latitudeDeg: +document.getElementById('latitudeDeg').value } : {}),
+    ...(document.getElementById('azimuthDeg')?.value  ? { azimuthDeg:  +document.getElementById('azimuthDeg').value  } : {}),
   };
 
   let result;
@@ -812,6 +829,7 @@ function updateReadout(results, dataIndex) {
         <td>${p.energyJoules} J</td>
         <td>${sign(p.windDriftCm)}${p.windDriftCm} cm</td>
         ${p.spinDriftCm > 0 ? `<td>Spin Drift: ${p.spinDriftCm.toFixed(1)} cm</td>` : ''}
+        ${p.coriolisDeflectionCm !== undefined ? `<td>Coriolis: ${p.coriolisDeflectionCm >= 0 ? '+' : ''}${p.coriolisDeflectionCm.toFixed(1)} cm</td>` : ''}
       </tr>`;
     }).join('');
   }
@@ -1053,6 +1071,23 @@ function renderResults(rawResults, req) {
           });
         });
       }
+      // WA-13: add Coriolis drift series when present
+      const hasCoriolisDrift = results.some(r => r.points.some(p => p.coriolisDeflectionCm));
+      if (hasCoriolisDrift) {
+        results.forEach(r => {
+          datasets.push({
+            label:            r.bullet.name + ' (coriolis)',
+            data:             r.points.map(p => ({ x: p.rangeMeters, y: p.coriolisDeflectionCm ?? 0 })),
+            borderColor:      BULLET_COLORS[r.bullet.id] || '#4ADE80',
+            backgroundColor:  'transparent',
+            borderWidth:      1.5,
+            borderDash:       [2, 4],
+            pointRadius:      0,
+            pointHoverRadius: 4,
+            tension:          0.3,
+          });
+        });
+      }
     }
 
     const ctx = document.getElementById(def.id).getContext('2d');
@@ -1193,6 +1228,11 @@ function renderTable(results) {
   tableResults = results;
   const tbody = document.getElementById('tableBody');
 
+  const showCoriolis = results.some(r => r.points.some(p => p.coriolisDeflectionCm !== undefined && p.coriolisDeflectionCm !== 0));
+  const coriolisHeader = document.getElementById('coriolisColHeader');
+  /* istanbul ignore else -- #coriolisColHeader is always present in the app shell */
+  if (coriolisHeader) coriolisHeader.style.display = showCoriolis ? '' : 'none';
+
   let rows = [];
   results.forEach(r => {
     r.points.forEach(p => {
@@ -1229,6 +1269,7 @@ function renderTable(results) {
           <td>${p.timeOfFlightSec}s</td>
           <td>${adj.moa > 0 ? '+' : ''}${adj.moa}</td>
           <td>${adj.mrad > 0 ? '+' : ''}${adj.mrad}</td>
+          ${showCoriolis ? `<td>${(p.coriolisDeflectionCm ?? 0) >= 0 ? '+' : ''}${(p.coriolisDeflectionCm ?? 0).toFixed(1)} cm</td>` : ''}
         </tr>`;
   });
   tbody.innerHTML = html.join('');
@@ -1432,9 +1473,11 @@ function switchTab(name, el) {
 }
 
 // ── URL state sharing ─────────────────────────────────────────────────────────
-/** Snapshot of the sidebar: reads the 10 inputs and [...selectedIds]. */
+/** Snapshot of the sidebar: reads the 10 required inputs + optional lat/az, and [...selectedIds]. */
 function currentState() {
   const get = id => document.getElementById(id);
+  const latVal = get('latitudeDeg')?.value;
+  const azVal  = get('azimuthDeg')?.value;
   /* istanbul ignore next -- each element is always present in the app shell */
   return {
     bulletIds:   [...selectedIds],
@@ -1448,6 +1491,8 @@ function currentState() {
     sightHeight: +(get('sightHeight')?.value   ?? PREF_DEFAULTS.sightHeight),
     angle:       +(get('shootingAngle')?.value ?? PREF_DEFAULTS.angle),
     dragModel:     get('dragModel')?.value     ?? PREF_DEFAULTS.dragModel,
+    ...(latVal !== undefined && latVal !== '' ? { latitudeDeg: +latVal } : {}),
+    ...(azVal  !== undefined && azVal  !== '' ? { azimuthDeg:  +azVal  } : {}),
   };
 }
 
@@ -1514,6 +1559,8 @@ async function init() {
   setVal('sightHeight',   merged.sightHeight);
   setVal('shootingAngle', merged.angle);
   setVal('dragModel',     merged.dragModel);
+  if (fromUrl.params.latitudeDeg != null) setVal('latitudeDeg', fromUrl.params.latitudeDeg);
+  if (fromUrl.params.azimuthDeg  != null) setVal('azimuthDeg',  fromUrl.params.azimuthDeg);
 
   try {
     const res = await fetch(`${API_BASE}/rpc`, {
@@ -1632,6 +1679,10 @@ async function init() {
 
   // SH-1 FE: twist rate input persists to URL/prefs
   document.getElementById('twistRate')?.addEventListener('input', syncUrl);
+
+  // WA-13: Coriolis inputs persist to URL
+  document.getElementById('latitudeDeg')?.addEventListener('input', syncUrl, { signal });
+  document.getElementById('azimuthDeg')?.addEventListener('input', syncUrl, { signal });
 
   // MH-3, SH-2: Tools tab
   initDopeCard(simulateBullet);
@@ -1777,6 +1828,7 @@ if (document.getElementById('bulletList')) {
 }
 
 export {
+  EARTH_ROTATION_RADS,
   getMockBullets, interpolateDragTable, g1Drag, airDensityRatio,
   findZeroAngleFps, integrateTrajectoryFps, computeClientSide,
   renderBulletList, toggleBullet, updateBulletCards, runSimulation, streamCompare,

@@ -72,6 +72,7 @@ function buildDOM() {
           <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
           <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
           <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th id="coriolisColHeader" style="display:none">Coriolis (cm)</th>
         </tr>
       </thead>
       <tbody id="tableBody"><tr><td colspan="9">NO DATA</td></tr></tbody>
@@ -95,6 +96,8 @@ function buildDOM() {
     <div id="customPresetSection" hidden></div>
     <ul id="customPresetList" aria-label="Saved custom round presets"></ul>
     <input id="twistRate" value="" />
+    <input id="latitudeDeg" value="" />
+    <input id="azimuthDeg"  value="" />
     <div id="sweepControls" style="display:none">
       <select id="sweepParam">
         <option value="wind" selected>Wind</option>
@@ -574,6 +577,31 @@ describe('simulateBulletJS', () => {
     const last = noModel.points.length - 1;
     expect(noModel.points[last].dropCm).toBeCloseTo(explicit.points[last].dropCm, 1);
   });
+
+  test('no coriolisDeflectionCm on points when latitudeDeg is absent', () => {
+    const result = mod.simulateBulletJS(bullet308, req);
+    result.points.forEach(p => expect(p.coriolisDeflectionCm).toBeUndefined());
+  });
+
+  test('coriolisDeflectionCm is set on all points when latitudeDeg is provided', () => {
+    const corReq = { ...req, latitudeDeg: 45, azimuthDeg: 0 };
+    const result = mod.simulateBulletJS(bullet308, corReq);
+    expect(result.points.length).toBeGreaterThan(0);
+    result.points.forEach(p => expect(typeof p.coriolisDeflectionCm).toBe('number'));
+  });
+
+  test('coriolisDeflectionCm is zero at muzzle (t=0)', () => {
+    const corReq = { ...req, latitudeDeg: 45, azimuthDeg: 0 };
+    const result = mod.simulateBulletJS(bullet308, corReq);
+    expect(result.points[0].coriolisDeflectionCm).toBe(0);
+  });
+
+  test('coriolisDeflectionCm defaults azimuthDeg to 0 when absent', () => {
+    const noAz   = mod.simulateBulletJS(bullet308, { ...req, latitudeDeg: 45 });
+    const withAz = mod.simulateBulletJS(bullet308, { ...req, latitudeDeg: 45, azimuthDeg: 0 });
+    const last = noAz.points.length - 1;
+    expect(noAz.points[last].coriolisDeflectionCm).toBe(withAz.points[last].coriolisDeflectionCm);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -943,6 +971,40 @@ describe('renderTable', () => {
     // drop is positive → MOA/MRAD are negative (no + prefix)
     expect(row.textContent).not.toMatch(/\+.*MOA/);
   });
+
+  test('coriolisColHeader hidden when no Coriolis data', () => {
+    mod.renderTable(results);
+    const hdr = document.getElementById('coriolisColHeader');
+    expect(hdr.style.display).toBe('none');
+  });
+
+  test('coriolisColHeader shown and cells rendered when Coriolis data present', () => {
+    const corResults = [{
+      bullet: { id: '308-win-168gr', name: '.308' },
+      points: [
+        { rangeMeters: 0,   dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    coriolisDeflectionCm: 0   },
+        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13, coriolisDeflectionCm: 1.2 },
+      ],
+    }];
+    mod.renderTable(corResults);
+    expect(document.getElementById('coriolisColHeader').style.display).toBe('');
+    const rows = document.querySelectorAll('#tableBody tr');
+    expect(rows[1].textContent).toContain('+1.2 cm');
+  });
+
+  test('negative coriolisDeflectionCm renders without + prefix', () => {
+    const corResults = [{
+      bullet: { id: '308-win-168gr', name: '.308' },
+      points: [
+        { rangeMeters: 0,   dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    coriolisDeflectionCm: -0.5 },
+        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13, coriolisDeflectionCm: -2.1 },
+      ],
+    }];
+    mod.renderTable(corResults);
+    const rows = document.querySelectorAll('#tableBody tr');
+    expect(rows[1].textContent).toContain('-2.1 cm');
+    expect(rows[1].textContent).not.toContain('+-');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1195,6 +1257,28 @@ describe('renderResults', () => {
     ];
     expect(() => mod.renderResults(mixedResults, req)).not.toThrow();
     expect(document.getElementById('chartContainer').innerHTML).toContain('.308 Win 168gr BTHP');
+  });
+
+  test('renderResults adds Coriolis drift dataset when coriolisDeflectionCm is nonzero', () => {
+    const corResults = [{
+      bullet: { id: '308-win-168gr', name: '.308 Win',
+                muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+                ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        // first point has no coriolisDeflectionCm → exercises the ?? 0 fallback
+        { rangeMeters: 0,   dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0.13, coriolisDeflectionCm: 1.2 },
+      ],
+      maxOrdinateCm: 3, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 823,
+    }];
+    mod.renderResults(corResults, req);
+    // The Coriolis drift series should have been added to the drift chart
+    const driftCall = MockChart.mock.calls.find(args => {
+      const ds = args[1]?.data?.datasets ?? [];
+      return ds.some(d => d.label && d.label.includes('coriolis'));
+    });
+    expect(driftCall).toBeDefined();
   });
 });
 
@@ -1917,6 +2001,28 @@ describe('sight height parameter', () => {
     const result = mod._getState().lastResults[0];
     expect(result?.request?.sightHeightMm).toBe(60);
   });
+
+  test('runSimulation includes latitudeDeg and azimuthDeg when DOM inputs are filled', async () => {
+    document.getElementById('latitudeDeg').value = '45';
+    document.getElementById('azimuthDeg').value  = '90';
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.runSimulation();
+    const result = mod._getState().lastResults[0];
+    expect(result?.request?.latitudeDeg).toBe(45);
+    expect(result?.request?.azimuthDeg).toBe(90);
+  });
+
+  test('runSimulation omits latitudeDeg when DOM input is empty', async () => {
+    document.getElementById('latitudeDeg').value = '';
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.runSimulation();
+    const result = mod._getState().lastResults[0];
+    expect(result?.request?.latitudeDeg).toBeUndefined();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2323,6 +2429,38 @@ describe('updateReadout', () => {
     mod.updateReadout(noSpinResults, 0);
     const row = document.querySelector('#readoutBody tr');
     expect(row.textContent).not.toContain('Spin Drift');
+  });
+
+  test('shows Coriolis cell with + prefix for positive coriolisDeflectionCm', () => {
+    const corResults = [{
+      bullet: { id: '308-win-168gr', name: '.308' },
+      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, coriolisDeflectionCm: 2.3 }],
+    }];
+    mod.updateReadout(corResults, 0);
+    const row = document.querySelector('#readoutBody tr');
+    expect(row.textContent).toContain('Coriolis');
+    expect(row.textContent).toContain('+2.3 cm');
+  });
+
+  test('shows Coriolis cell without + prefix for negative coriolisDeflectionCm', () => {
+    const corResults = [{
+      bullet: { id: '308-win-168gr', name: '.308' },
+      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, coriolisDeflectionCm: -1.8 }],
+    }];
+    mod.updateReadout(corResults, 0);
+    const row = document.querySelector('#readoutBody tr');
+    expect(row.textContent).toContain('Coriolis');
+    expect(row.textContent).toContain('-1.8 cm');
+    expect(row.textContent).not.toContain('+-');
+  });
+
+  test('omits Coriolis cell when coriolisDeflectionCm is undefined', () => {
+    const noCorResults = [{
+      bullet: { id: '308-win-168gr', name: '.308' },
+      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1 }],
+    }];
+    mod.updateReadout(noCorResults, 0);
+    expect(document.querySelector('#readoutBody tr').textContent).not.toContain('Coriolis');
   });
 });
 
@@ -3458,6 +3596,20 @@ describe('G7 drag model — runSimulation and renderResults', () => {
     expect(result?.request?.dragModel).toBe('G7');
   });
 
+  test('runCustom includes latitudeDeg and azimuthDeg when DOM inputs are filled', async () => {
+    document.getElementById('customWeight').value = '9.0';
+    document.getElementById('customMV').value     = '850';
+    document.getElementById('customBC').value     = '0.45';
+    document.getElementById('customDia').value    = '7.82';
+    document.getElementById('latitudeDeg').value  = '45';
+    document.getElementById('azimuthDeg').value   = '180';
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.runCustom();
+    const result = mod._getState().lastResults[0];
+    expect(result?.request?.latitudeDeg).toBe(45);
+    expect(result?.request?.azimuthDeg).toBe(180);
+  });
+
   test('renderResults updates #modelStatus pill with dragModel from req', () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308', muzzleVelocityMps: 807,
@@ -3652,6 +3804,22 @@ describe('currentState', () => {
     const state = mod.currentState();
     expect(state.zero).toBe(mod.PREF_DEFAULTS.zero);
   });
+
+  test('includes latitudeDeg and azimuthDeg when DOM inputs are filled', () => {
+    document.getElementById('latitudeDeg').value = '51.5';
+    document.getElementById('azimuthDeg').value  = '270';
+    const state = mod.currentState();
+    expect(state.latitudeDeg).toBe(51.5);
+    expect(state.azimuthDeg).toBe(270);
+  });
+
+  test('omits latitudeDeg and azimuthDeg when DOM inputs are empty', () => {
+    document.getElementById('latitudeDeg').value = '';
+    document.getElementById('azimuthDeg').value  = '';
+    const state = mod.currentState();
+    expect(state.latitudeDeg).toBeUndefined();
+    expect(state.azimuthDeg).toBeUndefined();
+  });
 });
 
 describe('syncUrl', () => {
@@ -3768,6 +3936,25 @@ describe('init() with URL params (FE-1)', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     const spy = jest.spyOn(history, 'replaceState');
     mod.toggleBullet('308-win-168gr');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test('init() restores latitudeDeg and azimuthDeg from URL params', async () => {
+    history.replaceState(null, '', '/?latitudeDeg=45&azimuthDeg=90');
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    expect(document.getElementById('latitudeDeg').value).toBe('45');
+    expect(document.getElementById('azimuthDeg').value).toBe('90');
+    history.replaceState(null, '', '/');
+  });
+
+  test('init() wires latitudeDeg and azimuthDeg inputs to syncUrl', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    const spy = jest.spyOn(history, 'replaceState');
+    document.getElementById('latitudeDeg').value = '55';
+    document.getElementById('latitudeDeg').dispatchEvent(new Event('input'));
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
