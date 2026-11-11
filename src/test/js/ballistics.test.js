@@ -3163,6 +3163,60 @@ describe('dragTableFile change event — FileReader paths', () => {
     fileInput.dispatchEvent(new Event('change'));
     expect(document.getElementById('dragTableStatus').style.display).toBe('none');
   });
+
+  test('file over 64 KB shows error message without reading', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+
+    let capturedReadAsText;
+    const mockReader = {
+      set onload(_fn) {},
+      set onerror(_fn) {},
+      readAsText: jest.fn(f => { capturedReadAsText = f; }),
+    };
+    jest.spyOn(global, 'FileReader').mockImplementation(() => mockReader);
+
+    const fileInput = document.getElementById('dragTableFile');
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      get: () => [{ name: 'big.csv', size: 65 * 1024 }],
+    });
+    fileInput.dispatchEvent(new Event('change'));
+
+    expect(capturedReadAsText).toBeUndefined();
+    expect(document.getElementById('dragTableHelp').textContent).toMatch(/too large/i);
+    jest.restoreAllMocks();
+  });
+
+  test('reader.onerror shows error message in helpEl', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+
+    let capturedOnerror;
+    const mockReader = {
+      set onload(_fn) {},
+      set onerror(fn) { capturedOnerror = fn; },
+      readAsText: jest.fn(),
+    };
+    jest.spyOn(global, 'FileReader').mockImplementation(() => mockReader);
+
+    const fileInput = document.getElementById('dragTableFile');
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      get: () => [{ name: 'err.csv', size: 100 }],
+    });
+    fileInput.dispatchEvent(new Event('change'));
+    capturedOnerror();
+
+    expect(document.getElementById('dragTableHelp').textContent).toMatch(/error reading file/i);
+    jest.restoreAllMocks();
+  });
 });
 
 describe('init loads customDragTable from localStorage', () => {
@@ -3188,6 +3242,19 @@ describe('init loads customDragTable from localStorage', () => {
     // Should not throw; status div stays hidden
     expect(document.getElementById('dragTableStatus').style.display).toBe('none');
   });
+
+  test('discards and clears localStorage when stored table fails re-validation', async () => {
+    // A table missing supersonic coverage (all mach < 2.0) is invalid
+    const badTable = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 1.9, cd: 0.4 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
+    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+  });
 });
 
 describe('simulateBulletJS with customDragTable', () => {
@@ -3206,6 +3273,15 @@ describe('simulateBulletJS with customDragTable', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mod.simulateBulletJS(bullet, req);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('JS fallback does not support customDragTable'));
+    warnSpy.mockRestore();
+  });
+
+  test('warn fires only once per session across multiple calls', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mod.simulateBulletJS(bullet, req);
+    mod.simulateBulletJS(bullet, req);
+    mod.simulateBulletJS(bullet, req);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
   });
 });
@@ -3230,7 +3306,7 @@ describe('_resetState clears _customDragTable', () => {
 });
 
 describe('runSimulation with customDragTable loaded', () => {
-  test('includes customDragTable in request when table is loaded from localStorage', async () => {
+  test('does NOT include customDragTable in compare request (compare endpoints do not support it)', async () => {
     const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
 
@@ -3243,10 +3319,7 @@ describe('runSimulation with customDragTable loaded', () => {
     await mod.init();
     mod._setSelectedIds(new Set([mod.getMockBullets()[0].id]));
 
-    // Mock streamCompare to capture the req
     let capturedReq;
-    jest.spyOn(mod, 'runSimulation');
-
     global.fetch.mockImplementationOnce((url, opts) => {
       capturedReq = JSON.parse(opts.body);
       return Promise.reject(new Error('stream fail'));
@@ -3258,7 +3331,7 @@ describe('runSimulation with customDragTable loaded', () => {
 
     await mod.runSimulation();
     expect(capturedReq).toBeDefined();
-    expect(capturedReq.customDragTable).toEqual(table);
+    expect(capturedReq).not.toHaveProperty('customDragTable');
   });
 });
 

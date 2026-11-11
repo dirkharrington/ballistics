@@ -27,20 +27,22 @@ export function parseDragCsv(text) {
   if (machIdx === -1) throw new Error('CSV header must contain a "Mach" column.');
   if (cdIdx   === -1) throw new Error('CSV header must contain a "CD" column.');
 
+  const DECIMAL_RE = /^-?\d+(\.\d+)?$/;
   const points = [];
   for (let i = 1; i < lines.length; i++) {
     const cells = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, '').trim());
     const machRaw = cells[machIdx];
     const cdRaw   = cells[cdIdx];
+
+    if (!DECIMAL_RE.test(machRaw)) {
+      throw new Error(`Row ${i}: mach value "${machRaw}" is not a valid decimal number.`);
+    }
+    if (!DECIMAL_RE.test(cdRaw)) {
+      throw new Error(`Row ${i}: CD value "${cdRaw}" is not a valid decimal number.`);
+    }
+
     const mach = Number(machRaw);
     const cd   = Number(cdRaw);
-
-    if (!Number.isFinite(mach)) {
-      throw new Error(`Row ${i}: mach value "${machRaw}" is not a finite number.`);
-    }
-    if (!Number.isFinite(cd)) {
-      throw new Error(`Row ${i}: CD value "${cdRaw}" is not a finite number.`);
-    }
     if (mach < MACH_MIN || mach > MACH_MAX) {
       throw new Error(`Row ${i}: mach ${mach} is out of range [${MACH_MIN}, ${MACH_MAX}].`);
     }

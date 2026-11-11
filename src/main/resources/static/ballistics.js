@@ -100,6 +100,7 @@ export function _setComputing(busy) {
 // ── Module state ──────────────────────────────────────────────────────────────
 const CUSTOM_DRAG_TABLE_KEY = 'ballistics.customDragTable';
 let _customDragTable = null;
+let _customDragWarnFired = false;
 
 let bullets = [];
 let selectedIds = new Set();
@@ -295,8 +296,9 @@ function integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd
 }
 
 export function simulateBulletJS(bullet, req) {
-  if (req.customDragTable && req.customDragTable.length > 0) {
+  if (req.customDragTable && req.customDragTable.length > 0 && !_customDragWarnFired) {
     console.warn('[engine] JS fallback does not support customDragTable; using dragModel instead.');
+    _customDragWarnFired = true;
   }
   const bc    = bullet.ballisticCoefficient;
   const mvFps = bullet.muzzleVelocityMps * FPS_PER_MPS;
@@ -491,7 +493,6 @@ async function runSimulation() {
     ...(twistRaw ? { twistRateInchesPerTurn: +twistRaw } : {}),
     ...(latRaw   ? { latitudeDeg: +latRaw } : {}),
     ...(azRaw    ? { azimuthDeg:  +azRaw  } : {}),
-    ...(_customDragTable ? { customDragTable: _customDragTable } : {}),
   };
   lastReq = req;
   const total   = req.bulletIds.length;
@@ -1738,18 +1739,28 @@ async function init() {
   try {
     const stored = localStorage.getItem(CUSTOM_DRAG_TABLE_KEY);
     if (stored) {
-      _customDragTable = JSON.parse(stored);
+      const arr = JSON.parse(stored);
+      const csvText = 'mach,cd\n' + arr.map(p => `${p.mach},${p.cd}`).join('\n');
+      _customDragTable = parseDragCsv(csvText);
       _updateDragTableStatus();
     }
-  } catch (_) {}
+  } catch (_) {
+    _customDragTable = null;
+    try { localStorage.removeItem(CUSTOM_DRAG_TABLE_KEY); } catch (_2) {}
+  }
 
   // WA-12: Wire file input for custom drag table
   document.getElementById('dragTableFile')?.addEventListener('change', e => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const helpEl = document.getElementById('dragTableHelp');
+    if (file.size > 64 * 1024) {
+      /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
+      if (helpEl) helpEl.textContent = 'File too large (max 64 KB).';
+      return;
+    }
     const reader = new FileReader();
     reader.onload = evt => {
-      const helpEl = document.getElementById('dragTableHelp');
       try {
         const table = parseDragCsv(evt.target.result);
         _customDragTable = table;
@@ -1760,10 +1771,13 @@ async function init() {
       } catch (err) {
         _customDragTable = null;
         try { localStorage.removeItem(CUSTOM_DRAG_TABLE_KEY); } catch (_) {}
-        const helpEl2 = document.getElementById('dragTableHelp');
         /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-        if (helpEl2) helpEl2.textContent = err.message;
+        if (helpEl) helpEl.textContent = err.message;
       }
+    };
+    reader.onerror = () => {
+      /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
+      if (helpEl) helpEl.textContent = 'Error reading file.';
     };
     reader.readAsText(file);
   }, { signal });
@@ -1892,6 +1906,7 @@ function _resetState()   {
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
   sweepMode = false; sweepResults = null; lastReq = null;
   _customDragTable = null;
+  _customDragWarnFired = false;
   if (retryTimer !== null) { clearInterval(retryTimer); retryTimer = null; }
   if (_computingTimer !== null) { clearTimeout(_computingTimer); _computingTimer = null; }
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }

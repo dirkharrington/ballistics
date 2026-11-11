@@ -157,12 +157,32 @@ describe('parseDragCsv', () => {
   describe('value errors', () => {
     it('throws on non-numeric mach value', () => {
       const csv = 'Mach,CD\nabc,0.3\n1.0,0.5\n2.5,0.4';
-      expect(() => parseDragCsv(csv)).toThrow('Row 1: mach value "abc" is not a finite number');
+      expect(() => parseDragCsv(csv)).toThrow('Row 1: mach value "abc" is not a valid decimal number');
     });
 
     it('throws on non-numeric CD value', () => {
       const csv = 'Mach,CD\n0.3,xyz\n1.0,0.5\n2.5,0.4';
-      expect(() => parseDragCsv(csv)).toThrow('Row 1: CD value "xyz" is not a finite number');
+      expect(() => parseDragCsv(csv)).toThrow('Row 1: CD value "xyz" is not a valid decimal number');
+    });
+
+    it('throws on empty mach cell', () => {
+      const csv = 'Mach,CD\n,0.3\n1.0,0.5\n2.5,0.4';
+      expect(() => parseDragCsv(csv)).toThrow('Row 1: mach value "" is not a valid decimal number');
+    });
+
+    it('throws on empty CD cell', () => {
+      const csv = 'Mach,CD\n0.3,\n1.0,0.5\n2.5,0.4';
+      expect(() => parseDragCsv(csv)).toThrow('Row 1: CD value "" is not a valid decimal number');
+    });
+
+    it('throws on hex mach value', () => {
+      const csv = 'Mach,CD\n0x1a,0.3\n1.0,0.5\n2.5,0.4';
+      expect(() => parseDragCsv(csv)).toThrow('Row 1: mach value "0x1a" is not a valid decimal number');
+    });
+
+    it('throws on hex CD value', () => {
+      const csv = 'Mach,CD\n0.3,0xFF\n1.0,0.5\n2.5,0.4';
+      expect(() => parseDragCsv(csv)).toThrow('Row 1: CD value "0xFF" is not a valid decimal number');
     });
 
     it('throws on mach below 0.0', () => {
