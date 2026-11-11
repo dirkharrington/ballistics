@@ -1607,6 +1607,30 @@ describe('runSimulation — FE-R1 error handling', () => {
     await mod.runSimulation();
     expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(true);
   });
+
+  test('shows error and returns early when latitudeDeg is out of range', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    document.getElementById('latitudeDeg').value = '95';
+    document.getElementById('azimuthDeg').value  = '';
+    await mod.runSimulation();
+    expect(global.fetch).not.toHaveBeenCalled();
+    const err = document.getElementById('simulationError');
+    expect(err.hasAttribute('hidden')).toBe(false);
+    expect(err.textContent).toMatch(/latitude/i);
+    document.getElementById('latitudeDeg').value = '';
+  });
+
+  test('shows error and returns early when azimuthDeg is out of range', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    document.getElementById('latitudeDeg').value = '';
+    document.getElementById('azimuthDeg').value  = '400';
+    await mod.runSimulation();
+    expect(global.fetch).not.toHaveBeenCalled();
+    const err = document.getElementById('simulationError');
+    expect(err.hasAttribute('hidden')).toBe(false);
+    expect(err.textContent).toMatch(/azimuth/i);
+    document.getElementById('azimuthDeg').value = '';
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1943,6 +1967,24 @@ describe('runCustom validation', () => {
     await mod.runCustom();
     expect(errorVisible()).toBe(true);
     expect(errorText()).toMatch(/diameter/i);
+  });
+
+  test('shows error when latitudeDeg is out of range', async () => {
+    setCustomInputs();
+    document.getElementById('latitudeDeg').value = '95';
+    await mod.runCustom();
+    expect(errorVisible()).toBe(true);
+    expect(errorText()).toMatch(/latitude/i);
+    document.getElementById('latitudeDeg').value = '';
+  });
+
+  test('shows error when azimuthDeg is out of range', async () => {
+    setCustomInputs();
+    document.getElementById('azimuthDeg').value = '-5';
+    await mod.runCustom();
+    expect(errorVisible()).toBe(true);
+    expect(errorText()).toMatch(/azimuth/i);
+    document.getElementById('azimuthDeg').value = '';
   });
 
   test('clears error and proceeds when all inputs are valid', async () => {
@@ -2460,6 +2502,15 @@ describe('updateReadout', () => {
       points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1 }],
     }];
     mod.updateReadout(noCorResults, 0);
+    expect(document.querySelector('#readoutBody tr').textContent).not.toContain('Coriolis');
+  });
+
+  test('omits Coriolis cell when coriolisDeflectionCm is null', () => {
+    const nullCorResults = [{
+      bullet: { id: '308-win-168gr', name: '.308' },
+      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, coriolisDeflectionCm: null }],
+    }];
+    mod.updateReadout(nullCorResults, 0);
     expect(document.querySelector('#readoutBody tr').textContent).not.toContain('Coriolis');
   });
 });

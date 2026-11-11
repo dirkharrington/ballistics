@@ -431,12 +431,16 @@ function _setSimulationError(message) {
 async function runSimulation() {
   if (selectedIds.size === 0) { alert('Select at least one round.'); return; }
   _setSimulationError(null);
+
+  const latRaw = document.getElementById('latitudeDeg')?.value;
+  const azRaw  = document.getElementById('azimuthDeg')?.value;
+  if (latRaw && (+latRaw < -90 || +latRaw > 90)) { _setSimulationError('Latitude must be between −90 and 90.'); return; }
+  if (azRaw  && (+azRaw  < 0  || +azRaw  > 360)) { _setSimulationError('Azimuth must be between 0 and 360.'); return; }
+
   const btn   = document.getElementById('runBtn');
   btn.classList.add('loading');
 
   const twistRaw = document.getElementById('twistRate')?.value;
-  const latRaw   = document.getElementById('latitudeDeg')?.value;
-  const azRaw    = document.getElementById('azimuthDeg')?.value;
   const req = {
     bulletIds:                [...selectedIds],
     zeroRangeMeters:          +document.getElementById('zeroRange').value,
@@ -596,10 +600,15 @@ async function runCustom() {
   const bc     = +document.getElementById('customBC').value;
   const dia    = +document.getElementById('customDia').value;
 
+  const latRawC = document.getElementById('latitudeDeg')?.value;
+  const azRawC  = document.getElementById('azimuthDeg')?.value;
+
   if (!(weight > 0))           return showCustomError('Weight must be greater than 0');
   if (!(mv > 0))               return showCustomError('Muzzle velocity must be greater than 0');
   if (!(bc > 0 && bc <= 1.2))  return showCustomError('BC must be between 0 and 1.2');
   if (!(dia > 0))              return showCustomError('Diameter must be greater than 0');
+  if (latRawC && (+latRawC < -90 || +latRawC > 90)) return showCustomError('Latitude must be between −90 and 90');
+  if (azRawC  && (+azRawC  < 0  || +azRawC  > 360)) return showCustomError('Azimuth must be between 0 and 360');
   showCustomError('');
 
   const req = {
@@ -618,8 +627,8 @@ async function runCustom() {
     sightHeightMm:         +document.getElementById('sightHeight').value,
     shootingAngleDegrees:  +document.getElementById('shootingAngle').value,
     dragModel:             document.getElementById('dragModel').value,
-    ...(document.getElementById('latitudeDeg')?.value ? { latitudeDeg: +document.getElementById('latitudeDeg').value } : {}),
-    ...(document.getElementById('azimuthDeg')?.value  ? { azimuthDeg:  +document.getElementById('azimuthDeg').value  } : {}),
+    ...(latRawC ? { latitudeDeg: +latRawC } : {}),
+    ...(azRawC  ? { azimuthDeg:  +azRawC  } : {}),
   };
 
   let result;
@@ -829,7 +838,7 @@ function updateReadout(results, dataIndex) {
         <td>${p.energyJoules} J</td>
         <td>${sign(p.windDriftCm)}${p.windDriftCm} cm</td>
         ${p.spinDriftCm > 0 ? `<td>Spin Drift: ${p.spinDriftCm.toFixed(1)} cm</td>` : ''}
-        ${p.coriolisDeflectionCm !== undefined ? `<td>Coriolis: ${p.coriolisDeflectionCm >= 0 ? '+' : ''}${p.coriolisDeflectionCm.toFixed(1)} cm</td>` : ''}
+        ${p.coriolisDeflectionCm != null ? `<td>Coriolis: ${p.coriolisDeflectionCm >= 0 ? '+' : ''}${p.coriolisDeflectionCm.toFixed(1)} cm</td>` : ''}
       </tr>`;
     }).join('');
   }
