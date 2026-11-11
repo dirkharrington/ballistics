@@ -284,7 +284,7 @@ Add a "Coriolis" row to the DOPE card alongside the "Spin Drift" row, displayed 
 |---|---|---|
 | Availability | An attacker sends extreme values (`latitudeDeg = ±90`, `azimuthDeg = 0`): `sin(π/2) = 1`, max effect. At the physics level, `tof² × v_muzzle` is bounded by the trajectory itself. No overflow. | No mitigation needed beyond existing input validation. |
 | Injection | `latitudeDeg` or `azimuthDeg` are displayed in the UI (DOPE card header "Lat: 45.0°"). | Display via `textContent`, not `innerHTML`. Values are numeric; no HTML injection risk. |
-| Privacy | Latitude data reveals the shooter's geographic location. | The latitude is a local input — it is never sent to any analytics endpoint. For the REST path, it is in the POST body (HTTPS). No persistent storage. The privacy note should appear in the UI tooltip for `latitudeDeg`. |
+| Privacy | Latitude data reveals the shooter's geographic location. | The latitude is a local input — it is never sent to any analytics endpoint. For the REST path, it is in the POST body (HTTPS). `latitudeDeg` and `azimuthDeg` **are** encoded in URL state (browser history and shareable links), consistent with other trajectory parameters. This counts as local persistence; it does not reach third-party sites because the site sets `Referrer-Policy: strict-origin-when-cross-origin`, which strips the query string from cross-origin navigations. The UI tooltip for `latitudeDeg` should note that the value may appear in the browser's address bar. |
 
 ---
 
