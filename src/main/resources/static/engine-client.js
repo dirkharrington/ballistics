@@ -227,6 +227,9 @@ export function toEngineParams(bullet, req) {
     result.latitudeDeg = req.latitudeDeg;
     if (req.azimuthDeg != null) result.azimuthDeg = req.azimuthDeg;
   }
+  if (req.customDragTable != null && req.customDragTable.length > 0) {
+    result.customDragTable = req.customDragTable;
+  }
   return result;
 }
 

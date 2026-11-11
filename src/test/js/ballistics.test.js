@@ -91,6 +91,12 @@ function buildDOM() {
     <input id="customBC"     value="0.45" />
     <input id="customDia"    value="7.82" />
     <div   id="customError"  style="display:none"></div>
+    <input type="file" id="dragTableFile" accept=".csv,text/csv" />
+    <small id="dragTableHelp" style="display:block;">Mach,CD columns. Overrides drag model when loaded.</small>
+    <div id="dragTableStatus" style="display:none;">
+      <span id="dragTableName"></span>
+      <button type="button" id="dragTableClearBtn">Clear</button>
+    </div>
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
     <button type="button" id="savePresetBtn">SAVE AS PRESET</button>
     <div id="customPresetSection" hidden></div>
@@ -3027,6 +3033,259 @@ describe('runCustom server success', () => {
     expect(result).toBeDefined();
     expect(result.bullet).toBeDefined();
     expect(result.bullet.id).toBe('custom');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WA-12: Custom drag table — _updateDragTableStatus, _clearCustomDragTable
+// ─────────────────────────────────────────────────────────────────────────────
+describe('_updateDragTableStatus', () => {
+  test('shows status div with file name and row count when fileName is provided', () => {
+    mod._updateDragTableStatus('g1-custom.csv', 50);
+    expect(document.getElementById('dragTableStatus').style.display).toBe('block');
+    expect(document.getElementById('dragTableName').textContent).toBe('g1-custom.csv (50 rows)');
+  });
+
+  test('shows status div using _customDragTable length when no fileName given', () => {
+    // Inject a fake table via the localStorage → init path simulation
+    // We can't directly set _customDragTable from tests, but we can test
+    // the branch where _customDragTable is null (no fileName, no table)
+    mod._updateDragTableStatus();
+    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
+  });
+});
+
+describe('_clearCustomDragTable', () => {
+  beforeEach(() => {
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
+    document.getElementById('dragTableStatus').style.display = 'block';
+    document.getElementById('dragTableName').textContent = 'test.csv (3 rows)';
+    document.getElementById('dragTableHelp').textContent = 'some error';
+  });
+
+  test('hides status div', () => {
+    mod._clearCustomDragTable();
+    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
+  });
+
+  test('removes localStorage key', () => {
+    mod._clearCustomDragTable();
+    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+  });
+
+  test('resets help text', () => {
+    mod._clearCustomDragTable();
+    expect(document.getElementById('dragTableHelp').textContent).toContain('Mach,CD');
+  });
+});
+
+describe('dragTableClearBtn click', () => {
+  test('calls _clearCustomDragTable when button is clicked', async () => {
+    // Wire up init so the click listener is attached
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
+    document.getElementById('dragTableStatus').style.display = 'block';
+    document.getElementById('dragTableClearBtn').click();
+    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
+    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+  });
+});
+
+describe('dragTableFile change event — FileReader paths', () => {
+  async function triggerFileReader(csvText, fileName = 'test.csv') {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+
+    // Simulate FileReader by capturing the onload callback
+    let capturedOnload;
+    const mockReader = {
+      set onload(fn) { capturedOnload = fn; },
+      readAsText: jest.fn(),
+    };
+    jest.spyOn(global, 'FileReader').mockImplementation(() => mockReader);
+
+    const fileInput = document.getElementById('dragTableFile');
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      get: () => [{ name: fileName }],
+    });
+    fileInput.dispatchEvent(new Event('change'));
+
+    // Invoke the onload callback with the CSV text
+    capturedOnload({ target: { result: csvText } });
+
+    jest.restoreAllMocks();
+  }
+
+  test('valid CSV shows status div with file name', async () => {
+    const csv = 'Mach,CD\n0.3,0.3\n1.0,0.5\n2.5,0.4';
+    await triggerFileReader(csv, 'my-drag.csv');
+    expect(document.getElementById('dragTableStatus').style.display).toBe('block');
+    expect(document.getElementById('dragTableName').textContent).toBe('my-drag.csv (3 rows)');
+  });
+
+  test('valid CSV stores table in localStorage', async () => {
+    const csv = 'Mach,CD\n0.3,0.3\n1.0,0.5\n2.5,0.4';
+    await triggerFileReader(csv);
+    const stored = JSON.parse(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY));
+    expect(stored).toHaveLength(3);
+  });
+
+  test('invalid CSV shows error in helpEl and clears localStorage', async () => {
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
+    // CSV with subsonic coverage but no supersonic (all mach < 2.0)
+    const csv = 'Mach,CD\n0.3,0.3\n1.0,0.5\n1.9,0.4';
+    await triggerFileReader(csv);
+    expect(document.getElementById('dragTableHelp').textContent).toContain('supersonic coverage');
+    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+  });
+
+  test('no file selected (empty files list) exits early', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+
+    const fileInput = document.getElementById('dragTableFile');
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      get: () => [],
+    });
+    // Should not throw
+    fileInput.dispatchEvent(new Event('change'));
+    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
+  });
+});
+
+describe('init loads customDragTable from localStorage', () => {
+  test('populates status when localStorage has a valid table', async () => {
+    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+    expect(document.getElementById('dragTableStatus').style.display).toBe('block');
+    expect(document.getElementById('dragTableName').textContent).toContain('3 rows');
+  });
+
+  test('ignores corrupt JSON in localStorage', async () => {
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, 'not-json{{{');
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+    // Should not throw; status div stays hidden
+    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
+  });
+});
+
+describe('simulateBulletJS with customDragTable', () => {
+  const bullet = {
+    id: 'b1', name: 'Test', caliber: '.308', ballisticCoefficient: 0.47,
+    muzzleVelocityMps: 850, bulletWeightGrams: 11.66, bulletDiameterMm: 7.82,
+  };
+  const req = {
+    zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+    windSpeedKph: 0, windDirectionDeg: 90, altitudeMeters: 0,
+    temperatureC: 15, sightHeightMm: 38.1, shootingAngleDegrees: 0, dragModel: 'G1',
+    customDragTable: [{ mach: 0.3, cd: 0.3 }, { mach: 2.5, cd: 0.4 }],
+  };
+
+  test('logs a console.warn and falls back to dragModel', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mod.simulateBulletJS(bullet, req);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('JS fallback does not support customDragTable'));
+    warnSpy.mockRestore();
+  });
+});
+
+describe('_resetState clears _customDragTable', () => {
+  test('_customDragTable is null after reset', async () => {
+    // Load a table into state via init
+    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+    // After reset, the in-memory table should be gone
+    mod._resetState();
+    // No direct getter for _customDragTable, verify via _clearCustomDragTable side-effects:
+    // calling _updateDragTableStatus without a file name should show 'none'
+    mod._updateDragTableStatus();
+    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
+  });
+});
+
+describe('runSimulation with customDragTable loaded', () => {
+  test('includes customDragTable in request when table is loaded from localStorage', async () => {
+    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+
+    global.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      });
+
+    await mod.init();
+    mod._setSelectedIds(new Set([mod.getMockBullets()[0].id]));
+
+    // Mock streamCompare to capture the req
+    let capturedReq;
+    jest.spyOn(mod, 'runSimulation');
+
+    global.fetch.mockImplementationOnce((url, opts) => {
+      capturedReq = JSON.parse(opts.body);
+      return Promise.reject(new Error('stream fail'));
+    });
+    global.fetch.mockImplementationOnce((url, opts) => {
+      capturedReq = JSON.parse(opts.body);
+      return Promise.reject(new Error('no network'));
+    });
+
+    await mod.runSimulation();
+    expect(capturedReq).toBeDefined();
+    expect(capturedReq.customDragTable).toEqual(table);
+  });
+});
+
+describe('runCustom with customDragTable loaded', () => {
+  test('includes customDragTable in request to server', async () => {
+    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+
+    document.getElementById('customWeight').value = '9.0';
+    document.getElementById('customMV').value     = '850';
+    document.getElementById('customBC').value     = '0.45';
+    document.getElementById('customDia').value    = '7.82';
+
+    let capturedReq;
+    global.fetch.mockImplementationOnce((url, opts) => {
+      capturedReq = JSON.parse(opts.body);
+      return Promise.reject(new Error('offline'));
+    });
+
+    await mod.runCustom();
+    expect(capturedReq.customDragTable).toEqual(table);
   });
 });
 

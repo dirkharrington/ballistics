@@ -1,3 +1,4 @@
+import { parseDragCsv } from './drag-csv.js';
 import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from 'chart.js';
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
@@ -97,6 +98,9 @@ export function _setComputing(busy) {
 }
 
 // ── Module state ──────────────────────────────────────────────────────────────
+const CUSTOM_DRAG_TABLE_KEY = 'ballistics.customDragTable';
+let _customDragTable = null;
+
 let bullets = [];
 let selectedIds = new Set();
 let lastResults = [];
@@ -114,6 +118,34 @@ let tableResults  = null;   // results last passed to renderTable
 let sweepMode    = false;
 let sweepResults = null;
 let lastReq      = null;
+
+// ── Custom drag table helpers ─────────────────────────────────────────────────
+function _updateDragTableStatus(fileName, rowCount) {
+  const statusDiv = document.getElementById('dragTableStatus');
+  const nameEl    = document.getElementById('dragTableName');
+  const helpEl    = document.getElementById('dragTableHelp');
+  /* istanbul ignore else -- #dragTableStatus is always present in the app shell */
+  if (statusDiv) statusDiv.style.display = (fileName || _customDragTable) ? 'block' : 'none';
+  /* istanbul ignore else -- #dragTableName is always present in the app shell */
+  if (nameEl)    nameEl.textContent = fileName
+    ? `${fileName} (${rowCount} rows)`
+    : (_customDragTable ? `Loaded (${_customDragTable.length} rows)` : '');
+  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Overrides drag model when loaded.';
+}
+
+function _clearCustomDragTable() {
+  _customDragTable = null;
+  try { localStorage.removeItem(CUSTOM_DRAG_TABLE_KEY); } catch (_) {}
+  const statusDiv  = document.getElementById('dragTableStatus');
+  const fileInput  = document.getElementById('dragTableFile');
+  const helpEl     = document.getElementById('dragTableHelp');
+  /* istanbul ignore else -- #dragTableStatus is always present in the app shell */
+  if (statusDiv)  statusDiv.style.display = 'none';
+  /* istanbul ignore else -- #dragTableFile is always present in the app shell */
+  if (fileInput)  fileInput.value = '';
+  /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
+  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Overrides drag model when loaded.';
+}
 
 // ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
 function getMockBullets() {
@@ -263,6 +295,9 @@ function integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd
 }
 
 export function simulateBulletJS(bullet, req) {
+  if (req.customDragTable && req.customDragTable.length > 0) {
+    console.warn('[engine] JS fallback does not support customDragTable; using dragModel instead.');
+  }
   const bc    = bullet.ballisticCoefficient;
   const mvFps = bullet.muzzleVelocityMps * FPS_PER_MPS;
   const wLbs  = bullet.bulletWeightGrams / G_PER_LB;
@@ -456,6 +491,7 @@ async function runSimulation() {
     ...(twistRaw ? { twistRateInchesPerTurn: +twistRaw } : {}),
     ...(latRaw   ? { latitudeDeg: +latRaw } : {}),
     ...(azRaw    ? { azimuthDeg:  +azRaw  } : {}),
+    ...(_customDragTable ? { customDragTable: _customDragTable } : {}),
   };
   lastReq = req;
   const total   = req.bulletIds.length;
@@ -629,6 +665,7 @@ async function runCustom() {
     dragModel:             document.getElementById('dragModel').value,
     ...(latRawC ? { latitudeDeg: +latRawC } : {}),
     ...(azRawC  ? { azimuthDeg:  +azRawC  } : {}),
+    ...(_customDragTable ? { customDragTable: _customDragTable } : {}),
   };
 
   let result;
@@ -1697,6 +1734,43 @@ async function init() {
   initDopeCard(simulateBullet);
   initBcSolver(simulateBullet);
 
+  // WA-12: Load custom drag table from localStorage on startup
+  try {
+    const stored = localStorage.getItem(CUSTOM_DRAG_TABLE_KEY);
+    if (stored) {
+      _customDragTable = JSON.parse(stored);
+      _updateDragTableStatus();
+    }
+  } catch (_) {}
+
+  // WA-12: Wire file input for custom drag table
+  document.getElementById('dragTableFile')?.addEventListener('change', e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const helpEl = document.getElementById('dragTableHelp');
+      try {
+        const table = parseDragCsv(evt.target.result);
+        _customDragTable = table;
+        try { localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table)); } catch (_) {}
+        _updateDragTableStatus(file.name, table.length);
+        /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
+        if (helpEl) helpEl.textContent = 'Mach,CD columns. Overrides drag model when loaded.';
+      } catch (err) {
+        _customDragTable = null;
+        try { localStorage.removeItem(CUSTOM_DRAG_TABLE_KEY); } catch (_) {}
+        const helpEl2 = document.getElementById('dragTableHelp');
+        /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
+        if (helpEl2) helpEl2.textContent = err.message;
+      }
+    };
+    reader.readAsText(file);
+  }, { signal });
+
+  // WA-12: Wire clear button
+  document.getElementById('dragTableClearBtn')?.addEventListener('click', _clearCustomDragTable, { signal });
+
   // Pin button toggles crosshair lock (chart onClick also toggles)
   document.getElementById('readoutPin')?.addEventListener('click', () => {
     crosshairPinned = !crosshairPinned;
@@ -1817,6 +1891,7 @@ function _resetState()   {
   offlineMode = false;
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
   sweepMode = false; sweepResults = null; lastReq = null;
+  _customDragTable = null;
   if (retryTimer !== null) { clearInterval(retryTimer); retryTimer = null; }
   if (_computingTimer !== null) { clearTimeout(_computingTimer); _computingTimer = null; }
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
@@ -1855,4 +1930,5 @@ export {
   SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
   _parseRejection, _setSimulationError,
+  _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
 };
