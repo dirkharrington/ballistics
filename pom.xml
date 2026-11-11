@@ -286,7 +286,7 @@
                 <version>3.6.4</version>
                 <executions>
 
-                    <!-- WA-3: build WASM binary from the engine/ Rust crate -->
+                    <!-- WA-3/WA-10: build WASM binary from ballistics-wasm crate -->
                     <execution>
                         <id>wasm-pack-build</id>
                         <phase>generate-sources</phase>
@@ -297,11 +297,12 @@
                             <workingDirectory>${project.basedir}/engine</workingDirectory>
                             <arguments>
                                 <argument>build</argument>
+                                <argument>ballistics-wasm</argument>
                                 <argument>--target</argument>
                                 <argument>web</argument>
                                 <argument>--release</argument>
                                 <argument>--out-dir</argument>
-                                <argument>${project.basedir}/engine/pkg</argument>
+                                <argument>../../pkg</argument>
                             </arguments>
                         </configuration>
                     </execution>

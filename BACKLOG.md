@@ -301,7 +301,7 @@ computation.
 | ID | Story | Value | Size |
 |---|---|---|---|
 | WA-9 | SIMD acceleration — `#[target_feature(enable = "simd128")]` opt-in; scalar fallback | 2–4× faster on Chrome/Firefox. Most impactful on ELR trajectories (3000+ m). | M |
-| WA-10 | Shared engine crate — `ballistics-engine` on crates.io, C FFI bindings via cbindgen | Enables future Rust backend and mobile SDKs (iOS/Android). | M |
+| ~~WA-10~~ | ~~Shared engine crate — `ballistics-engine` on crates.io, C FFI bindings via cbindgen~~ | ~~Enables future Rust backend and mobile SDKs (iOS/Android).~~ ✅ Done — PR #76 | M |
 | WA-11 | Rust backend — replace Spring Boot with Axum/Actix; native binary; <5 ms cold start | Highest infrastructure impact. Requires WA-10. | XL |
 | WA-12 | Custom drag function — user-provided BC curve (CSV of Mach → CD) | For bullets outside G1/G7 (Berger Hybrid, Hornady ELD-X at transonic). | L |
 | WA-13 | Coriolis effect — latitude + azimuth inputs; deflection alongside spin drift | Most-cited physics omission after spin drift. ~1+ MOA at 2000 m. | M |
@@ -310,7 +310,7 @@ computation.
 ```
 1. rustup target add wasm32-unknown-unknown        # CI setup (cached)
 2. cargo install wasm-pack                          # CI setup (cached)
-3. wasm-pack build engine/ --target web --release  # → engine/pkg/
+3. wasm-pack build engine/ballistics-wasm --target web --release --out-dir ../../pkg  # → engine/pkg/
 4. cp -r engine/pkg/ src/main/resources/static/wasm/  # Maven exec-plugin
 5. ./mvnw verify                                   # Java + Jest (unchanged)
 6. cargo test --manifest-path engine/Cargo.toml   # Rust unit tests (new gate)

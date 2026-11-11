@@ -14,6 +14,14 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "ballistics-wasm"
+version = "0.1.0"
+dependencies = [
+ "ballistics-engine",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]

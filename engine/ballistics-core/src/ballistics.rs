@@ -367,6 +367,31 @@ pub fn r1(v: f64) -> f64 {
     (v * 10.0 + 0.5).floor() / 10.0
 }
 
+/// JSON wrapper — parses params and bullet from JSON, runs the trajectory, returns JSON.
+/// Returns `{"error":"<msg>"}` on parse or validation failure.
+/// Used by the C FFI surface (`ffi.rs`) and can be called from any Rust consumer.
+pub fn compute_trajectory_from_json(params_json: &str, bullet_json: &str) -> String {
+    let params: crate::types::TrajectoryParams = match serde_json::from_str(params_json) {
+        Ok(p) => p,
+        Err(e) => return serde_json::json!({"error": format!("params parse error: {e}")}).to_string(),
+    };
+    let bullet: crate::types::Bullet = match serde_json::from_str(bullet_json) {
+        Ok(b) => b,
+        Err(e) => return serde_json::json!({"error": format!("bullet parse error: {e}")}).to_string(),
+    };
+    if let Err(e) = params.validate() {
+        return serde_json::json!({"error": format!("params validation error: {e}")}).to_string();
+    }
+    if let Err(e) = bullet.validate() {
+        return serde_json::json!({"error": format!("bullet validation error: {e}")}).to_string();
+    }
+    let result = compute(params, bullet);
+    match serde_json::to_string(&result) {
+        Ok(json) => json,
+        Err(e) => serde_json::json!({"error": format!("serialisation error: {e}")}).to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -705,5 +730,52 @@ mod tests {
         // Java Math.round: half-up (not half-away-from-zero), so -1.05 rounds to -1.0
         assert_eq!(r1(-1.05), -1.0);
         assert_eq!(r1(0.0), 0.0);
+    }
+
+    // ── JSON wrapper (compute_trajectory_from_json) ──────────────────────────
+
+    const PARAMS_JSON: &str = r#"{"bulletId":"308-win-168gr","maxRangeMeters":100,"stepMeters":50}"#;
+    const BULLET_JSON: &str = r##"{"id":"308-win-168gr","name":"test","caliber":"test","bulletWeightGrams":10.89,"muzzleVelocityMps":807.7,"ballisticCoefficient":0.475,"bulletDiameterMm":7.82,"muzzleEnergyJoules":3552.0,"description":"test","hexColor":"#fff"}"##;
+
+    #[test]
+    fn from_json_valid_inputs_produce_points() {
+        let result = compute_trajectory_from_json(PARAMS_JSON, BULLET_JSON);
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(v.get("error").is_none(), "unexpected error: {result}");
+        assert!(v["points"].as_array().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn from_json_bad_params_returns_error_envelope() {
+        let result = compute_trajectory_from_json("not json", BULLET_JSON);
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(v.get("error").is_some());
+    }
+
+    #[test]
+    fn from_json_bad_bullet_returns_error_envelope() {
+        let result = compute_trajectory_from_json(PARAMS_JSON, "not json");
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(v.get("error").is_some());
+    }
+
+    #[test]
+    fn from_json_invalid_params_returns_validation_error() {
+        let result = compute_trajectory_from_json(
+            r#"{"bulletId":"x","maxRangeMeters":1e300,"stepMeters":100}"#,
+            BULLET_JSON,
+        );
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(v.get("error").is_some());
+    }
+
+    #[test]
+    fn from_json_invalid_bullet_returns_validation_error() {
+        let result = compute_trajectory_from_json(
+            PARAMS_JSON,
+            r##"{"id":"x","name":"x","caliber":"x","bulletWeightGrams":10.89,"muzzleVelocityMps":0,"ballisticCoefficient":0.475,"bulletDiameterMm":7.82,"muzzleEnergyJoules":3552.0,"description":"x","hexColor":"#fff"}"##,
+        );
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(v.get("error").is_some());
     }
 }
