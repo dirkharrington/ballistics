@@ -304,7 +304,7 @@ computation.
 | WA-10 | Shared engine crate — `ballistics-engine` on crates.io, C FFI bindings via cbindgen | Enables future Rust backend and mobile SDKs (iOS/Android). | M |
 | WA-11 | Rust backend — replace Spring Boot with Axum/Actix; native binary; <5 ms cold start | Highest infrastructure impact. Requires WA-10. | XL |
 | WA-12 | Custom drag function — user-provided BC curve (CSV of Mach → CD) | For bullets outside G1/G7 (Berger Hybrid, Hornady ELD-X at transonic). | L |
-| ~~WA-13~~ | ~~Coriolis effect — latitude + azimuth inputs; deflection alongside spin drift~~ | ~~Most-cited physics omission after spin drift. ~1+ MOA at 2000 m.~~ | ~~M~~ | ✅ Done — PR #TBD |
+| ~~WA-13~~ | ~~Coriolis effect — latitude + azimuth inputs; deflection alongside spin drift~~ | ~~Most-cited physics omission after spin drift. ~1+ MOA at 2000 m.~~ | ~~M~~ | ✅ Done — PR #78 |
 
 **WASM build pipeline:**
 ```
