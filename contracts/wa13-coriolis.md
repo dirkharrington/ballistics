@@ -1,6 +1,6 @@
 # Contract: Coriolis Effect (WA-13)
 
-Version: 0.1.0 — 2026-11-11  
+Version: 0.1.1 — 2026-11-11 (formula correction — removed erroneous cos(az) factor)  
 ADR: none  
 Depends on: [`wasm-engine.md`](./wasm-engine.md) §3 (TrajectoryParams, TrajectoryPoint schemas), [`engine-parity.md`](./engine-parity.md) §7 (TrajectoryPoint field verdicts), [`spin-drift.md`](./spin-drift.md) (spinDriftCm field — combined display)  
 Owners: backend/Rust (§2–§4), backend/Java (§5), frontend (§6), devsecops (§7)
@@ -28,39 +28,34 @@ For a projectile fired at azimuth `az` (degrees clockwise from North) at geograp
 The lateral Coriolis acceleration (perpendicular to the direction of fire, positive = right of bore as seen from behind the shooter) is:
 
 ```
-a_lateral = 2 × Ω × v × sin(lat)   [for az = East or West]
-```
-
-More generally, the full horizontal Coriolis acceleration has both a cross-track and a down-track component that depend on `az`. For the standard ballistic approximation (integrating over a predominantly horizontal trajectory):
-
-```
 a_coriolis_lateral = 2 × Ω × v_horizontal × sin(lat)
 ```
 
-where the sign is positive (right deflection) in the Northern Hemisphere and negative (left deflection) in the Southern Hemisphere, with a direction modulation by azimuth (see §1.2).
+where the sign is positive (right deflection) in the Northern Hemisphere and negative (left deflection) in the Southern Hemisphere. **This acceleration is perpendicular to the velocity vector regardless of azimuth** — a North shot drifts East, an East shot drifts South, a South shot drifts West; in all cases the magnitude is the same and "right of bore" is always the correct description from the shooter's perspective.
 
 ### 1.2 Formula used (post-integration analytical approximation)
 
-Consistent with the existing `windDriftCm` (which uses the Pejsa lag-time approximation rather than a full 3D integrator), the Coriolis deflection at each trajectory point is computed analytically from the time-of-flight and average horizontal velocity already available in the step output.
+Consistent with the existing `windDriftCm` (which uses the Pejsa lag-time approximation rather than a full 3D integrator), the Coriolis deflection at each trajectory point is computed analytically from the time-of-flight and muzzle velocity.
 
-The formula is derived from integrating the lateral Coriolis acceleration over time-of-flight:
+Integrating the lateral Coriolis acceleration `a = 2·Ω·sin(lat)·v` over time (using muzzle velocity as a constant approximation for `v`) gives:
 
 ```
-coriolisDeflection_m(t) = Ω × sin(lat_rad) × az_factor(az_rad) × v_muzzle_mps × t²
+coriolisDeflection_m(t) = Ω × sin(lat_rad) × v_muzzle_mps × t²
 ```
 
 where:
-- `Ω = 7.2921e-5` rad/s
+- `Ω = 7.2921e-5` rad/s (Earth's rotation rate)
 - `lat_rad = latitudeDeg × π / 180`
-- `az_factor(az_rad) = cos(az_rad)` — the component of Earth's rotation vector perpendicular to the direction of fire
-  - `az_factor = 1.0` for a due-East shot (az = 90°)  
-  - `az_factor = -1.0` for a due-West shot (az = 270°)
-  - `az_factor = 0.0` for a due-North or due-South shot (no lateral Coriolis)
+- `v_muzzle_mps` is the bullet's muzzle velocity in m/s
 - `t` is `timeOfFlightSec` at this trajectory point
+
+**Azimuth does not appear in this formula.** The cross-track (windage) Coriolis deflection is azimuth-independent in the first-order approximation because the Coriolis force is always perpendicular to the projectile's velocity vector — the magnitude of "rightward drift" does not change with the direction of fire. `azimuthDeg` is accepted as an input (§2.1) for display purposes and future higher-accuracy integration, but it is not used in the magnitude calculation.
 
 **Result in cm:** `coriolisDeflectionCm = round1(coriolisDeflection_m × 100)`
 
-**Sign convention:** positive = right of bore (from shooter's perspective). In the Northern Hemisphere, a due-East shot produces positive (rightward) deflection. In the Southern Hemisphere (`lat < 0`), `sin(lat) < 0` and the deflection is left.
+**Sign convention:** positive = right of bore (from shooter's perspective). In the Northern Hemisphere (`lat > 0`), `sin(lat) > 0` and the drift is rightward. In the Southern Hemisphere (`lat < 0`), `sin(lat) < 0` and the drift is leftward.
+
+**Numerical check:** `Ω · sin(45°) · 900 m/s · (3 s)² = 7.2921e-5 × 0.7071 × 900 × 9 ≈ 0.416 m = 41.6 cm`. This is at an azimuth of any direction, with muzzle velocity 900 m/s and tof 3 s at latitude 45°.
 
 ### 1.3 Accuracy note
 
@@ -80,7 +75,7 @@ For the purpose of WA-13, the first-order formula (using muzzle velocity) is acc
 
 If `latitudeDeg` is absent (or `null`), `coriolisDeflectionCm` is `0.0` for every point. `azimuthDeg` is ignored when `latitudeDeg` is absent.
 
-If `latitudeDeg` is present but `azimuthDeg` is absent, `azimuthDeg` defaults to `0.0` (due North), which produces zero lateral Coriolis deflection (`az_factor = cos(0) = 1.0` but `sin(0) = 0`). **Wait — this is wrong:** `az_factor = cos(az_rad) = cos(0) = 1.0`, so a North shot with latitude 45° still has non-zero deflection. That is correct: the formula produces the deflection for a North shot (the Earth rotates under the bullet's trajectory). `azimuthDeg` default = `0.0` is intentional.
+If `latitudeDeg` is present but `azimuthDeg` is absent, `azimuthDeg` defaults to `0.0` (due North). Because `azimuthDeg` does not affect the magnitude of the first-order formula, this default has no effect on the computed `coriolisDeflectionCm`.
 
 ---
 
@@ -168,11 +163,8 @@ let coriolis_deflection_cm = match params.latitude_deg {
     None => 0.0,
     Some(lat_deg) => {
         let lat_rad = lat_deg.to_radians();
-        let az_rad = params.azimuth_deg.unwrap_or(0.0).to_radians();
-        let az_factor = az_rad.cos();
         let deflection_m = EARTH_ROTATION_RADS
             * lat_rad.sin()
-            * az_factor
             * muzzle_velocity_fps / FPS_PER_MPS  // muzzle velocity in m/s
             * tof_sec.powi(2);
         round1(deflection_m * 100.0)
@@ -194,10 +186,10 @@ Add `coriolisDeflectionCm` to §7.1 TrajectoryPoint fields:
 
 | Field | Formula | Verdict | Notes |
 |---|---|---|---|
-| `coriolisDeflectionCm` | `r1(Ω × sin(lat) × cos(az) × v_muzzle_mps × tof² × 100)` | **MATCH** | Zero when `latitudeDeg` absent. Same constants, same rounding. |
+| `coriolisDeflectionCm` | `r1(Ω × sin(lat) × v_muzzle_mps × tof² × 100)` | **MATCH** | Zero when `latitudeDeg` absent. Same constants, same rounding. Azimuth not in formula. |
 
 Add parity test cases:
-- `latitudeDeg: 45, azimuthDeg: 90` (maximum deflection at mid-latitude East shot) for `.338 Lapua 250gr` at 2000 m: expected ~40–60 cm at 2000 m.
+- `latitudeDeg: 45, azimuthDeg: 90` (mid-latitude, azimuth ignored) for `.338 Lapua 250gr` at 2000 m: expected ~20–25 cm at 2000 m (tof ≈ 2.21 s in near-vacuum engine).
 - `latitudeDeg: -33, azimuthDeg: 0` (Southern Hemisphere, North shot): negative `coriolisDeflectionCm`.
 - `latitudeDeg: 0` (Equator): zero Coriolis.
 - `latitudeDeg` absent: zero Coriolis.
@@ -228,11 +220,8 @@ Add `coriolisDeflectionCm` after `spinDriftCm` in the builder/record. The Java `
 double coriolisDeflectionCm = 0.0;
 if (latitudeDeg != null) {
     double latRad = Math.toRadians(latitudeDeg);
-    double azRad  = Math.toRadians(azimuthDeg != null ? azimuthDeg : 0.0);
-    double azFactor = Math.cos(azRad);
     double deflectionM = EARTH_ROTATION_RADS
         * Math.sin(latRad)
-        * azFactor
         * bullet.getMuzzleVelocityMps()
         * tofSec * tofSec;
     coriolisDeflectionCm = r1(deflectionM * 100.0);
@@ -318,7 +307,7 @@ coriolisDeflectionCm: number;
 
 - [ ] `latitudeDeg` absent: `coriolisDeflectionCm = 0.0` for all points; no regression in existing tests.
 - [ ] `latitudeDeg: 0`: `coriolisDeflectionCm = 0.0` for all points.
-- [ ] `latitudeDeg: 45, azimuthDeg: 90`, `.338 Lapua 250gr` at 2000 m: `coriolisDeflectionCm` ≈ 40–60 cm at the 2000 m point.
+- [ ] `latitudeDeg: 45, azimuthDeg: 90`, `.338 Lapua 250gr` at 2000 m: `coriolisDeflectionCm` ≈ 20–25 cm at the 2000 m point (engine uses near-vacuum drag; tof ≈ 2.21 s → δ ≈ 23 cm).
 - [ ] `latitudeDeg: -33, azimuthDeg: 90`: `coriolisDeflectionCm` is negative (left deflection) at all ranges.
 - [ ] Validation: `latitudeDeg: 91` → `400`/error envelope with specific message.
 - [ ] Parity tests pass for all 4 Coriolis test cases (ε ≤ 0.01 between Rust and Java).
