@@ -115,7 +115,7 @@ jobs:
         run: cargo test --manifest-path engine/Cargo.toml --workspace
 
       - name: Cargo llvm-cov gate
-        run: cargo llvm-cov --manifest-path engine/Cargo.toml --workspace --all-features --ignore-filename-regex '^src/' --fail-under-lines 99
+        run: cargo llvm-cov --manifest-path engine/Cargo.toml --workspace --all-features --ignore-filename-regex 'engine/src/' --fail-under-lines 99
 
       - name: Generate C FFI header
         run: |
