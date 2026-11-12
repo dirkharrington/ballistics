@@ -302,7 +302,9 @@
                                 <argument>web</argument>
                                 <argument>--release</argument>
                                 <argument>--out-dir</argument>
-                                <argument>../../pkg</argument>
+                                <argument>../pkg</argument>
+                                <argument>--out-name</argument>
+                                <argument>ballistics_engine</argument>
                             </arguments>
                         </configuration>
                     </execution>

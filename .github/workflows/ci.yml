@@ -128,7 +128,7 @@ jobs:
         run: git diff --exit-code engine/include/
 
       - name: wasm-pack build
-        run: wasm-pack build engine/ballistics-wasm --target web --release --out-dir ../../pkg
+        run: wasm-pack build engine/ballistics-wasm --target web --release --out-dir ../pkg --out-name ballistics_engine
 
       - name: Verify TypeScript types generated
         run: test -f engine/pkg/ballistics_engine.d.ts
