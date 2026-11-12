@@ -210,7 +210,7 @@ The 100% Jest coverage requirement for the frontend is unaffected.
 
 ```dockerfile
 # Stage 1: build WASM (unchanged from current Dockerfile)
-FROM rust:1.99.1@sha256:... AS wasm-builder
+FROM rust:1.100@sha256:e19840879045c951c905d0eaa9887f3439c62000e429963371b376bac8d38c31 AS wasm-builder
 WORKDIR /build
 COPY engine/ engine/
 COPY Cargo.toml Cargo.lock ./
@@ -225,7 +225,7 @@ COPY --from=wasm-builder /build/engine/pkg/ engine/pkg/
 RUN npm ci && npm run build
 
 # Stage 3: build Rust server
-FROM rust:1.99.1@sha256:... AS server-builder
+FROM rust:1.100@sha256:e19840879045c951c905d0eaa9887f3439c62000e429963371b376bac8d38c31 AS server-builder
 WORKDIR /build
 COPY server/ server/
 COPY engine/ballistics-core/ engine/ballistics-core/
