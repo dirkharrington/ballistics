@@ -666,6 +666,24 @@ describe('toEngineParams', () => {
     expect(result).not.toHaveProperty('extraField');
     expect(result.zeroRangeMeters).toBe(100);
   });
+
+  test('latitudeDeg and azimuthDeg included when both provided', () => {
+    const result = toEngineParams({ id: 'x' }, { latitudeDeg: 45, azimuthDeg: 90 });
+    expect(result.latitudeDeg).toBe(45);
+    expect(result.azimuthDeg).toBe(90);
+  });
+
+  test('latitudeDeg included but azimuthDeg omitted when azimuthDeg is null', () => {
+    const result = toEngineParams({ id: 'x' }, { latitudeDeg: 45, azimuthDeg: null });
+    expect(result.latitudeDeg).toBe(45);
+    expect(result).not.toHaveProperty('azimuthDeg');
+  });
+
+  test('neither latitudeDeg nor azimuthDeg included when latitudeDeg is null', () => {
+    const result = toEngineParams({ id: 'x' }, { latitudeDeg: null, azimuthDeg: 90 });
+    expect(result).not.toHaveProperty('latitudeDeg');
+    expect(result).not.toHaveProperty('azimuthDeg');
+  });
 });
 
 describe('toEngineBullet', () => {

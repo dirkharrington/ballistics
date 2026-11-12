@@ -27,15 +27,17 @@ const STATE_20 = { ...BASE_STATE, bulletIds: make20Bullets() };
 
 // ── URL_PARAM_KEYS ─────────────────────────────────────────────────────────────
 describe('URL_PARAM_KEYS', () => {
-  test('contains exactly 10 keys', () => {
-    expect(URL_PARAM_KEYS).toHaveLength(10);
+  test('contains exactly 12 keys', () => {
+    expect(URL_PARAM_KEYS).toHaveLength(12);
   });
   test('is frozen', () => {
     expect(Object.isFrozen(URL_PARAM_KEYS)).toBe(true);
   });
-  test('contains all expected keys', () => {
+  test('contains all expected keys including WA-13 optional keys', () => {
     expect(URL_PARAM_KEYS).toContain('zero');
     expect(URL_PARAM_KEYS).toContain('dragModel');
+    expect(URL_PARAM_KEYS).toContain('latitudeDeg');
+    expect(URL_PARAM_KEYS).toContain('azimuthDeg');
   });
 });
 
@@ -55,10 +57,13 @@ describe('MAX_URL_BULLETS', () => {
 
 // ── encodeState ────────────────────────────────────────────────────────────────
 describe('encodeState', () => {
-  test('always emits all 10 keys in URL_PARAM_KEYS order', () => {
+  test('always emits all required keys; optional keys absent when null', () => {
     const qs = encodeState(BASE_STATE);
     const params = new URLSearchParams(qs);
-    URL_PARAM_KEYS.forEach(k => expect(params.has(k)).toBe(true));
+    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg']);
+    URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
+    expect(params.has('latitudeDeg')).toBe(false);
+    expect(params.has('azimuthDeg')).toBe(false);
   });
 
   test('emits no b when bulletIds is empty', () => {
@@ -99,7 +104,20 @@ describe('encodeState', () => {
     expect(new URLSearchParams(qs).get('dragModel')).toBe('G7');
   });
 
-  test('b keys come before 10 param keys in output order', () => {
+  test('emits latitudeDeg and azimuthDeg when provided', () => {
+    const qs = encodeState({ ...BASE_STATE, latitudeDeg: 45, azimuthDeg: 180 });
+    const params = new URLSearchParams(qs);
+    expect(params.get('latitudeDeg')).toBe('45');
+    expect(params.get('azimuthDeg')).toBe('180');
+  });
+
+  test('omits latitudeDeg when null', () => {
+    const qs = encodeState({ ...BASE_STATE, latitudeDeg: null });
+    const params = new URLSearchParams(qs);
+    expect(params.has('latitudeDeg')).toBe(false);
+  });
+
+  test('b keys come before 12 param keys in output order', () => {
     const qs = encodeState(STATE_ONE);
     const keys = [...new URLSearchParams(qs).keys()];
     const bIndex    = keys.indexOf('b');
@@ -361,9 +379,51 @@ describe('mergeIntoSearch', () => {
     expect(new URLSearchParams(result).get('utm_source')).toBe('email');
   });
 
-  test('all 10 owned keys are always emitted', () => {
+  test('all required owned keys are always emitted; optional keys absent when null', () => {
     const result = mergeIntoSearch('', BASE_STATE);
     const params = new URLSearchParams(result);
-    URL_PARAM_KEYS.forEach(k => expect(params.has(k)).toBe(true));
+    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg']);
+    URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
+    expect(params.has('latitudeDeg')).toBe(false);
+    expect(params.has('azimuthDeg')).toBe(false);
+  });
+
+  test('mergeIntoSearch emits latitudeDeg and azimuthDeg when provided', () => {
+    const result = mergeIntoSearch('', { ...BASE_STATE, latitudeDeg: -33.9, azimuthDeg: 270 });
+    const params = new URLSearchParams(result);
+    expect(params.has('latitudeDeg')).toBe(true);
+    expect(params.has('azimuthDeg')).toBe(true);
+  });
+});
+
+// ── decodeState – WA-13 optional keys ─────────────────────────────────────────
+describe('decodeState – latitudeDeg and azimuthDeg', () => {
+  test('accepts latitudeDeg within [-90, 90]', () => {
+    expect(decodeState('?latitudeDeg=45').params.latitudeDeg).toBe(45);
+    expect(decodeState('?latitudeDeg=-90').params.latitudeDeg).toBe(-90);
+    expect(decodeState('?latitudeDeg=90').params.latitudeDeg).toBe(90);
+  });
+
+  test('rejects latitudeDeg outside range', () => {
+    expect(decodeState('?latitudeDeg=91').params.latitudeDeg).toBeUndefined();
+    expect(decodeState('?latitudeDeg=-91').params.latitudeDeg).toBeUndefined();
+  });
+
+  test('accepts azimuthDeg within [0, 360]', () => {
+    expect(decodeState('?azimuthDeg=0').params.azimuthDeg).toBe(0);
+    expect(decodeState('?azimuthDeg=180').params.azimuthDeg).toBe(180);
+    expect(decodeState('?azimuthDeg=360').params.azimuthDeg).toBe(360);
+  });
+
+  test('rejects azimuthDeg outside range', () => {
+    expect(decodeState('?azimuthDeg=361').params.azimuthDeg).toBeUndefined();
+    expect(decodeState('?azimuthDeg=-1').params.azimuthDeg).toBeUndefined();
+  });
+
+  test('round-trips latitudeDeg and azimuthDeg', () => {
+    const qs = encodeState({ ...BASE_STATE, latitudeDeg: 51.5, azimuthDeg: 90 });
+    const { params } = decodeState('?' + qs);
+    expect(params.latitudeDeg).toBe(51.5);
+    expect(params.azimuthDeg).toBe(90);
   });
 });

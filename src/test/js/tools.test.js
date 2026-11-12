@@ -563,6 +563,58 @@ describe('renderDopeCard', () => {
     document.getElementById('dopeAddDistBtn').click();
     expect(document.getElementById('dopeTable').innerHTML).not.toBe('');
   });
+
+  test('renders Coriolis column header and cells when coriolisDeflectionCm is nonzero', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100]');
+    initDopeCard(makeSimFn());
+    const results = [{
+      bullet: { id: 'a', name: 'Test A' },
+      points: [
+        { rangeMeters: 0,   dropCm: 0,   coriolisDeflectionCm: 0   },
+        { rangeMeters: 100, dropCm: -10, coriolisDeflectionCm: 2.5 },
+        { rangeMeters: 300, dropCm: -50, coriolisDeflectionCm: 5.1 },
+      ],
+    }];
+    renderDopeCard(results, {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('Cor. (cm)');
+    expect(html).toContain('+2.5');
+  });
+
+  test('shows – for both drop and Coriolis cells when drop is null', () => {
+    // dist=50 <= first point rangeMeters=100 → interpolateAt returns null (dropCm=null ?? null)
+    // hasCoriolis=true from coriolisDeflectionCm on first point
+    history.replaceState(null, '', '/?dopeDistances=[50]');
+    initDopeCard(makeSimFn());
+    const results = [{
+      bullet: { id: 'a', name: 'A' },
+      points: [
+        { rangeMeters: 100, dropCm: null, coriolisDeflectionCm: 1.5 },
+        { rangeMeters: 300, dropCm: -50,  coriolisDeflectionCm: 5.1 },
+      ],
+    }];
+    renderDopeCard(results, {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    // drop==null branch with hasCoriolis=true → emits '–' for all three cells
+    expect(html).toContain('–');
+  });
+
+  test('shows – in Coriolis cell when cor interpolation returns null but drop is valid', () => {
+    // Points: first has cor defined, rest do not → interpolating between defined/undefined gives null
+    history.replaceState(null, '', '/?dopeDistances=[50]');
+    initDopeCard(makeSimFn());
+    const results = [{
+      bullet: { id: 'a', name: 'A' },
+      points: [
+        { rangeMeters: 0,   dropCm: 0,   coriolisDeflectionCm: 2.0 },
+        { rangeMeters: 100, dropCm: -10, coriolisDeflectionCm: undefined },
+      ],
+    }];
+    renderDopeCard(results, {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    // cor==null branch → emits '–' for Coriolis cell
+    expect(html).toContain('–');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

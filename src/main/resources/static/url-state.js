@@ -1,6 +1,7 @@
 /** URL key for each state field. Order = canonical serialization order. */
 export const URL_PARAM_KEYS = Object.freeze([
   'zero', 'maxRange', 'wind', 'windDir', 'altitude', 'temp', 'step', 'sightHeight', 'angle', 'dragModel',
+  'latitudeDeg', 'azimuthDeg',
 ]);
 export const URL_BULLET_KEY = 'b';
 export const MAX_URL_BULLETS = 20;
@@ -16,6 +17,8 @@ function parseNum(raw) {
   return Number(raw);
 }
 
+const OPTIONAL_URL_KEYS = new Set(['latitudeDeg', 'azimuthDeg']);
+
 const VALIDATORS = {
   zero:        v => v > 0 && v <= 3000,
   maxRange:    v => v > 0 && v <= 5000,
@@ -27,6 +30,8 @@ const VALIDATORS = {
   sightHeight: v => v > 0 && v <= 150,
   angle:       v => v >= -45 && v <= 45,
   dragModel:   v => v === 'G1' || v === 'G7',
+  latitudeDeg: v => v >= -90 && v <= 90,
+  azimuthDeg:  v => v >= 0 && v <= 360,
 };
 
 /**
@@ -40,6 +45,7 @@ export function encodeState(state) {
   ids.forEach(id => params.append(URL_BULLET_KEY, id));
   for (const key of URL_PARAM_KEYS) {
     const val = state[key];
+    if (OPTIONAL_URL_KEYS.has(key) && val == null) continue;
     if (key === 'dragModel') {
       params.set(key, String(val));
     } else {

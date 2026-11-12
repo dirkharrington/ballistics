@@ -95,19 +95,28 @@ function _buildDopeTable(results) {
   if (!table || !results || results.length === 0) return;
 
   const dists = [..._dopeDistances].sort((a, b) => a - b);
+  const hasCoriolis = results.some(r => r.points.some(p => p.coriolisDeflectionCm !== undefined && p.coriolisDeflectionCm !== 0));
+  const colSpan = hasCoriolis ? 3 : 2;
 
-  const thCols = results.map(r => `<th colspan="2">${_esc(r.bullet.name)}</th>`).join('');
-  const thSub  = results.map(() => '<th>MOA↑</th><th>MRAD↑</th>').join('');
+  const thCols = results.map(r => `<th colspan="${colSpan}">${_esc(r.bullet.name)}</th>`).join('');
+  const thSub  = results.map(() => `<th>MOA↑</th><th>MRAD↑</th>${hasCoriolis ? '<th>Cor. (cm)</th>' : ''}`).join('');
 
   const bodyRows = dists.map(dist => {
     const tds = results.map(r => {
       const drop = interpolateAt(r.points, dist, 'dropCm');
-      if (drop == null) return '<td>–</td><td>–</td>';
+      if (drop == null) return `<td>–</td><td>–</td>${hasCoriolis ? '<td>–</td>' : ''}`;
       const angleRad = Math.atan2(Math.abs(drop) / 100, dist);
       const sign     = drop < 0 ? 1 : (drop > 0 ? -1 : 0);
       const moa      = Math.round(sign * angleRad * (180 / Math.PI) * 60 * 10) / 10;
       const mrad     = Math.round(sign * angleRad * 1000 * 10) / 10;
-      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td>`;
+      let corCell = '';
+      if (hasCoriolis) {
+        const cor = interpolateAt(r.points, dist, 'coriolisDeflectionCm');
+        corCell = cor != null
+          ? `<td>${cor >= 0 ? '+' : ''}${cor.toFixed(1)}</td>`
+          : '<td>–</td>';
+      }
+      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td>${corCell}`;
     }).join('');
     return `<tr><td><strong>${dist}</strong></td>${tds}</tr>`;
   }).join('');
