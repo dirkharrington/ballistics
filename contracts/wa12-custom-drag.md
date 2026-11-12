@@ -1,9 +1,9 @@
 # Contract: Custom Drag Function (WA-12)
 
-Version: 0.1.0 — 2026-11-11  
+Version: 0.1.1 — 2026-11-12 (drop WA12-BE-3 — Java BE superseded by WA-11)  
 ADR: none  
 Depends on: [`wasm-engine.md`](./wasm-engine.md) §3 (TrajectoryParams schema), [`engine-parity.md`](./engine-parity.md) §6 (drag table structure)  
-Owners: backend/Rust (§2–§4), backend/Java (§5), frontend (§6), devsecops (§7)
+Owners: backend/Rust (§2–§4), ~~backend/Java (§5)~~ superseded by WA-11, frontend (§6), devsecops (§7)
 
 Builders implement this contract exactly. To change it, propose the change to the architect. Don't edit this file.
 
@@ -234,6 +234,6 @@ The JS fallback (`simulateBulletJS`) does **not** support `customDragTable` — 
 |---|---|---|
 | WA12-BE-1 | Rust | Add `DragPoint`, extend `DragTable` enum, refactor `drag_coefficient` to accept `DragTable`. Add validation to `TrajectoryParams::validate()`. |
 | WA12-BE-2 | Rust | Add parity test cases. Update `engine-parity.md` with custom-drag section. |
-| WA12-BE-3 | Java/BE | Add `DragPoint` record, `customDragTable` field to `TrajectoryRequest`, `@ValidCustomDragTable` validator, drag-lookup refactor. |
+| ~~WA12-BE-3~~ | ~~Java/BE~~ | ~~Add `DragPoint` record, `customDragTable` field to `TrajectoryRequest`, `@ValidCustomDragTable` validator, drag-lookup refactor.~~ **Dropped — Java backend removed by WA-11; Rust server accepts `customDragTable` via `ballistics-core`.** |
 | WA12-FE-1 | Frontend | Write `drag-csv.js` with `parseDragCsv`. Add file input to custom-round panel. Wire custom table into `toEngineParams`. Handle JS fallback warning. |
 | WA12-FE-2 | Frontend | Jest tests for `drag-csv.js` (100% coverage). Update `tools.test.js` for custom-drag state. |
