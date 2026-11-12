@@ -684,6 +684,22 @@ describe('toEngineParams', () => {
     expect(result).not.toHaveProperty('latitudeDeg');
     expect(result).not.toHaveProperty('azimuthDeg');
   });
+
+  test('customDragTable included when non-empty', () => {
+    const table = [{ mach: 0.5, cd: 0.3 }, { mach: 2.5, cd: 0.4 }];
+    const result = toEngineParams({ id: 'x' }, { customDragTable: table });
+    expect(result.customDragTable).toEqual(table);
+  });
+
+  test('customDragTable omitted when null', () => {
+    const result = toEngineParams({ id: 'x' }, { customDragTable: null });
+    expect(result).not.toHaveProperty('customDragTable');
+  });
+
+  test('customDragTable omitted when empty array', () => {
+    const result = toEngineParams({ id: 'x' }, { customDragTable: [] });
+    expect(result).not.toHaveProperty('customDragTable');
+  });
 });
 
 describe('toEngineBullet', () => {
