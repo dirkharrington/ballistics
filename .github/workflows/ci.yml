@@ -115,7 +115,7 @@ jobs:
         run: cargo test --manifest-path engine/Cargo.toml
 
       - name: Cargo llvm-cov gate
-        run: cargo llvm-cov --manifest-path engine/Cargo.toml --all-features --fail-under-lines 99
+        run: cargo llvm-cov --manifest-path engine/Cargo.toml --workspace --all-features --fail-under-lines 99
 
       - name: Generate C FFI header
         run: |
