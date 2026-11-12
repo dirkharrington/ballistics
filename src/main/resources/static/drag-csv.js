@@ -27,7 +27,7 @@ export function parseDragCsv(text) {
   if (machIdx === -1) throw new Error('CSV header must contain a "Mach" column.');
   if (cdIdx   === -1) throw new Error('CSV header must contain a "CD" column.');
 
-  const DECIMAL_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+  const DECIMAL_RE = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
   const points = [];
   for (let i = 1; i < lines.length; i++) {
     const cells = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, '').trim());

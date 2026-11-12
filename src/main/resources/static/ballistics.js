@@ -1750,7 +1750,7 @@ async function init() {
       }
       if (!arr.some(p => p.mach <= 0.5))  throw new Error('invalid');
       if (!arr.some(p => p.mach >= 2.0))  throw new Error('invalid');
-      _customDragTable = arr;
+      _customDragTable = arr.map(p => ({ mach: p.mach, cd: p.cd }));
       _updateDragTableStatus();
     }
   } catch (_) {
