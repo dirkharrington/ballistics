@@ -3255,6 +3255,50 @@ describe('init loads customDragTable from localStorage', () => {
     expect(document.getElementById('dragTableStatus').style.display).toBe('none');
     expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
   });
+
+  test('discards table with out-of-range mach value (> 5)', async () => {
+    const badTable = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 6.0, cd: 0.4 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+  });
+
+  test('discards table with out-of-range cd value (< 0.001)', async () => {
+    const badTable = [{ mach: 0.3, cd: 0.0005 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+  });
+
+  test('discards table with non-monotonic mach values', async () => {
+    const badTable = [{ mach: 0.3, cd: 0.3 }, { mach: 2.5, cd: 0.4 }, { mach: 1.0, cd: 0.5 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+  });
+
+  test('discards table missing subsonic coverage (all mach > 0.5)', async () => {
+    const badTable = [{ mach: 0.6, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+    });
+    await mod.init();
+    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+  });
 });
 
 describe('simulateBulletJS with customDragTable', () => {

@@ -131,7 +131,7 @@ function _updateDragTableStatus(fileName, rowCount) {
   if (nameEl)    nameEl.textContent = fileName
     ? `${fileName} (${rowCount} rows)`
     : (_customDragTable ? `Loaded (${_customDragTable.length} rows)` : '');
-  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Overrides drag model when loaded.';
+  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Stored for future use — drag model override requires server update.';
 }
 
 function _clearCustomDragTable() {
@@ -145,7 +145,7 @@ function _clearCustomDragTable() {
   /* istanbul ignore else -- #dragTableFile is always present in the app shell */
   if (fileInput)  fileInput.value = '';
   /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Overrides drag model when loaded.';
+  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Stored for future use — drag model override requires server update.';
 }
 
 // ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
@@ -1740,8 +1740,17 @@ async function init() {
     const stored = localStorage.getItem(CUSTOM_DRAG_TABLE_KEY);
     if (stored) {
       const arr = JSON.parse(stored);
-      const csvText = 'mach,cd\n' + arr.map(p => `${p.mach},${p.cd}`).join('\n');
-      _customDragTable = parseDragCsv(csvText);
+      if (!Array.isArray(arr) || arr.length < 3 || arr.length > 100) throw new Error('invalid');
+      for (const p of arr) {
+        if (!Number.isFinite(p.mach) || p.mach < 0 || p.mach > 5) throw new Error('invalid');
+        if (!Number.isFinite(p.cd)   || p.cd   < 0.001 || p.cd > 2) throw new Error('invalid');
+      }
+      for (let i = 1; i < arr.length; i++) {
+        if (arr[i].mach <= arr[i - 1].mach) throw new Error('invalid');
+      }
+      if (!arr.some(p => p.mach <= 0.5))  throw new Error('invalid');
+      if (!arr.some(p => p.mach >= 2.0))  throw new Error('invalid');
+      _customDragTable = arr;
       _updateDragTableStatus();
     }
   } catch (_) {
@@ -1767,7 +1776,7 @@ async function init() {
         try { localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table)); } catch (_) {}
         _updateDragTableStatus(file.name, table.length);
         /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-        if (helpEl) helpEl.textContent = 'Mach,CD columns. Overrides drag model when loaded.';
+        if (helpEl) helpEl.textContent = 'Loaded — requires server update to apply; results currently use the selected drag model.';
       } catch (err) {
         _customDragTable = null;
         try { localStorage.removeItem(CUSTOM_DRAG_TABLE_KEY); } catch (_) {}
