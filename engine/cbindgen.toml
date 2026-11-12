@@ -1,0 +1,10 @@
+language = "C"
+include_guard = "BALLISTICS_ENGINE_H"
+documentation = true
+pragma_once = false
+
+[export]
+include = ["ballistics_compute_trajectory", "ballistics_free_string"]
+
+[defines]
+"feature = \"ffi\"" = "BALLISTICS_ENGINE_FFI"

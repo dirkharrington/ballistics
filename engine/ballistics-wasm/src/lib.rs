@@ -1,8 +1,5 @@
-mod atmosphere;
-pub mod ballistics;
-mod drag;
-pub mod types;
-
+use ballistics_engine::ballistics::compute;
+use ballistics_engine::types;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -34,7 +31,7 @@ pub fn compute_trajectory(params_json: &str, bullet_json: &str) -> String {
     if let Err(e) = bullet.validate() {
         return error_json(&format!("bullet validation error: {e}"));
     }
-    let result = ballistics::compute(params, bullet);
+    let result = compute(params, bullet);
     match serde_json::to_string(&result) {
         Ok(json) => json,
         Err(e) => error_json(&format!("serialisation error: {e}")),
@@ -122,7 +119,6 @@ mod tests {
 
     #[test]
     fn error_json_escapes_quotes_and_backslashes() {
-        // Regression: hand-rolled escaping only handled `"` — serde_json handles all.
         let msg = error_json("say \"hello\" and c:\\path");
         let parsed: serde_json::Value = serde_json::from_str(&msg).expect("valid json");
         let s = parsed["error"].as_str().unwrap();

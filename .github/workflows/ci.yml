@@ -32,8 +32,9 @@ jobs:
             engine:
               - 'engine/Cargo.toml'
               - 'engine/Cargo.lock'
-              - 'engine/src/**'
-              - 'engine/tests/**'
+              - 'engine/ballistics-core/**'
+              - 'engine/ballistics-wasm/**'
+              - 'engine/cbindgen.toml'
               - 'engine/stage.sh'
               - '.github/workflows/ci.yml'
             java:
@@ -95,7 +96,7 @@ jobs:
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: engine/target
-          key: ${{ runner.os }}-cargo-target-${{ hashFiles('engine/Cargo.lock', 'engine/src/**') }}
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('engine/Cargo.lock', 'engine/ballistics-core/src/**', 'engine/ballistics-wasm/src/**') }}
           restore-keys: ${{ runner.os }}-cargo-target-
 
       - name: Install Rust stable
@@ -107,14 +108,27 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked --version 0.9.1
 
+      - name: Install cbindgen
+        run: cargo install cbindgen --locked --version 0.27.0
+
       - name: Cargo test
-        run: cargo test --manifest-path engine/Cargo.toml
+        run: cargo test --manifest-path engine/Cargo.toml --workspace
 
       - name: Cargo llvm-cov gate
-        run: cargo llvm-cov --manifest-path engine/Cargo.toml --all-features --fail-under-lines 99
+        run: cargo llvm-cov --manifest-path engine/Cargo.toml --workspace --all-features --ignore-filename-regex 'engine/src/' --fail-under-lines 99
+
+      - name: Generate C FFI header
+        run: |
+          cbindgen --config engine/cbindgen.toml \
+                   --crate ballistics-engine \
+                   --output engine/include/ballistics_engine.h \
+                   -- engine/ballistics-core
+
+      - name: Header drift check
+        run: git diff --exit-code engine/include/
 
       - name: wasm-pack build
-        run: wasm-pack build engine/ --target web --release
+        run: wasm-pack build engine/ballistics-wasm --target web --release --out-dir ../pkg --out-name ballistics_engine
 
       - name: Verify TypeScript types generated
         run: test -f engine/pkg/ballistics_engine.d.ts
