@@ -196,9 +196,9 @@ If `bullets.yaml` cannot be found or is malformed at startup, the server exits w
 
 JaCoCo is eliminated with the Spring Boot backend. Rust coverage replaces it.
 
-Coverage tool: `cargo-llvm-cov` (already in CI for `engine/`). Minimum line coverage: **90%** for `server/src/`. (Lower than the WASM engine's 95%+ because Axum handler tests are integration-level and certain error branches — TLS init failure, config parse failure — cannot be practically covered without mocking the runtime.)
+Coverage tool: `cargo-llvm-cov` (already in CI for `engine/`). Minimum line coverage: **100%** for `server/src/`, consistent with the project-wide 100% requirement for all layers.
 
-Coverage is measured per `cargo llvm-cov --workspace --lcov --output-path target/lcov.info`. The CI gate fails on coverage < 90% for the `ballistics-server` crate.
+Coverage is measured per `cargo llvm-cov --workspace --lcov --output-path target/lcov.info`. The CI gate fails on coverage < 100% for the `ballistics-server` crate. All error branches (startup failures, bad config) must be exercised by tests — use `mockall` or test-only feature flags where real runtime panics are impractical.
 
 The 100% Jest coverage requirement for the frontend is unaffected.
 
@@ -210,7 +210,7 @@ The 100% Jest coverage requirement for the frontend is unaffected.
 
 ```dockerfile
 # Stage 1: build WASM (unchanged from current Dockerfile)
-FROM rust:1.99.1@sha256:... AS wasm-builder
+FROM rust:1.100@sha256:e19840879045c951c905d0eaa9887f3439c62000e429963371b376bac8d38c31 AS wasm-builder
 WORKDIR /build
 COPY engine/ engine/
 COPY Cargo.toml Cargo.lock ./
@@ -225,7 +225,7 @@ COPY --from=wasm-builder /build/engine/pkg/ engine/pkg/
 RUN npm ci && npm run build
 
 # Stage 3: build Rust server
-FROM rust:1.99.1@sha256:... AS server-builder
+FROM rust:1.100@sha256:e19840879045c951c905d0eaa9887f3439c62000e429963371b376bac8d38c31 AS server-builder
 WORKDIR /build
 COPY server/ server/
 COPY engine/ballistics-core/ engine/ballistics-core/
@@ -290,7 +290,7 @@ NIST SSDF SP 800-218 mapping:
 
 - [ ] `cargo build -p ballistics-server` succeeds with no warnings (`-D warnings`).
 - [ ] `cargo test -p ballistics-server` passes all integration tests.
-- [ ] `cargo llvm-cov -p ballistics-server` reports ≥ 90% line coverage.
+- [ ] `cargo llvm-cov -p ballistics-server` reports 100% line coverage.
 - [ ] `POST /api/trajectory` returns the same JSON as the Spring Boot endpoint for all 10 parity-tested bullets (verified by a cross-implementation test script in `server/tests/`).
 - [ ] `POST /api/trajectories/batch` returns results in request order.
 - [ ] `GET /api/bullets` returns the catalog; `Cache-Control: max-age=3600` is present.
@@ -319,6 +319,6 @@ NIST SSDF SP 800-218 mapping:
 | WA11-BE-3 | Rust/BE | Implement `routes/bullets.rs` (catalog load, `Arc` sharing, `Cache-Control` header). |
 | WA11-BE-4 | Rust/BE | Implement `middleware/security_headers.rs` and `middleware/rate_limit.rs`. Wire `ServeDir` for static assets. SPA fallback. |
 | WA11-BE-5 | Rust/BE | Implement `metrics.rs`: health endpoints, Prometheus metrics. |
-| WA11-BE-6 | Rust/BE | Write `server/tests/` integration tests covering all acceptance criteria. Verify `cargo llvm-cov` ≥ 90%. |
+| WA11-BE-6 | Rust/BE | Write `server/tests/` integration tests covering all acceptance criteria. Verify `cargo llvm-cov` = 100%. |
 | WA11-DS-1 | DevSecOps | Update Dockerfile (§10.1). Remove Maven/JRE stages. Rename `java-build` → `server-build` in CI. Add `cargo audit` and Trivy scan of new image. Remove Spring Boot dependencies from `dependabot.yml`. |
 | WA11-DS-2 | DevSecOps | Delete `src/main/java/`, `pom.xml`, `physics-tables.yaml`, Spring-related config files. Confirm no dead references remain. |
