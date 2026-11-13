@@ -1,9 +1,9 @@
 # Contract: Coriolis Effect (WA-13)
 
-Version: 0.1.1 — 2026-11-11 (formula correction — removed erroneous cos(az) factor)  
+Version: 0.1.2 — 2026-11-12 (drop WA13-BE-3 — Java BE superseded by WA-11)  
 ADR: none  
 Depends on: [`wasm-engine.md`](./wasm-engine.md) §3 (TrajectoryParams, TrajectoryPoint schemas), [`engine-parity.md`](./engine-parity.md) §7 (TrajectoryPoint field verdicts), [`spin-drift.md`](./spin-drift.md) (spinDriftCm field — combined display)  
-Owners: backend/Rust (§2–§4), backend/Java (§5), frontend (§6), devsecops (§7)
+Owners: backend/Rust (§2–§4), ~~backend/Java (§5)~~ superseded by WA-11, frontend (§6), devsecops (§7)
 
 Builders implement this contract exactly. To change it, propose the change to the architect. Don't edit this file.
 
@@ -328,6 +328,6 @@ coriolisDeflectionCm: number;
 |---|---|---|
 | WA13-BE-1 | Rust | Add `latitude_deg`, `azimuth_deg` to `TrajectoryParams`; add `coriolis_deflection_cm` to `TrajectoryPoint`; validation; computation in `ballistics.rs`. |
 | WA13-BE-2 | Rust | Parity test cases (§4). Update `engine-parity.md`. |
-| WA13-BE-3 | Java/BE | Add fields to `TrajectoryRequest`, `TrajectoryPoint`; validation annotations; computation in `BallisticsEngine.java`. |
+| ~~WA13-BE-3~~ | ~~Java/BE~~ | ~~Add fields to `TrajectoryRequest`, `TrajectoryPoint`; validation annotations; computation in `BallisticsEngine.java`.~~ **Dropped — Java backend removed by WA-11; Rust server accepts `latitudeDeg`/`azimuthDeg` via `ballistics-core`.** |
 | WA13-FE-1 | Frontend | UI input fields (§6.1). Update `toEngineParams` (§6.2). Results table Coriolis column (§6.3). DOPE card row (§6.4). Update `loader.d.ts` (§8). |
 | WA13-FE-2 | Frontend | Jest tests: `toEngineParams` includes/excludes fields correctly; results table column visibility. |
