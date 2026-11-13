@@ -1,131 +1,159 @@
 # Backlog
 
-_Baseline: 2026-11-13 · Reset for pure-browser SPA. All physics run in WASM in the browser._
+_Baseline: 2026-11-13 · Pure-browser SPA. All physics in TypeScript. No Rust, no Java, no server._
 _Sprint history archived in git (through PR #82)._
 
 ---
 
-## Milestone 1 — Drop the server
+## Milestone 1 — TypeScript physics engine
 
-### SPA-1 · Remove server API calls · FE · Size M
+### SPA-1 · Type the physics engine · FE · Size S
 
-Replace every `fetch('/api/...')` call in `ballistics.js` with WASM engine calls or pure JS. No server should be reachable or required at runtime.
+`simulateBulletJS()` already implements the full physics correctly and is the
+current no-WASM fallback. This story promotes it to the one and only engine by
+adding TypeScript types and removing everything above it in the stack (the WASM
+loader, the web worker, and the WASM/JS dispatch layer).
 
-**Call sites to replace:**
+**Work items:**
+
+1. Add TypeScript to the project. Vite already transpiles TS natively — just add
+   `tsconfig.json` and rename files from `.js` to `.ts` (or keep `.js` with JSDoc
+   types if preferred; both work with Vite).
+2. Define typed interfaces for the physics boundary:
+   ```ts
+   interface Bullet { id: string; name: string; massGrains: number; bcG1: number; bcG7?: number; diameterInch: number; muzzleVelocityFps: number; /* … */ }
+   interface TrajectoryParams { rangeMeters: number; zeroRangeMeters: number; windSpeedMps: number; windAngleDeg: number; altitudeMeters: number; temperatureCelsius: number; shootingAngleDeg?: number; latitudeDeg?: number; azimuthDeg?: number; customDragTable?: DragPoint[]; }
+   interface DragPoint { mach: number; cd: number; }
+   interface TrajectoryPoint { rangeMeters: number; dropCm: number; windDriftCm: number; velocityMps: number; energyJ: number; timeOfFlightSec: number; moaAdjustment: number; mradAdjustment: number; spinDriftCm: number; coriolisDeflectionCm: number; }
+   ```
+3. Remove `engine-client.js`, `engine/loader.js`, `engine.worker.js`, the WASM
+   init chain, and the `virtual:wasm-engine` Vite plugin. Delete the WASM
+   dispatch logic in `ballistics.js` (the `try { WASM } catch { simulateBulletJS }`
+   wrapper). `simulateBulletJS` becomes `simulate` — the only path.
+4. Remove `virtual:physics-tables` plugin (the TS engine inlines its own
+   constants, same as `simulateBulletJS` does today).
+5. Keep the `virtual:bullet-catalog` Vite plugin — bullets still bundled at build
+   time from `bullets.yaml`.
+6. Keep the Service Worker — it still caches static assets for offline and repeat
+   visits.
+
+**Coverage:** 100% Jest. The JS fallback tests already cover the physics; rename
+and retype them. Remove tests that exercised WASM loading, worker messaging, and
+the WASM/JS dispatch path.
+
+**Acceptance:**
+- `npm run build` completes with no Rust toolchain present.
+- `npm test` passes at 100/100/100/100.
+- `simulateBulletJS` and all WASM references are gone from the codebase.
+
+---
+
+## Milestone 2 — Drop the server
+
+### SPA-2 · Remove server API calls · FE · Size M
+
+Replace every `fetch('/api/...')` call with direct calls to the TS engine from
+SPA-1. No network requests are made at runtime.
+
+**Call sites:**
 
 | Call | Replacement |
 |---|---|
-| `POST /api/rpc` (trajectory, 2 sites) | `computeTrajectory()` via WASM worker (already the primary path in `runSimulation`; remove the REST fallback) |
-| `POST /api/trajectories/custom` | Same WASM worker call — custom single-round is identical to the standard path with extra fields |
-| `GET /api/trajectories/compare/stream` (SSE) | Compute both trajectories in parallel WASM worker calls; replace progressive SSE rendering with progressive rendering driven by `Promise.all` + `requestAnimationFrame` |
-| `POST /api/trajectories/compare` (non-streaming fallback) | Same parallel WASM worker calls |
-| `POST /api/rpc` (`bullets.list` online probe) | Delete — no server means no probe; remove all online/offline toggle logic |
+| `POST /api/rpc` (trajectory, 2 sites) | `simulate(bullet, params)` — synchronous, inline |
+| `POST /api/trajectories/custom` | `simulate(bullet, params)` — same call, custom fields already in `TrajectoryParams` |
+| `GET /api/trajectories/compare/stream` (SSE) | `Promise.all([simulate(b1, req), simulate(b2, req)])` — both results arrive in one microtask; progressive rendering via `requestAnimationFrame` if needed |
+| `POST /api/trajectories/compare` (non-streaming fallback) | Same `Promise.all` call |
+| `POST /api/rpc` (`bullets.list` online probe) | Delete — remove all online/offline toggle logic; with no server the app is always "ready" |
 
-**What stays:**
-- `simulateBulletJS()` JS fallback for no-WASM browsers (keep as-is)
-- `virtual:bullet-catalog` plugin (bullets already bundled at build time — no change needed)
-- Service Worker caching (still useful for repeat visits and true offline)
-
-**Coverage:** 100% Jest. All replaced paths need new or updated tests covering WASM-success and JS-fallback branches for every code path the removed fetch calls served.
+**Coverage:** 100% Jest. All replaced paths need tests covering the TS engine call and the UI update that follows.
 
 **Acceptance:**
-- Opening `index.html` from `file://` (no server at all) loads the app, populates the bullet list, and computes trajectories.
-- No network requests to `/api/` are issued under any interaction.
-- Compare tab returns results for both rounds.
+- Loading `index.html` from `file://` (no server) works end-to-end.
+- No requests to `/api/` under any interaction (verify with browser network tab).
+- Compare tab returns both results.
+- The "Offline" indicator and online-probe logic are gone.
 - Jest passes at 100/100/100/100.
 
 ---
 
-### SPA-2 · Remove Java/Spring Boot backend · BE / DevSecOps · Size S
+### SPA-3 · Delete Java backend and Rust engine · DevSecOps · Size S
 
-Delete the server-side Java code and its build tooling. No Java should remain.
+Delete every artefact the Java backend and WASM pipeline produced. After SPA-1
+and SPA-2, nothing in the runtime references them.
 
 **Delete:**
-- `src/main/java/` — all Spring Boot application code
-- `src/test/java/` — all JUnit / JaCoCo tests
+- `src/main/java/` — Spring Boot application code
+- `src/test/java/` — JUnit / JaCoCo tests
 - `pom.xml`, `mvnw`, `mvnw.cmd`, `.mvn/`
-- `Dockerfile` (server stages; WASM build moves to CI scripts or a Rust-only Dockerfile)
-- `docker-compose.yml`, `docker-compose.monitoring.yml`
-- `src/main/resources/physics-tables.yaml` — only consumed by the Java engine; WASM has its own constants
+- `engine/` — entire Rust / wasm-pack workspace (`ballistics-core`, `ballistics-wasm`)
+- `Dockerfile`, `docker-compose.yml`, `docker-compose.monitoring.yml`
+- `src/main/resources/physics-tables.yaml` — only consumed by Java engine
 - `src/main/resources/application*.yml` — Spring config
+- `engine/pkg/`, `src/main/resources/static/wasm/` build artefacts (if committed)
 
 **Keep:**
 - `src/main/resources/static/` — the entire frontend
-- `src/main/resources/bullets.yaml` — bullet catalog source of truth (consumed by `vite.config.js` via `virtual:bullet-catalog`)
-- `engine/` — Rust WASM workspace
+- `src/main/resources/bullets.yaml` — bullet catalog source of truth
 
-**CI:** Remove the `java-build` job and all `needs: [java-build]` references. Remove JaCoCo coverage step. Remove OWASP dependency check (Java-only; Trivy covers npm). Keep `rust-build` (WASM) and `frontend-build` (Jest + Vite).
+**CI:** Remove `rust-build` and `java-build` jobs and all `needs:` references to
+them. Remove OWASP dependency check (Java-only). Remove Trivy container scan
+(no container). Keep: `frontend-build` (Jest + Vite). Keep: Trivy filesystem
+scan for npm dependencies. Keep: CodeQL JavaScript.
 
 **Acceptance:**
-- `npm run build` produces a working `dist/` with no Java toolchain present.
-- CI passes with only `rust-build` and `frontend-build` jobs.
-- No `.java` files remain in the repo.
+- `git grep -r 'import.*java\|\.java\|pom\.xml\|wasm-pack\|ballistics-core'` returns nothing.
+- CI has one job: `frontend-build`.
+- `npm run build` succeeds from a clean checkout with only Node installed.
 
 ---
 
-## Milestone 2 — Clean project structure
+## Milestone 3 — Clean project structure
 
-### SPA-3 · Flatten source layout · FE / DevSecOps · Size S
+### SPA-4 · Flatten source layout · FE · Size S
 
-The Maven directory convention (`src/main/resources/static/`) is a Java artifact. With Spring Boot gone, rename it to something idiomatic for a frontend project.
+The Maven directory convention (`src/main/resources/static/`) is a Java
+artefact. Rename it.
 
 **Move:**
 - `src/main/resources/static/` → `app/`
 - `src/main/resources/bullets.yaml` → `app/data/bullets.yaml`
+- `src/test/js/` → `app/tests/` (or keep at root `tests/` — pick one)
 
 **Update:**
-- `vite.config.js`: set `root: 'app'`, `outDir: '../dist'`, update all `resolve(__dirname, 'src/main/resources/...')` paths
-- `package.json` test paths (`src/test/js/` stays or moves to `app/tests/` — pick one and update Jest config)
+- `vite.config.js`: `root: 'app'`, `outDir: '../dist'`, update all
+  `resolve(__dirname, 'src/main/resources/...')` paths in plugins
+- `package.json` Jest `roots` and `testMatch`
 - CI `paths-filter` entries
-- Service Worker asset paths (auto-handled by Vite hash injection)
+- `.gitignore` — add `dist/`, remove `target/`
 
 **Acceptance:**
-- `npm run build` outputs to `dist/`
-- `npm test` finds and runs all Jest suites
 - No path in the repo references `src/main/resources`
+- `npm run build` outputs to `dist/`
+- `npm test` finds and runs all suites
 
 ---
 
-## Milestone 3 — Static hosting
+## Milestone 4 — Deploy
 
-### SPA-4 · Deploy to static host · DevSecOps · Size S
+### SPA-5 · Static hosting · DevSecOps · Size S
 
-Add a CI deploy job that publishes the Vite build output to a static host on every push to `main`.
+Publish the Vite output to a static host on every push to `main`.
 
-**Recommended host:** GitHub Pages (zero infra cost, same repo).
+**Recommended host:** GitHub Pages (zero infra, same repo).
 
 **Work items:**
-1. Add `deploy` job in `ci.yml` that runs after `frontend-build` and `rust-build`, conditioned on `github.ref == 'refs/heads/main'` and `github.event_name == 'push'`
-2. Use `actions/deploy-pages` (or equivalent) to publish `dist/`
-3. Set Vite `base` URL to match the deployed path (e.g. `/ballistics/` for GitHub Pages project site, or `/` for a custom domain)
+1. Add `deploy` job in `ci.yml` — runs after `frontend-build`, conditioned on
+   `github.ref == 'refs/heads/main'` and `github.event_name == 'push'`
+2. Use `actions/deploy-pages` to publish `dist/`
+3. Set Vite `base` to match the deployed path (`/ballistics/` for a project site,
+   `/` for a custom domain or org site)
 4. Update Service Worker scope to match
 5. Add `CNAME` file if using a custom domain
 
 **Acceptance:**
 - Push to `main` → site live at the configured URL within 2 minutes
 - Service Worker registers and caches assets on first load
-- Hard refresh on the deployed URL loads the app without 404
-
----
-
-## Milestone 4 — Optimisation
-
-### SPA-5 · SIMD acceleration · Rust · Size M
-
-Enable WebAssembly SIMD in `ballistics-core` for 2–4× speedup on Chrome/Firefox. Most impactful on ELR trajectories (3000+ m).
-
-**Work items:**
-1. Add `#[cfg(target_feature = "simd128")]` opt-in path in the trajectory integrator hot loop (`ballistics.rs`). Gate with a Rust `simd` feature flag.
-2. Keep the scalar path as the default; SIMD activates when the browser supports it (wasm-pack emits a feature-detect shim, or use `wasmFeatureDetect` from the loader).
-3. Add a `simd` build in `ci.yml` that runs `wasm-pack build --features simd` and validates the output.
-4. Benchmark at 1000 m, 2000 m, 3000 m before and after; record in a commit comment.
-5. 100% `cargo-llvm-cov` coverage maintained for both paths.
-
-**Acceptance:**
-- Chrome 91+ and Firefox 89+ receive the SIMD binary and compute faster
-- Browsers without SIMD receive the scalar binary and compute correctly
-- All Rust tests pass with and without the `simd` feature flag
-- No regression in trajectory output values
+- Hard refresh at the deployed URL loads the app
 
 ---
 
