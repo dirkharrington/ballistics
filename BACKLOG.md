@@ -1,323 +1,164 @@
-# Sprint Backlog
+# Backlog
 
-_Baseline: 2026-11-03 · Spring Boot 4.1.1 / Java 21 · 354 tests · 100% coverage_
-
----
-
-## P1 — Must Have
-
-~~### MH-1 · MOA / MRAD Adjustment Chart · FE · Size S~~ ✅ Done — PR #34
-
-Add a 5th Chart.js panel to the Trajectory Charts tab showing scope elevation
-adjustment (MOA primary axis, MRAD secondary) vs. range. Zero crossing,
-supersonic limit, and max-ordinate annotations mirror the existing panels;
-crosshair syncs with all existing charts.
-
-`moaAdjustment` and `mradAdjustment` are already present on every `TrajectoryPoint`
-— this is a pure frontend change with no backend or contract work.
-
-**Value:** Scope click data vs. range is the primary daily-use output for
-competitive shooters. The data is computed on every request; only the
-visualization is missing.
+_Baseline: 2026-11-13 · Pure-browser SPA. All physics in TypeScript. No Rust, no Java, no server._
+_Sprint history archived in git (through PR #82)._
 
 ---
 
-~~### MH-2 · Catalog Expansion — 50+ Rounds · BE · Size M~~ ✅ Done — PR #32
+## Milestone 1 — TypeScript physics engine
 
-~~### MH-3 · Come-Ups / DOPE Card · FE · Size M~~ ✅ Done — PR #34
+### SPA-1 · Type the physics engine · FE · Size S
 
-Add a "DOPE Card" panel to the Tools tab. The user enters 4–8 target distances;
-the tool generates a come-ups table (distance → MOA up → MRAD up → windage at
-10 km/h) for each selected round. One-click copy as plain text; distances encoded
-in the URL state for sharing.
-
-No new backend endpoint required — all data is present in the computed trajectory
-points.
-
-**Value:** A come-ups table is the standard deliverable a shooter takes to the
-range. Completes the "compute → verify → shoot" workflow that defines the tool's
-core use case.
-
----
-
-~~### MH-4 · Sensitivity Analysis — Condition Sweep · FE · Size S~~ ✅ Done — PR #34
-
-Add a "Sweep" mode to the sidebar. The user locks one bullet and sweeps a single
-parameter (wind speed, altitude, or temperature) across 3–5 values. The tool
-calls `POST /api/trajectories/batch` with the generated requests and renders a
-family of curves on the drop or drift chart, one curve per condition value.
-
-The batch endpoint already supports this; the UI surface is entirely absent.
-
-**Value:** Primary research workflow for engineers and ammunition developers.
-Turns the backend's parallel execution capability into a visible user feature.
-
----
-
-## P2 — Should Have
-
-~~### SH-1 · Spin Drift (Gyroscopic) · BE + FE · Size M~~ ✅ Done — PR #32 (BE), PR #34 (FE)
-
-~~### SH-2 · BC Back-Calculator · FE · Size S~~ ✅ Done — PR #34
-
-Add a "Solve BC" card to the Tools tab. Inputs: bullet weight (g), muzzle
-velocity (m/s), measured drop (cm), measured range (m), same environmental
-parameters as the main form. Solver iterates the client-side physics (bisection
-on BC) to find the G1 effective BC that reproduces the observed drop within 0.5
-cm. Outputs the solved BC and implied G7 BC (÷ 0.505).
-
-Pure client-side calculation using the existing ballistics engine already imported
-into `ballistics.js`. No backend work required.
-
-**Value:** Handloaders routinely measure actual drop and back-calculate effective
-BC to compare against published values. Common load-development task.
-
----
-
-~~### SH-3 · Density Altitude Output · BE + FE · Size S~~ ✅ Done — PR #32 (BE), PR #34 (FE)
-
-## P3 — Cleanup / Security
-
-~~### CI-1 · Skip full CI on markdown-only PRs · DevSecOps · Size 1~~ ✅ Done — PR #40
-
-The `pull_request` trigger in `.github/workflows/ci.yml` has no path filters.
-Every PR that touches only `.md` files (backlog updates, contract docs, ADRs)
-runs the full Maven build + JaCoCo + Jest + Trivy + OWASP stack — roughly 5–8
-minutes of CI for a documentation change.
-
-Add `paths-ignore` filters to both the `push` and `pull_request` triggers so
-that commits where every changed file matches `**/*.md` skip the workflow
-entirely. The push trigger on `main` should also exclude `*.md`-only merges.
-
-```yaml
-on:
-  push:
-    branches: [main]
-    paths-ignore: ['**/*.md']
-  pull_request:
-    paths-ignore: ['**/*.md']
-```
-
-**Acceptance:** A PR that changes only `BACKLOG.md` shows a green "skipped" CI
-status rather than a full run. A PR that changes any `.java` or `.js` file still
-triggers the full suite.
-
-**Note:** Any PR that touches both code and `.md` files still runs CI — the
-filter only fires when every changed path is ignored.
-
-Source: recurring cost of backlog/contract doc PRs triggering full builds
-
----
-
-~~### CI-2 · Path-Filtered CI Jobs · DevSecOps · Size S~~ ✅ Done — PR #45
-
-Each PR should only run the checks relevant to its changed files. Right now every PR triggers the full stack — Rust build, Maven + JaCoCo, and Jest — even when only one layer changed.
-
-**Desired behaviour per PR:**
-
-| Changed paths | Jobs that must run |
-|---|---|
-| `engine/**` (Rust/WASM) | `rust-build` only |
-| `src/main/**/*.java`, `pom.xml`, `src/test/**/*.java` | `java-build` only |
-| `src/main/resources/static/**`, `src/test/js/**`, `package.json`, `babel.config.json`, `vite.config.js` | `frontend-build` only |
-| Any mix of the above | each affected job |
-| Anything else (contracts, docs, CI config itself) | required checks run but skip expensive steps |
-
-**Implementation approach:** Add a `changes` job that runs first using `dorny/paths-filter` (or equivalent) to detect which layers changed, then gate each downstream job on the corresponding output with `if: needs.changes.outputs.<layer> == 'true'`. The `rust-build` → `java-build` dependency from WA-1 (§8) is preserved when both run; when only `java-build` runs, it must not require the WASM artifact (use `-Dskip.wasm.pack=true` and skip the artifact download step when `rust-build` did not run).
-
-**Acceptance:**
-- A PR touching only `engine/` triggers `rust-build` and skips `java-build` and `frontend-build`.
-- A PR touching only `src/main/resources/static/` triggers `frontend-build` and skips the others.
-- A PR touching only `.java` files triggers `java-build` (with `-Dskip.wasm.pack=true`) and skips the others.
-- A PR touching files from multiple layers triggers each affected job.
-- A PR touching `ci.yml` or `contracts/` triggers all jobs (safe default).
-- No existing check is silently dropped — all gates still run on a full-stack change.
-
-**Note:** CI-1 (markdown-only skip) is a prerequisite and already merged.
-
----
-
-
-### ~~CI-3 · Toolchain & Runtime Version Alignment · DevSecOps · Size M~~ ✓ DONE (PR #69)
-
-Standardise every tool and runtime on its current LTS release, eliminate
-floating version references, and ensure the CI environment, Dockerfile, and
-docker-compose images are internally consistent.
-
-**Current inventory (audited 2026-11-09):**
-
-| Tool | Location | Pinned to | Problem |
-|------|----------|-----------|---------|
-| Java (CI) | `.github/workflows/ci.yml` `java-version` | `21` (LTS) | Behind Dockerfile |
-| Java (runtime) | `Dockerfile` stages `extract` / `jlink` / final | `eclipse-temurin:25` (LTS) | Ahead of CI |
-| Java (build) | `Dockerfile` stage `build` | `maven:3-eclipse-temurin-27-alpine` | **27 is non-LTS**; mismatches runtime |
-| Node (CI) | `.github/workflows/ci.yml` `node-version` | `22.14.0` | May be behind latest Node 22 LTS patch |
-| Rust | CI + `engine/` | `stable` (floating) | No `rust-toolchain.toml`; can break silently on stable releases |
-| Ubuntu (CI) | `.github/workflows/ci.yml` `runs-on` | `ubuntu-latest` (floating) | Floats; can break on GitHub-side runner upgrades |
-| Alpine | `Dockerfile` final stage | `3.23` | Re-pin digest on upgrade |
-| wasm-pack | CI | `0.15.1` | Check for newer release |
-| cargo-llvm-cov | CI | `0.9.1` | Check for newer release |
-| Trivy | CI | `v0.76.1` + checks bundle pinned | Update bundle digest when version bumps |
-| Prometheus | `docker-compose.yml` | `v3.4.0` (digest-pinned) | Re-pin digest on upgrade |
-| Grafana | `docker-compose.yml` | `12.0.0` (digest-pinned) | Re-pin digest on upgrade |
+`simulateBulletJS()` already implements the full physics correctly and is the
+current no-WASM fallback. This story promotes it to the one and only engine by
+adding TypeScript types and removing everything above it in the stack (the WASM
+loader, the web worker, and the WASM/JS dispatch layer).
 
 **Work items:**
 
-1. **Standardise Java on 25 LTS everywhere.**
-   - CI: bump `java-version` from `21` to `25`.
-   - Dockerfile build stage: replace `maven:3-eclipse-temurin-27-alpine` with `maven:3-eclipse-temurin-25-alpine` and re-pin SHA digest.
-   - `pom.xml`: confirm `<java.version>25</java.version>` and update `maven.compiler.source/target` if set.
-   - Re-run `./mvnw verify` to confirm all tests pass on 25.
-
-2. **Pin CI runner to `ubuntu-24.04`.**
-   - Replace every `runs-on: ubuntu-latest` with `runs-on: ubuntu-24.04` (Ubuntu 24.04 LTS, Noble Numbat).
-   - Update when Ubuntu 26.04 LTS ships and GitHub Actions supports it.
-
-3. **Add `engine/rust-toolchain.toml` to pin Rust stable.**
-   ```toml
-   [toolchain]
-   channel = "stable"
-   # Update to the next stable release when upgrading; pin the exact version.
-   # Example: channel = "1.84.0"
+1. Add TypeScript to the project. Vite already transpiles TS natively — just add
+   `tsconfig.json` and rename files from `.js` to `.ts` (or keep `.js` with JSDoc
+   types if preferred; both work with Vite).
+2. Define typed interfaces for the physics boundary:
+   ```ts
+   interface Bullet { id: string; name: string; massGrains: number; bcG1: number; bcG7?: number; diameterInch: number; muzzleVelocityFps: number; /* … */ }
+   interface TrajectoryParams { rangeMeters: number; zeroRangeMeters: number; windSpeedMps: number; windAngleDeg: number; altitudeMeters: number; temperatureCelsius: number; shootingAngleDeg?: number; latitudeDeg?: number; azimuthDeg?: number; customDragTable?: DragPoint[]; }
+   interface DragPoint { mach: number; cd: number; }
+   interface TrajectoryPoint { rangeMeters: number; dropCm: number; windDriftCm: number; velocityMps: number; energyJ: number; timeOfFlightSec: number; moaAdjustment: number; mradAdjustment: number; spinDriftCm: number; coriolisDeflectionCm: number; }
    ```
-   CI's `rustup update stable` will still apply; the file makes the version
-   explicit in the repo and surfaces breakage on new releases before it hits
-   main.
+3. Remove `engine-client.js`, `engine/loader.js`, `engine.worker.js`, the WASM
+   init chain, and the `virtual:wasm-engine` Vite plugin. Delete the WASM
+   dispatch logic in `ballistics.js` (the `try { WASM } catch { simulateBulletJS }`
+   wrapper). `simulateBulletJS` becomes `simulate` — the only path.
+4. Remove `virtual:physics-tables` plugin (the TS engine inlines its own
+   constants, same as `simulateBulletJS` does today).
+5. Keep the `virtual:bullet-catalog` Vite plugin — bullets still bundled at build
+   time from `bullets.yaml`.
+6. Keep the Service Worker — it still caches static assets for offline and repeat
+   visits.
 
-4. **Bump Node to latest Node 22 LTS patch** in `ci.yml` `node-version`.
-
-5. **Check and bump wasm-pack and cargo-llvm-cov** to their latest stable
-   releases; update `--version` pins and re-run Rust CI.
-
-6. **Bump Trivy** to its latest release; re-fetch the checks-bundle digest
-   (`ghcr.io/aquasecurity/trivy-checks@sha256:...`) and update `TRIVY_CHECKS_BUNDLE_REPOSITORY` in `ci.yml`.
-
-7. **Re-pin all Dockerfile image digests** after any base-image version change
-   (`docker buildx imagetools inspect <image>:<tag>` → multi-arch index digest).
-
-8. **Re-pin docker-compose image digests** for Prometheus and Grafana if either
-   is bumped to a newer release.
+**Coverage:** 100% Jest. The JS fallback tests already cover the physics; rename
+and retype them. Remove tests that exercised WASM loading, worker messaging, and
+the WASM/JS dispatch path.
 
 **Acceptance:**
-- Java version is `25` in CI, Dockerfile build stage, and runtime stages; `pom.xml` target matches.
-- CI runners are pinned to `ubuntu-24.04`.
-- `engine/rust-toolchain.toml` exists and specifies a concrete stable version.
-- Node version in CI is the latest Node 22 LTS patch.
-- All Dockerfile `FROM` lines use digest-pinned tags.
-- `mvn verify` passes; Jest passes; Rust tests pass; Trivy scan exits 0.
-- No floating `latest` or unversioned references remain in CI or Docker configs.
-
-**Devsecops gate:** standard — PASS or PASS WITH NOTES before merge.
+- `npm run build` completes with no Rust toolchain present.
+- `npm test` passes at 100/100/100/100.
+- `simulateBulletJS` and all WASM references are gone from the codebase.
 
 ---
 
-## WASM — Sprint 1 · Must Have (~6 weeks)
+## Milestone 2 — Drop the server
 
-> **ADRs:** Rust + wasm-pack (not Emscripten/TeaVM/AssemblyScript). JSON at the
-> WASM boundary (consistent with REST schema, same test fixtures). Java backend
-> unchanged through Sprint 2 — WASM is additive, replacing the in-browser JS
-> mirror only.
+### SPA-2 · Remove server API calls · FE · Size M
 
-~~### WA-1 · Engine Scaffold & Toolchain · BE (Rust) · CI/CD · Size S~~ ✅ Done — PR #42
+Replace every `fetch('/api/...')` call with direct calls to the TS engine from
+SPA-1. No network requests are made at runtime.
 
-Set up a Cargo workspace at `engine/` in the repo root. Add wasm-pack config and
-a Maven `exec-maven-plugin` step to run `wasm-pack build` during `mvn package`.
-CI: install Rust toolchain (rustup) + wasm-pack in the GitHub Actions workflow.
-Output: `engine/pkg/` → copied to `src/main/resources/static/wasm/`. Deliverable:
-stub `hello_wasm()` proving the pipeline works end-to-end. No physics yet.
+**Call sites:**
 
-**Acceptance:** `mvn package` succeeds; WASM binary appears in
-`src/main/resources/static/wasm/` in the built JAR.
+| Call | Replacement |
+|---|---|
+| `POST /api/rpc` (trajectory, 2 sites) | `simulate(bullet, params)` — synchronous, inline |
+| `POST /api/trajectories/custom` | `simulate(bullet, params)` — same call, custom fields already in `TrajectoryParams` |
+| `GET /api/trajectories/compare/stream` (SSE) | `Promise.all([simulate(b1, req), simulate(b2, req)])` — both results arrive in one microtask; progressive rendering via `requestAnimationFrame` if needed |
+| `POST /api/trajectories/compare` (non-streaming fallback) | Same `Promise.all` call |
+| `POST /api/rpc` (`bullets.list` online probe) | Delete — remove all online/offline toggle logic; with no server the app is always "ready" |
 
----
+**Coverage:** 100% Jest. All replaced paths need tests covering the TS engine call and the UI update that follows.
 
-### ~~WA-2 · Core Trajectory Engine in Rust · Rust · Size L~~ ✅ Done (PR #46)
-
----
-
-~~### WA-3 · JS/TS Bindings & Loader · FE · Build · Size S~~ ✅ Done — PRs #65, #66, #67
-
-Write `engine/loader.js` (ESM) that async-initialises the WASM module once and
-exposes a typed `computeTrajectory(request, bullet)` function. Generate
-TypeScript types via wasm-bindgen. Fallback: if `WebAssembly` is not defined,
-throw a named error that the caller routes to the JS fallback.
-
-**Acceptance:** Loader initialises once; subsequent calls are synchronous;
-TypeScript types generated.
+**Acceptance:**
+- Loading `index.html` from `file://` (no server) works end-to-end.
+- No requests to `/api/` under any interaction (verify with browser network tab).
+- Compare tab returns both results.
+- The "Offline" indicator and online-probe logic are gone.
+- Jest passes at 100/100/100/100.
 
 ---
 
-~~### WA-4 · Replace `simulateBullet()` with WASM · FE · Size M~~ ✅ Done — PRs #65, #66, #67
+### SPA-3 · Delete Java backend and Rust engine · DevSecOps · Size S
 
-In `ballistics.js`, replace calls to `simulateBullet()` with the WASM loader.
-Rename the existing JS implementation to `simulateBulletJS()` for use as
-fallback. DOPE card, BC solver, and sweep preview all benefit automatically.
-Jest tests mock the WASM loader and cover both WASM-success and fallback paths.
-100% coverage maintained.
+Delete every artefact the Java backend and WASM pipeline produced. After SPA-1
+and SPA-2, nothing in the runtime references them.
 
----
+**Delete:**
+- `src/main/java/` — Spring Boot application code
+- `src/test/java/` — JUnit / JaCoCo tests
+- `pom.xml`, `mvnw`, `mvnw.cmd`, `.mvn/`
+- `engine/` — entire Rust / wasm-pack workspace (`ballistics-core`, `ballistics-wasm`)
+- `Dockerfile`, `docker-compose.yml`, `docker-compose.monitoring.yml`
+- `src/main/resources/physics-tables.yaml` — only consumed by Java engine
+- `src/main/resources/application*.yml` — Spring config
+- `engine/pkg/`, `src/main/resources/static/wasm/` build artefacts (if committed)
 
-~~### WA-5 · Web Worker Offload · FE · Size S~~ ✅ Done — PRs #65, #66, #67
+**Keep:**
+- `src/main/resources/static/` — the entire frontend
+- `src/main/resources/bullets.yaml` — bullet catalog source of truth
 
-Move WASM computation to a dedicated Web Worker (`engine.worker.js`). Main
-thread communicates via postMessage. Add a "Computing…" overlay for in-flight
-requests. Worker terminates cleanly on page unload. Jest: mock Worker with a
-synchronous stand-in. 100% coverage maintained.
+**CI:** Remove `rust-build` and `java-build` jobs and all `needs:` references to
+them. Remove OWASP dependency check (Java-only). Remove Trivy container scan
+(no container). Keep: `frontend-build` (Jest + Vite). Keep: Trivy filesystem
+scan for npm dependencies. Keep: CodeQL JavaScript.
 
----
-
-## WASM — Sprint 2 · Should Have (~3 weeks)
-
-~~### WA-6 · Offline Mode (Service Worker) · FE · PWA · Size M~~ ✅ Done — PR #72
-
-Register a Service Worker that caches: the WASM binary, the bullets catalog
-(`/api/bullets`), and all static assets. When offline, intercept API calls and
-serve cached catalog; use the WASM engine for computation; return a synthetic
-JSON-RPC response. Add an "Offline" indicator when `navigator.onLine === false`.
-Version cache by WASM binary hash to bust on engine upgrades.
-
----
-
-### ~~WA-7 · Client-Side Batch Sweep · FE · Size S~~ ✅ Done — PR #71
-
-~~Rewrite MH-4 sweep mode to run all 5 condition variants in the WASM worker
-instead of calling `POST /api/trajectories/batch`. Instant results, no network,
-no rate-limit friction. Keep the API path as a fallback when WASM is unavailable.
-No UI changes.~~
+**Acceptance:**
+- `git grep -r 'import.*java\|\.java\|pom\.xml\|wasm-pack\|ballistics-core'` returns nothing.
+- CI has one job: `frontend-build`.
+- `npm run build` succeeds from a clean checkout with only Node installed.
 
 ---
 
-~~### WA-8 · Physics Parity Audit + ADR · Test/Audit · Size S~~ ✅ Done — PR #70
+## Milestone 3 — Clean project structure
 
-Systematic comparison of Java engine vs Rust/WASM engine across the full catalog
-at multiple ranges and conditions. Document any intentional differences. Write
-`contracts/engine-parity.md` declaring which engine is authoritative for which
-computation.
+### SPA-4 · Flatten source layout · FE · Size S
+
+The Maven directory convention (`src/main/resources/static/`) is a Java
+artefact. Rename it.
+
+**Move:**
+- `src/main/resources/static/` → `app/`
+- `src/main/resources/bullets.yaml` → `app/data/bullets.yaml`
+- `src/test/js/` → `app/tests/` (or keep at root `tests/` — pick one)
+
+**Update:**
+- `vite.config.js`: `root: 'app'`, `outDir: '../dist'`, update all
+  `resolve(__dirname, 'src/main/resources/...')` paths in plugins
+- `package.json` Jest `roots` and `testMatch`
+- CI `paths-filter` entries
+- `.gitignore` — add `dist/`, remove `target/`
+
+**Acceptance:**
+- No path in the repo references `src/main/resources`
+- `npm run build` outputs to `dist/`
+- `npm test` finds and runs all suites
 
 ---
 
-## WASM — Sprint 3+ · Could Have (Roadmap)
+## Milestone 4 — Deploy
 
-| ID | Story | Value | Size |
-|---|---|---|---|
-| WA-9 | SIMD acceleration — `#[target_feature(enable = "simd128")]` opt-in; scalar fallback | 2–4× faster on Chrome/Firefox. Most impactful on ELR trajectories (3000+ m). | M |
-| ~~WA-10~~ | ~~Shared engine crate — `ballistics-engine` on crates.io, C FFI bindings via cbindgen~~ | ~~Enables future Rust backend and mobile SDKs (iOS/Android).~~ ✅ Done — PR #76 | M |
-| WA-11 | Rust backend — replace Spring Boot with Axum/Actix; native binary; <5 ms cold start | Highest infrastructure impact. Requires WA-10. | XL |
-| ~~WA-12~~ | ~~Custom drag function — user-provided BC curve (CSV of Mach → CD)~~ | ~~For bullets outside G1/G7 (Berger Hybrid, Hornady ELD-X at transonic).~~ | ~~L~~ FE done (PR #77) · Java BE superseded by WA-11 |
-| ~~WA-13~~ | ~~Coriolis effect — latitude + azimuth inputs; deflection alongside spin drift~~ | ~~Most-cited physics omission after spin drift. ~1+ MOA at 2000 m.~~ | ~~M~~ FE done (PR #78) · Java BE superseded by WA-11 |
+### SPA-5 · Static hosting · DevSecOps · Size S
 
-**WASM build pipeline:**
-```
-1. rustup target add wasm32-unknown-unknown        # CI setup (cached)
-2. cargo install wasm-pack                          # CI setup (cached)
-3. wasm-pack build engine/ballistics-wasm --target web --release --out-dir ../pkg --out-name ballistics_engine  # → engine/pkg/
-4. cp -r engine/pkg/ src/main/resources/static/wasm/  # Maven exec-plugin
-5. ./mvnw verify                                   # Java + Jest (unchanged)
-6. cargo test --manifest-path engine/Cargo.toml   # Rust unit tests (new gate)
-```
+Publish the Vite output to a static host on every push to `main`.
 
-**Open questions before WA-1:**
-1. Rust expertise on the team? (unfamiliar: ~6 wks; experienced: ~4 wks)
-2. `cargo-llvm-cov` for Rust coverage gate alongside JaCoCo and Jest
-3. Java engine deprecation plan — decide before Sprint 3 (WA-10)
-4. Source of truth for server responses — agree on ε before WA-8
+**Recommended host:** GitHub Pages (zero infra, same repo).
+
+**Work items:**
+1. Add `deploy` job in `ci.yml` — runs after `frontend-build`, conditioned on
+   `github.ref == 'refs/heads/main'` and `github.event_name == 'push'`
+2. Use `actions/deploy-pages` to publish `dist/`
+3. Set Vite `base` to match the deployed path (`/ballistics/` for a project site,
+   `/` for a custom domain or org site)
+4. Update Service Worker scope to match
+5. Add `CNAME` file if using a custom domain
+
+**Acceptance:**
+- Push to `main` → site live at the configured URL within 2 minutes
+- Service Worker registers and caches assets on first load
+- Hard refresh at the deployed URL loads the app
+
+---
+
+## Open questions
+
+1. **Custom domain?** GitHub Pages works under `username.github.io/ballistics`; a custom domain needs a `CNAME` and DNS record.
+2. **Bullet catalog editing?** Currently read-only (bundled at build time). Should users be able to add/edit bullets locally (e.g. saved to `localStorage`)? Raise as a new story if yes.
+3. **Trajectory export?** CSV / PDF download is pure-client and straightforward — raise as a new story if wanted.
