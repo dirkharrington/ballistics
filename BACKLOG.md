@@ -284,91 +284,63 @@ fixtures as the oracle).
 
 ---
 
-### OPT-5 · Service Worker cache strategy tuning · FE · Size S
+### OPT-5 · Network minimization and Service Worker · FE / DevSecOps · Size S
 
-With no server, the Service Worker no longer needs to intercept `/api/` calls or
-synthesize JSON-RPC responses. Simplify it to a pure asset cache with an
-optimal strategy for the static hosting layout.
-
-**Work items:**
-
-1. Remove all `/api/` interception logic from `sw.js` — it was the offline
-   server-response synthesizer, now dead code.
-2. Adopt a cache-first strategy for all static assets (JS, CSS, fonts):
-   - On install: pre-cache the full asset manifest Vite emits (`dist/manifest.json`)
-   - On fetch: cache-first with network fallback and background revalidation
-     (`stale-while-revalidate` semantics)
-3. Use a content-hash version key (Vite already appends content hashes to asset
-   filenames) instead of the current `_wasmHash` timestamp approach.
-4. Add a `skipWaiting` + `clients.claim()` pattern so new deploys activate
-   immediately on next page load rather than waiting for all tabs to close.
-
-**Coverage:** 100% Jest. Test the revised `sw.js` install, fetch, and activate
-handlers using the existing Service Worker test harness.
-
-**Acceptance:**
-- Repeat visits (warm cache) load with zero network requests (all assets served
-  from cache).
-- After a new deploy: on the next page load the new Service Worker activates and
-  fetches the updated asset manifest; stale assets are replaced.
-- No `/api/` route handling remains in `sw.js`.
-
----
-
-### OPT-6 · Minimize network requests · FE / DevSecOps · Size S
-
-A pure-browser SPA should load from zero network requests on a repeat visit and
-from as few as possible on first visit. This story audits every outbound request
-the app makes and eliminates or pre-stages anything avoidable.
+A pure-browser SPA with no server should reach zero network requests on repeat
+visits and as few as possible on first visit. This story rewrites the Service
+Worker for the new static layout and eliminates every avoidable outbound request.
 
 **Targets:**
-- **First visit:** ≤ 5 network requests (HTML + main JS chunk + CSS + manifest + SW registration)
-- **Repeat visit:** 0 network requests (Service Worker serves everything from cache)
-- **Third-party domains:** 0 (no calls to CDNs, font services, analytics, or beacons)
+- **First visit:** ≤ 5 requests (HTML + main JS chunk + CSS + manifest + SW registration), all same-origin
+- **Repeat visit:** 0 requests (Service Worker serves everything from cache)
+- **Third-party domains:** 0
 
 **Work items:**
 
-1. **Audit.** Open DevTools Network panel on the deployed URL with the cache
+1. **Audit first.** Open DevTools Network panel on the deployed URL with cache
    disabled. List every request: URL, initiator, size, type. Identify any
    third-party domains (Google Fonts, cdnjs, unpkg, analytics, etc.).
 
 2. **Self-host all external resources.** Bundle every dependency through Vite
-   (npm install it; don't load from CDN). Common culprits:
-   - Google Fonts → download the font files and serve from `app/fonts/`; update
-     `@font-face` declarations in CSS; remove the `<link>` preconnect and
-     stylesheet tags from `index.html`
+   (npm install; don't load from CDN). Common culprits:
+   - Google Fonts → download font files to `app/fonts/`, update `@font-face` in
+     CSS, remove the `<link>` preconnect and stylesheet tags from `index.html`
    - Chart.js, Bootstrap, or any other library loaded via CDN `<script>` →
-     replace with the npm package already in `node_modules`
-   - Any tracking pixel, beacon, or analytics script → remove entirely (this is
-     a privacy-sensitive ballistics tool; no third-party data collection)
+     replace with the npm package
+   - Any tracking pixel, beacon, or analytics script → remove entirely
 
-3. **Preload deferred chunks.** The code-split chunks from OPT-3 (Chart.js,
-   tools panel) are fetched on first tab activation. Add
-   `<link rel="modulepreload">` hints for them in `index.html` (Vite can emit
-   these automatically via `build.modulePreload`). The browser fetches them
-   during idle time before the user clicks, so the tab switch feels instant and
-   the request happens before it's needed rather than blocking the interaction.
+3. **Rewrite the Service Worker.** With no server there are no `/api/` calls to
+   intercept. Replace the current handler with a pure asset cache:
+   - Remove all `/api/` interception logic (offline server-response synthesizer — dead code)
+   - On install: pre-cache the full asset manifest Vite emits
+   - On fetch: cache-first with `stale-while-revalidate` for all same-origin assets
+   - Use Vite's content-hash filenames as the cache key instead of the current `_wasmHash` timestamp
+   - Add `skipWaiting` + `clients.claim()` so new deploys activate on next page load
 
-4. **Inline critical CSS.** If the CSS bundle is small (< 10 KB), inline it in
-   `index.html` via Vite's `vite-plugin-critical` or a simple `transformIndexHtml`
-   hook. Eliminates one render-blocking network request on first visit.
+4. **Preload deferred chunks.** Add `<link rel="modulepreload">` hints for the
+   code-split chunks from OPT-3 so the browser fetches them during idle time
+   before the user clicks the tab. Enable via `build.modulePreload` in
+   `vite.config.js`.
 
-5. **Verify SW precache coverage.** After OPT-5, the Service Worker installs a
-   precache manifest. Confirm the manifest includes every asset emitted by the
-   Vite build — including font files and the code-split chunks. Missing entries
-   mean a network request on second visit for those assets.
+5. **Inline critical CSS.** If the CSS bundle is < 10 KB, inline it in
+   `index.html` via a `transformIndexHtml` Vite plugin hook. Eliminates one
+   render-blocking request on first visit.
 
-**Coverage:** 100% Jest. Test that `index.html` contains no external `<link>` or
-`<script>` `src` attributes pointing outside the origin. Test that the SW
-precache manifest (or the install handler) lists every file in `dist/`.
+6. **Verify SW precache coverage.** Confirm the precache manifest includes every
+   asset Vite emits — JS chunks, CSS, fonts, icons. Missing entries cause a
+   network request on second visit.
+
+**Coverage:** 100% Jest. Test revised `sw.js` install, fetch, and activate
+handlers. Test that `index.html` contains no external `<link>` or `<script>`
+`src` pointing outside the origin. Test that the precache manifest lists every
+file in `dist/`.
 
 **Acceptance:**
-- DevTools Network panel (cache disabled, fresh profile): ≤ 5 requests on first
-  load, all from the same origin.
-- DevTools Network panel (cache enabled): 0 requests on repeat load (304s or
-  service-worker-served, no outbound fetches).
+- DevTools Network (cache disabled): ≤ 5 requests on first load, all same-origin.
+- DevTools Network (cache enabled): 0 requests on repeat load.
 - `grep -r 'fonts.googleapis\|cdn\.\|unpkg\.\|cdnjs\.' dist/` returns nothing.
 - Lighthouse "Avoids third-party code" audit passes.
+- No `/api/` route handling remains in `sw.js`.
 
 ---
 
