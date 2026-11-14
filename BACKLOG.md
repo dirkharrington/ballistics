@@ -315,6 +315,63 @@ handlers using the existing Service Worker test harness.
 
 ---
 
+### OPT-6 · Minimize network requests · FE / DevSecOps · Size S
+
+A pure-browser SPA should load from zero network requests on a repeat visit and
+from as few as possible on first visit. This story audits every outbound request
+the app makes and eliminates or pre-stages anything avoidable.
+
+**Targets:**
+- **First visit:** ≤ 5 network requests (HTML + main JS chunk + CSS + manifest + SW registration)
+- **Repeat visit:** 0 network requests (Service Worker serves everything from cache)
+- **Third-party domains:** 0 (no calls to CDNs, font services, analytics, or beacons)
+
+**Work items:**
+
+1. **Audit.** Open DevTools Network panel on the deployed URL with the cache
+   disabled. List every request: URL, initiator, size, type. Identify any
+   third-party domains (Google Fonts, cdnjs, unpkg, analytics, etc.).
+
+2. **Self-host all external resources.** Bundle every dependency through Vite
+   (npm install it; don't load from CDN). Common culprits:
+   - Google Fonts → download the font files and serve from `app/fonts/`; update
+     `@font-face` declarations in CSS; remove the `<link>` preconnect and
+     stylesheet tags from `index.html`
+   - Chart.js, Bootstrap, or any other library loaded via CDN `<script>` →
+     replace with the npm package already in `node_modules`
+   - Any tracking pixel, beacon, or analytics script → remove entirely (this is
+     a privacy-sensitive ballistics tool; no third-party data collection)
+
+3. **Preload deferred chunks.** The code-split chunks from OPT-3 (Chart.js,
+   tools panel) are fetched on first tab activation. Add
+   `<link rel="modulepreload">` hints for them in `index.html` (Vite can emit
+   these automatically via `build.modulePreload`). The browser fetches them
+   during idle time before the user clicks, so the tab switch feels instant and
+   the request happens before it's needed rather than blocking the interaction.
+
+4. **Inline critical CSS.** If the CSS bundle is small (< 10 KB), inline it in
+   `index.html` via Vite's `vite-plugin-critical` or a simple `transformIndexHtml`
+   hook. Eliminates one render-blocking network request on first visit.
+
+5. **Verify SW precache coverage.** After OPT-5, the Service Worker installs a
+   precache manifest. Confirm the manifest includes every asset emitted by the
+   Vite build — including font files and the code-split chunks. Missing entries
+   mean a network request on second visit for those assets.
+
+**Coverage:** 100% Jest. Test that `index.html` contains no external `<link>` or
+`<script>` `src` attributes pointing outside the origin. Test that the SW
+precache manifest (or the install handler) lists every file in `dist/`.
+
+**Acceptance:**
+- DevTools Network panel (cache disabled, fresh profile): ≤ 5 requests on first
+  load, all from the same origin.
+- DevTools Network panel (cache enabled): 0 requests on repeat load (304s or
+  service-worker-served, no outbound fetches).
+- `grep -r 'fonts.googleapis\|cdn\.\|unpkg\.\|cdnjs\.' dist/` returns nothing.
+- Lighthouse "Avoids third-party code" audit passes.
+
+---
+
 ## Open questions
 
 1. **Custom domain?** GitHub Pages works under `username.github.io/ballistics`; a custom domain needs a `CNAME` and DNS record.
