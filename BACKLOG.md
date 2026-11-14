@@ -157,6 +157,164 @@ Publish the Vite output to a static host on every push to `main`.
 
 ---
 
+## Milestone 5 — Performance
+
+> **Prerequisite:** SPA-1 through SPA-5 merged. Measure before cutting — every
+> story here starts with a Lighthouse / DevTools profile to establish a baseline
+> and ends with a before/after comparison.
+
+### OPT-1 · Profiling baseline and Core Web Vitals targets · FE · Size S
+
+Establish concrete numbers before any optimization work starts, so every
+subsequent story has a measurable acceptance criterion.
+
+**Work items:**
+1. Run Lighthouse on the deployed URL (GitHub Pages, mobile + desktop preset).
+   Record LCP, INP, CLS, TTI, Total Blocking Time, and bundle size.
+2. Run the trajectory simulation in DevTools Performance panel for one round at
+   1000 m, 2000 m, and 3000 m. Record scripting time and frame budget used.
+3. Record the bundle breakdown: `npm run build -- --report` (Vite bundle
+   visualizer or `rollup-plugin-visualizer`). Identify the top-5 largest modules.
+4. Set targets for OPT-2 through OPT-5:
+   - LCP < 1.5 s on a simulated mobile 4G connection
+   - INP < 100 ms for all interactions
+   - CLS = 0
+   - Trajectory simulation < 5 ms at 3000 m (single round)
+   - Initial JS bundle < 100 KB gzipped
+
+**Acceptance:** A markdown report committed to `docs/perf-baseline.md` with the
+raw numbers and the targets above annotated pass/fail. Any target already met is
+noted; any that fails becomes the acceptance criterion for the relevant OPT story.
+
+---
+
+### OPT-2 · Chart rendering — downsampling and table virtualization · FE · Size S
+
+Rendering 3000 Chart.js data points and 3000 DOM table rows on every trajectory
+is the dominant rendering cost. Neither is perceptible at higher resolution than
+~200 visual points.
+
+**Work items:**
+
+1. **Downsample for charts.** Add a `downsample(points, n)` utility that returns
+   `n` evenly-spaced points from the trajectory array (default `n = 200`). Pass
+   the downsampled array to every Chart.js dataset. Keep the full array for the
+   DOPE card and CSV export, which need every point.
+2. **Virtualize the trajectory table.** Replace the current `innerHTML` loop that
+   renders all points with a virtual scroller: render only the rows in the
+   viewport plus a small overscan buffer (~20 rows). Re-render on scroll via
+   `IntersectionObserver` or a simple scroll listener.
+3. **Lazy-evaluate annotations.** Zero-crossing, supersonic-limit, and
+   max-ordinate annotations are computed on every chart update. Cache them and
+   recompute only when the trajectory data changes.
+
+**Coverage:** 100% Jest. Test `downsample` for edge cases (n > array length, n = 1,
+empty input). Virtual scroller: test that only the visible slice is rendered.
+
+**Acceptance:**
+- Chart render time (measured in DevTools Rendering → Frame Rendering Stats)
+  drops by ≥ 60% vs. the OPT-1 baseline at 3000 m.
+- INP for the "Compare" action is < 100 ms.
+- Trajectory output values are unchanged (the full array is still computed;
+  only the display is downsampled).
+
+---
+
+### OPT-3 · Code splitting — defer charts and tools panel · FE · Size S
+
+The Chart.js library (~200 KB minified) and the tools panel (DOPE card, BC
+solver, sweep mode) are loaded eagerly on page init even when the user never
+opens those tabs. Dynamic `import()` defers them to first use.
+
+**Work items:**
+
+1. Wrap the Chart.js import in `ballistics.js` with a dynamic import gated on
+   first "Trajectory Charts" tab activation:
+   ```ts
+   let chartsModule: typeof import('./charts') | null = null;
+   async function getCharts() {
+     if (!chartsModule) chartsModule = await import('./charts');
+     return chartsModule;
+   }
+   ```
+2. Do the same for the tools panel (`tools.ts`).
+3. Add a lightweight skeleton / spinner that shows while the deferred module
+   loads (typically < 200 ms on a warm cache; invisible on subsequent visits).
+4. Vite handles the chunk split automatically — verify with the bundle visualizer
+   that Chart.js is in a separate chunk.
+
+**Coverage:** 100% Jest. Mock `import()` to verify the deferred load is triggered
+only on first tab activation and not on page init.
+
+**Acceptance:**
+- Initial JS bundle (the chunk loaded on page open) is < 100 KB gzipped.
+- Chart.js chunk is loaded only after the user opens the Charts tab.
+- LCP improves by ≥ 20% vs. the OPT-1 baseline (Chart.js no longer blocks
+  the critical render path).
+
+---
+
+### OPT-4 · Physics engine — typed arrays and hot-loop tightening · FE · Size S
+
+The trajectory integrator runs in a tight loop (up to 3000 iterations). Two
+changes reduce allocation and branch cost: pre-allocate the output array and
+eliminate per-iteration object literals.
+
+**Work items:**
+
+1. **Pre-allocate output.** Replace `points.push({ ... })` inside the loop with
+   a pre-sized `Float64Array` per field (one array per `TrajectoryPoint` scalar
+   field). Return a typed `TrajectoryData` struct that tools and charts read by
+   index. Keep a `toPointArray(): TrajectoryPoint[]` helper for the table and
+   DOPE card, called outside the hot loop.
+2. **Inline constants.** The drag coefficient lookup (G1/G7 binary search) runs
+   on every step. Cache the lookup table reference outside the loop.
+3. **Profile before committing.** Run the DevTools Performance panel on the
+   changed code at 3000 m; keep the change only if scripting time drops by ≥ 20%.
+   If the gain is below threshold, document the measurement and close the story
+   as "investigated — no change warranted."
+
+**Coverage:** 100% Jest. The typed-array output must produce identical results to
+the object-array output within floating-point equality (use existing test
+fixtures as the oracle).
+
+**Acceptance:**
+- Physics computation at 3000 m (single round) is < 5 ms in DevTools.
+- All existing trajectory-value tests pass unchanged.
+
+---
+
+### OPT-5 · Service Worker cache strategy tuning · FE · Size S
+
+With no server, the Service Worker no longer needs to intercept `/api/` calls or
+synthesize JSON-RPC responses. Simplify it to a pure asset cache with an
+optimal strategy for the static hosting layout.
+
+**Work items:**
+
+1. Remove all `/api/` interception logic from `sw.js` — it was the offline
+   server-response synthesizer, now dead code.
+2. Adopt a cache-first strategy for all static assets (JS, CSS, fonts):
+   - On install: pre-cache the full asset manifest Vite emits (`dist/manifest.json`)
+   - On fetch: cache-first with network fallback and background revalidation
+     (`stale-while-revalidate` semantics)
+3. Use a content-hash version key (Vite already appends content hashes to asset
+   filenames) instead of the current `_wasmHash` timestamp approach.
+4. Add a `skipWaiting` + `clients.claim()` pattern so new deploys activate
+   immediately on next page load rather than waiting for all tabs to close.
+
+**Coverage:** 100% Jest. Test the revised `sw.js` install, fetch, and activate
+handlers using the existing Service Worker test harness.
+
+**Acceptance:**
+- Repeat visits (warm cache) load with zero network requests (all assets served
+  from cache).
+- After a new deploy: on the next page load the new Service Worker activates and
+  fetches the updated asset manifest; stale assets are replaced.
+- No `/api/` route handling remains in `sw.js`.
+
+---
+
 ## Open questions
 
 1. **Custom domain?** GitHub Pages works under `username.github.io/ballistics`; a custom domain needs a `CNAME` and DNS record.
