@@ -109,10 +109,10 @@ scan for npm dependencies. Keep: CodeQL JavaScript.
 
 ## Milestone 3 — Clean project structure
 
-### SPA-4 · Flatten source layout · FE · Size S
+### SPA-4 · Flatten source layout · FE · Size S · **In progress** (contract written, builder pending)
 
 The Maven directory convention (`src/main/resources/static/`) is a Java
-artefact. Rename it.
+artefact. Rename it. Contract: `contracts/spa4-flatten-layout.md` v1.0.0.
 
 **Move:**
 - `src/main/resources/static/` → `app/`
