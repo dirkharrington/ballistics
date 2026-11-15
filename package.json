@@ -4,14 +4,14 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "test": "jest --coverage",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "npm run typecheck && jest --coverage",
     "test:e2e": "jest --config jest.e2e.config.cjs"
   },
   "jest": {
     "testEnvironment": "jsdom",
     "roots": [
-      "src/test/js",
-      "engine"
+      "src/test/js"
     ],
     "testMatch": [
       "**/*.test.js"
@@ -27,19 +27,15 @@
       "src/main/resources/static/tools.js",
       "src/main/resources/static/url-state.js",
       "src/main/resources/static/custom-rounds.js",
-      "engine/loader.js",
-      "engine/worker-core.js",
-      "engine/engine.worker.js",
-      "src/main/resources/static/engine-client.js"
+      "src/main/resources/static/physics/engine.ts"
     ],
     "transform": {
-      "^.+\\.js$": "babel-jest"
+      "^.+\\.[jt]s$": "babel-jest"
     },
     "moduleNameMapper": {
       "^chart\\.js$": "<rootDir>/src/test/js/__mocks__/chart.js",
       "^virtual:bullet-catalog$": "<rootDir>/src/test/js/__mocks__/bullet-catalog.js",
-      "^virtual:physics-tables$": "<rootDir>/src/test/js/__mocks__/physics-tables.js",
-      "^virtual:wasm-engine$": "<rootDir>/src/test/js/__mocks__/wasm-engine.js"
+      "^virtual:physics-tables$": "<rootDir>/src/test/js/__mocks__/physics-tables.js"
     },
     "coverageThreshold": {
       "global": {
@@ -59,12 +55,14 @@
   "devDependencies": {
     "@babel/core": "^8.0.0",
     "@babel/preset-env": "^8.0.7",
+    "@babel/preset-typescript": "^8.0.7",
     "babel-jest": "^30.4.1",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "jest-puppeteer": "^11.0.0",
     "js-yaml": "^5.5.0",
     "puppeteer": "^25.16.0",
+    "typescript": "^7.0.2",
     "vite": "^8.3.6"
   }
 }

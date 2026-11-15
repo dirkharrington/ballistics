@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import { readFileSync, writeFileSync, readdirSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
@@ -17,53 +17,13 @@ function serviceWorkerPlugin() {
     },
     closeBundle() {
       if (!resolvedOutDir) return;
-      let hash = Date.now().toString(36);
-      try {
-        const assetsDir = resolve(resolvedOutDir, 'assets');
-        const wasmFile = readdirSync(assetsDir).find(f => /\.wasm$/.test(f));
-        if (wasmFile) {
-          const m = wasmFile.match(/[-.]([0-9a-f]{8,})\.[^.]+$/i);
-          if (m) hash = m[1];
-        }
-      } catch { /* no WASM assets yet */ }
+      const hash = Date.now().toString(36);
       const swSrc = readFileSync(
         resolve(__dirname, 'src/main/resources/static/sw.js'), 'utf-8');
       const swOut = swSrc.replace("let _wasmHash = 'v1';", `let _wasmHash = '${hash}';`);
       writeFileSync(resolve(resolvedOutDir, 'sw.js'), swOut);
     },
   };
-}
-
-function wasmEnginePlugin() {
-  const virtualId = 'virtual:wasm-engine'
-  const stubId = '\0virtual:wasm-engine-stub'
-  const entryPath = resolve(__dirname, 'src/main/resources/static/wasm/engine-entry.js')
-  let warned = false
-  return {
-    name: 'wasm-engine',
-    resolveId(id) {
-      if (id === virtualId) {
-        if (existsSync(entryPath)) return entryPath
-        return stubId
-      }
-    },
-    load(id) {
-      if (id === stubId) {
-        if (process.env.WASM_REQUIRED === 'true') {
-          this.error('WASM engine artifacts missing: run wasm-pack + engine/stage.sh')
-        } else if (!warned) {
-          warned = true
-          this.warn('WASM engine artifacts missing: run wasm-pack + engine/stage.sh')
-        }
-        return `export class WasmUnavailableError extends Error { constructor(m) { super(m); this.name = 'WasmUnavailableError'; } }
-export class BallisticsEngineError extends Error { constructor(m) { super(m); this.name = 'BallisticsEngineError'; } }
-export function initEngine() { return Promise.reject(new WasmUnavailableError('WASM engine not built')); }
-export function computeTrajectory() { throw new WasmUnavailableError('WASM engine not built'); }
-export function createEngineWorker() { return null; }
-`
-      }
-    }
-  }
 }
 
 function bulletCatalogPlugin() {
@@ -119,8 +79,5 @@ export default defineConfig({
     outDir: '../../../../target/classes/static',
     emptyOutDir: true,
   },
-  plugins: [serviceWorkerPlugin(), bulletCatalogPlugin(), physicsTablesPlugin(), wasmEnginePlugin()],
-  worker: {
-    format: 'es',
-  },
+  plugins: [serviceWorkerPlugin(), bulletCatalogPlugin(), physicsTablesPlugin()],
 })

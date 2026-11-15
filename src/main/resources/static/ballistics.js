@@ -1,11 +1,10 @@
 import { parseDragCsv } from './drag-csv.js';
 import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from 'chart.js';
 import BULLET_CATALOG from 'virtual:bullet-catalog';
-import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
-import { computeWithEngine, startEngine, onBusyChange, shutdownEngine, toEngineParams, toEngineBullet, WasmUnavailableError } from './engine-client.js';
+import { simulate, TrajectoryInputError } from './physics/engine.ts';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -50,57 +49,9 @@ function csvCell(str) {
   return /^[=+\-@\t\r]/.test(s) ? `"'${s}"` : `"${s}"`;
 }
 
-// G1 drag table & atmosphere constants come from virtual:physics-tables,
-// generated at build time from src/main/resources/physics-tables.yaml so the
-// Java engine and JS client share a single source of truth.
-
-// ── Physics constants (imperial unit system used by the RK4 engine) ───────────
-const EARTH_ROTATION_RADS = 7.2921e-5; // Earth's angular velocity in rad/s (WA-13 Coriolis)
-const G_FPS2        = 32.174;   // gravitational acceleration ft/s²  (≈ 9.807 m/s²)
-const DT_S          = 0.0005;   // RK4 time step 0.5 ms — chosen so energy error
-                                 // stays below 0.01% up to 2000 m; halving adds
-                                 // 4× cost with negligible accuracy gain
-const SOUND_FPS     = 1125;     // speed of sound ft/s at ISA sea level (≈ 343 m/s)
-const MIN_VEL_FPS   = 100;      // below this the G1 model diverges; break early
-const MPH_TO_FPS    = 1.46667;  // 1 mph = 1.46667 ft/s  (= 5280/3600)
-const G_PER_LB      = 453.592;  // grams per avoirdupois pound
-
-// ── Conversion constants ──────────────────────────────────────────────────────
-const FPS_PER_MPS   = 3.28084;
-const FT_PER_M      = 3.28084;
-const M_PER_YARD    = 0.9144;
-const CM_PER_INCH   = 2.54;
-const J_PER_FTLB    = 1.35582;
-const MPH_PER_KPH   = 0.621371;
-
-// ── Overlay state ─────────────────────────────────────────────────────────────
-export const COMPUTING_OVERLAY_DELAY_MS = 150;
-let _computingTimer = null;
-
-export function _setComputing(busy) {
-  const overlay = document.getElementById('computingOverlay');
-  const main    = document.querySelector('main.main');
-  if (busy) {
-    if (_computingTimer === null && (!overlay || overlay.hasAttribute('hidden'))) {
-      _computingTimer = setTimeout(() => {
-        _computingTimer = null;
-        const ov = document.getElementById('computingOverlay');
-        const mn = document.querySelector('main.main');
-        if (ov) ov.removeAttribute('hidden');
-        if (mn) mn.setAttribute('aria-busy', 'true');
-      }, COMPUTING_OVERLAY_DELAY_MS);
-    }
-  } else {
-    if (_computingTimer !== null) { clearTimeout(_computingTimer); _computingTimer = null; }
-    if (overlay) overlay.setAttribute('hidden', '');
-    if (main) main.removeAttribute('aria-busy');
-  }
-}
-
 // ── Module state ──────────────────────────────────────────────────────────────
 const CUSTOM_DRAG_TABLE_KEY = 'ballistics.customDragTable';
 let _customDragTable = null;
-let _customDragWarnFired = false;
 
 let bullets = [];
 let selectedIds = new Set();
@@ -153,220 +104,14 @@ function getMockBullets() {
   return BULLET_CATALOG;
 }
 
-// ── Drag table interpolation (generic — works for G1 or G7 table) ─────────────
-function interpolateDragTable(v, table) {
-  v = Math.abs(v);
-  if (v <= table[0][0]) return table[0][1];
-  if (v >= table[table.length - 1][0]) return table[table.length - 1][1];
-  for (let i = 1; i < table.length; i++) {
-    if (v <= table[i][0]) {
-      const t = (v - table[i - 1][0]) / (table[i][0] - table[i - 1][0]);
-      return table[i - 1][1] + t * (table[i][1] - table[i - 1][1]);
-    }
-  }
-}
-
-// ── G1 drag convenience wrapper (used by tests and legacy call-sites) ──────────
-function g1Drag(v) {
-  return interpolateDragTable(v, G1_TABLE);
-}
-
-// ── Atmosphere model ──────────────────────────────────────────────────────────
-function airDensityRatio(altFt, tempF) {
-  const stdTemp    = ATMOSPHERE.stdTempF - ATMOSPHERE.lapseRatePer1000Ft * (altFt / 1000);
-  const tempRatio  = (ATMOSPHERE.rankineOffset + stdTemp) / (ATMOSPHERE.rankineOffset + tempF);
-  const pressRatio = Math.pow(1 - ATMOSPHERE.pressureCoeff * altFt, ATMOSPHERE.pressureExp);
-  return pressRatio * tempRatio;
-}
-
-// ── Client-side ballistics engine (mirrors Java BallisticsEngine) ─────────────
-/**
- * Solve for the launch angle (radians) that makes the bullet pass through the
- * sight height at the given zero range.  Uses 64-step bisection; error < 1e-19 rad.
- *
- * @param {number} mvFps     muzzle velocity in ft/s
- * @param {number} bc        G1 ballistic coefficient (dimensionless)
- * @param {number} rho       air-density ratio (sea-level = 1.0)
- * @param {number} zeroFt    zero range in feet
- * @param {number} sightHtFt sight height above bore in feet
- * @returns {number} launch angle in radians
- */
-function findZeroAngleFps(mvFps, bc, rho, zeroFt, sightHtFt, dragTable = G1_TABLE) {
-  const deriv = (vx, vy, vel) => {
-    const drag = interpolateDragTable(Math.abs(vel), dragTable) * rho / bc;
-    return [-(vx / vel) * drag, -(vy / vel) * drag - G_FPS2];
-  };
-  let lo = -0.05, hi = 0.05;
-  // 64 iterations → error < 1e-19 rad; matches Java BallisticsEngine.findZeroAngle()
-  for (let i = 0; i < 64; i++) {
-    const mid = (lo + hi) / 2;
-    let vx = mvFps * Math.cos(mid), vy = mvFps * Math.sin(mid);
-    let x = 0, y = 0;
-    while (x < zeroFt) {
-      const vel = Math.hypot(vx, vy);
-      if (vel < 50) break;
-      const [ax1, ay1] = deriv(vx, vy, vel);
-      const vx2 = vx + 0.5*DT_S*ax1, vy2 = vy + 0.5*DT_S*ay1;
-      const [ax2, ay2] = deriv(vx2, vy2, Math.hypot(vx2, vy2));
-      const vx3 = vx + 0.5*DT_S*ax2, vy3 = vy + 0.5*DT_S*ay2;
-      const [ax3, ay3] = deriv(vx3, vy3, Math.hypot(vx3, vy3));
-      const vx4 = vx +    DT_S*ax3, vy4 = vy +    DT_S*ay3;
-      const [ax4, ay4] = deriv(vx4, vy4, Math.hypot(vx4, vy4));
-      vx += (DT_S/6)*(ax1 + 2*ax2 + 2*ax3 + ax4);
-      vy += (DT_S/6)*(ay1 + 2*ay2 + 2*ay3 + ay4);
-      x  += vx * DT_S; y += vy * DT_S;
-    }
-    if (y < sightHtFt) lo = mid; else hi = mid;
-  }
-  return (lo + hi) / 2;
-}
-
-/**
- * Integrate the full RK4 trajectory and collect output points.
- *
- * @param {number} mvFps      muzzle velocity in ft/s
- * @param {number} angle      launch angle in radians (from findZeroAngleFps)
- * @param {number} bc         G1 ballistic coefficient (dimensionless)
- * @param {number} rho        air-density ratio (sea-level = 1.0)
- * @param {number} wLbs       bullet weight in pounds
- * @param {number} windMph    full-value crosswind speed in mph (90° to bore)
- * @param {number} maxRangeYd maximum range to compute in yards
- * @param {number} stepYd     output-point interval in yards
- * @param {number} [cosAngle=1] cosine of shooting angle for rifleman's rule drop correction
- * @returns {{ points: object[], maxOrdIn: number, maxOrdRangeYd: number, supersonicLimYd: number }}
- */
-function integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle = 1, dragTable = G1_TABLE) {
-  const deriv = (vx, vy, vel) => {
-    const drag = interpolateDragTable(Math.abs(vel), dragTable) * rho / bc;
-    return [-(vx / vel) * drag, -(vy / vel) * drag - G_FPS2];
-  };
-  let vx = mvFps * Math.cos(angle), vy = mvFps * Math.sin(angle);
-  let x = 0, y = 0, t = 0;
-  const points = [];
-  let nextYd = 0;
-  let maxOrdIn = 0, maxOrdRangeYd = 0, supersonicLimYd = maxRangeYd;
-  let supersonicLogged = false;
-  // Precompute horizontal muzzle velocity for the Pejsa vacuum-TOF wind drift term.
-  // Using mvFps*cos(angle) rather than mvFps alone removes a systematic under-estimate
-  // that grows with range.
-  const mvHorizFps = mvFps * Math.cos(angle);
-  const windFps    = windMph * MPH_TO_FPS;
-
-  while ((x / 3) <= maxRangeYd + stepYd) {
-    const rangeYd = x / 3;
-    const vel     = Math.hypot(vx, vy);
-
-    if (rangeYd >= nextYd - 0.01) {
-      // Rifleman's rule: apparent drop on inclined shot = flat drop × cos(θ)
-      const dropIn    = (y - x * Math.tan(angle)) * 12 * cosAngle;
-      const energy    = 0.5 * (wLbs / G_FPS2) * vel * vel;
-      const vacuumTof = x / mvHorizFps;
-      const windDrift = windFps * (t - vacuumTof) * 12;
-      points.push({
-        rangeMeters:     Math.round(rangeYd * M_PER_YARD * 10) / 10,
-        dropCm:          Math.round(dropIn * CM_PER_INCH * 10) / 10,
-        velocityMps:     Math.round(vel / FPS_PER_MPS * 10) / 10,
-        energyJoules:    Math.round(energy * J_PER_FTLB * 10) / 10,
-        windDriftCm:     Math.round(windDrift * CM_PER_INCH * 10) / 10,
-        timeOfFlightSec: Math.round(t * 10000) / 10000
-      });
-      if (y * 12 > maxOrdIn) { maxOrdIn = y * 12; maxOrdRangeYd = rangeYd; }
-      nextYd += stepYd;
-    }
-
-    if (!supersonicLogged && vel < SOUND_FPS) {
-      supersonicLimYd = rangeYd;
-      supersonicLogged = true;
-    }
-
-    const [ax1, ay1] = deriv(vx, vy, vel);
-    const vx2 = vx + 0.5*DT_S*ax1, vy2 = vy + 0.5*DT_S*ay1;
-    const [ax2, ay2] = deriv(vx2, vy2, Math.hypot(vx2, vy2));
-    const vx3 = vx + 0.5*DT_S*ax2, vy3 = vy + 0.5*DT_S*ay2;
-    const [ax3, ay3] = deriv(vx3, vy3, Math.hypot(vx3, vy3));
-    const vx4 = vx +    DT_S*ax3, vy4 = vy +    DT_S*ay3;
-    const [ax4, ay4] = deriv(vx4, vy4, Math.hypot(vx4, vy4));
-    vx += (DT_S/6)*(ax1 + 2*ax2 + 2*ax3 + ax4);
-    vy += (DT_S/6)*(ay1 + 2*ay2 + 2*ay3 + ay4);
-    x  += vx * DT_S; y += vy * DT_S; t += DT_S;
-    if (vel < MIN_VEL_FPS) break;
-  }
-
-  return { points, maxOrdIn, maxOrdRangeYd, supersonicLimYd };
-}
-
-export function simulateBulletJS(bullet, req) {
-  if (req.customDragTable && req.customDragTable.length > 0 && !_customDragWarnFired) {
-    console.warn('[engine] JS fallback does not support customDragTable; using dragModel instead.');
-    _customDragWarnFired = true;
-  }
-  const bc    = bullet.ballisticCoefficient;
-  const mvFps = bullet.muzzleVelocityMps * FPS_PER_MPS;
-  const wLbs  = bullet.bulletWeightGrams / G_PER_LB;
-  const rho   = airDensityRatio(req.altitudeMeters * FT_PER_M,
-                                req.temperatureC * 9 / 5 + 32);
-
-  // Select drag table based on drag model (defaults to G1)
-  const dragTable = (req.dragModel ?? 'G1') === 'G7' ? G7_TABLE : G1_TABLE;
-
-  // sightHeightMm defaults to 38.1 mm (1.5 in) when absent or ≤ 0
-  const sightHtFt = (req.sightHeightMm ?? 38.1) / 25.4 / 12;  // mm → inches → feet
-  // Rifleman's rule: for inclined fire, effective horizontal zero = slant zero × cos(θ)
-  const cosAngle  = Math.cos((req.shootingAngleDegrees ?? 0) * Math.PI / 180);
-  const zeroFt    = req.zeroRangeMeters * FT_PER_M * cosAngle;
-  const angle     = findZeroAngleFps(mvFps, bc, rho, zeroFt, sightHtFt, dragTable);
-
-  // Decompose total wind speed into crosswind component (perpendicular to bore).
-  // Meteorological convention: windDirectionDeg is where wind comes FROM.
-  // sin(90°)=1 → full right crosswind (default); sin(270°)=-1 → full left crosswind.
-  const totalWindMph  = req.windSpeedKph * MPH_PER_KPH;
-  const windDirRad    = ((req.windDirectionDeg ?? 90) * Math.PI) / 180;
-  const windMph       = totalWindMph * Math.sin(windDirRad);  // signed: +right, −left
-  const maxRangeYd = req.maxRangeMeters / M_PER_YARD;
-  const stepYd     = req.stepMeters / M_PER_YARD;
-  const { points, maxOrdIn, maxOrdRangeYd, supersonicLimYd } =
-    integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle, dragTable);
-
-  if (req.latitudeDeg != null) {
-    const latRad = req.latitudeDeg * Math.PI / 180;
-    const azRad  = (req.azimuthDeg ?? 0) * Math.PI / 180;
-    const factor = EARTH_ROTATION_RADS * Math.sin(latRad) * Math.cos(azRad) * bullet.muzzleVelocityMps;
-    points.forEach(p => {
-      const t = p.timeOfFlightSec;
-      p.coriolisDeflectionCm = Math.round(factor * t * t * 100 * 10) / 10;
-    });
-  }
-
-  return {
-    bullet,
-    request:               req,
-    points,
-    maxOrdinateCm:          Math.round(maxOrdIn * CM_PER_INCH * 10) / 10,
-    maxOrdinateRangeMeters: Math.round(maxOrdRangeYd * M_PER_YARD * 10) / 10,
-    supersonicLimitMeters:  Math.round(supersonicLimYd * M_PER_YARD * 10) / 10
-  };
-}
-
-export async function simulateBullet(bullet, req) {
-  try {
-    const result = await computeWithEngine(toEngineParams(bullet, req), toEngineBullet(bullet));
-    return { ...result, bullet, request: req };
-  } catch (err) {
-    if (!(err instanceof WasmUnavailableError)) {
-      console.warn('[engine] WASM compute failed; using JS fallback:', err?.message);
-    }
-    return simulateBulletJS(bullet, req);
-  }
-}
 
 // ── Compute trajectories client-side for all selected bullet IDs ──────────────
-async function computeClientSide(req) {
-  const results = await Promise.all(req.bulletIds.map(id => {
+function computeClientSide(req) {
+  return req.bulletIds.map(id => {
     const bullet = bullets.find(b => b.id === id);
     if (!bullet) return null;
-    return simulateBullet(bullet, req);
-  }));
-  return results.filter(Boolean);
+    return simulate(bullet, req);
+  }).filter(Boolean);
 }
 
 // ── Bullet list UI ────────────────────────────────────────────────────────────
@@ -525,7 +270,13 @@ async function runSimulation() {
           });
         } catch (networkErr) {
           // Network/DNS/CORS errors → OFFLINE fallback
-          (await computeClientSide(req)).forEach(r => results.push(r));
+          try {
+            computeClientSide(req).forEach(r => results.push(r));
+          } catch (inputErr) {
+            /* istanbul ignore else */
+            if (inputErr instanceof TrajectoryInputError) { _setSimulationError(inputErr.message); return; }
+            else throw inputErr; // simulate only throws TrajectoryInputError
+          }
           setOfflineMode(true);
           renderResults(results, req);
           lastResults = results;
@@ -543,7 +294,13 @@ async function runSimulation() {
             return;
           }
           // 4xx non-JSON or 5xx → existing OFFLINE fallback
-          (await computeClientSide(req)).forEach(r => results.push(r));
+          try {
+            computeClientSide(req).forEach(r => results.push(r));
+          } catch (inputErr) {
+            /* istanbul ignore else */
+            if (inputErr instanceof TrajectoryInputError) { _setSimulationError(inputErr.message); return; }
+            else throw inputErr; // simulate only throws TrajectoryInputError
+          }
           setOfflineMode(true);
         } else {
           (await res.json()).forEach(r => results.push(r));
@@ -686,7 +443,13 @@ async function runCustom() {
       ballisticCoefficient: bc, bulletDiameterMm: dia,
       muzzleEnergyJoules: Math.round(0.5 * (weight / 1000) * mv * mv)
     };
-    result = await simulateBullet(bullet, { ...req, bulletIds: ['custom'] });
+    try {
+      result = simulate(bullet, req);
+    } catch (inputErr) {
+      /* istanbul ignore else */
+      if (inputErr instanceof TrajectoryInputError) return showCustomError(inputErr.message);
+      else throw inputErr; // simulate only throws TrajectoryInputError
+    }
   }
   lastResults = [result];
   renderResults([result], req);
@@ -1401,41 +1164,16 @@ async function runSweep() {
   const requests = buildSweepRequests(base, sweepParam, bulletId);
   const bullet   = bullets.find(b => b.id === bulletId);
 
+  if (!bullet) { if (btn) btn.querySelector('span').textContent = 'SWEEP'; return; }
+
   let results;
-
-  // 1. Try WASM batch first — all sweep variants computed in the worker
-  if (bullet) {
-    try {
-      results = await Promise.all(
-        requests.map(async r => {
-          const res = await computeWithEngine(toEngineParams(bullet, r), toEngineBullet(bullet));
-          return { ...res, bullet, request: r };
-        })
-      );
-    } catch (err) {
-      if (!(err instanceof WasmUnavailableError)) {
-        console.warn('[engine] WASM sweep batch failed:', err?.message);
-      }
-      results = null; // fall through to API
-    }
-  }
-
-  // 2. Fall back to API when WASM is unavailable
-  if (!results) {
-    try {
-      const res = await fetch(`${API_BASE}/rpc`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ jsonrpc: '2.0', method: 'trajectory.batch', id: 1, params: { requests } }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (data.error) throw new Error('RPC error');
-      results = data.result;
-    } catch {
-      if (!bullet) { if (btn) btn.querySelector('span').textContent = 'SWEEP'; return; }
-      results = await Promise.all(requests.map(r => simulateBulletJS(bullet, r)));
-    }
+  try {
+    results = requests.map(r => simulate(bullet, r));
+  } catch (err) {
+    if (btn) btn.querySelector('span').textContent = 'SWEEP';
+    /* istanbul ignore else -- simulate only throws TrajectoryInputError */
+    if (err instanceof TrajectoryInputError) console.warn('[sweep]', err.message);
+    return;
   }
 
   sweepResults = results;
@@ -1585,13 +1323,6 @@ async function init() {
   window.addEventListener('online', probeServer, { signal });
   if (!navigator.onLine) setOfflineMode(true);
 
-  onBusyChange(_setComputing);
-  startEngine().then(tier => { document.documentElement.dataset.engineTier = tier; });
-  window.addEventListener('pagehide', shutdownEngine, { signal });
-  window.addEventListener('pageshow', e => {
-    if (e.persisted) startEngine().then(tier => { document.documentElement.dataset.engineTier = tier; });
-  }, { signal });
-
   // Load saved preferences and URL params; URL takes per-key precedence over localStorage
   const fromUrl = decodeState(window.location.search);
   const merged  = { ...loadPrefs(), ...fromUrl.params };
@@ -1732,8 +1463,8 @@ async function init() {
   document.getElementById('azimuthDeg')?.addEventListener('input', syncUrl, { signal });
 
   // MH-3, SH-2: Tools tab
-  initDopeCard(simulateBullet);
-  initBcSolver(simulateBullet);
+  initDopeCard(simulate);
+  initBcSolver(simulate);
 
   // WA-12: Load custom drag table from localStorage on startup
   try {
@@ -1915,14 +1646,8 @@ function _resetState()   {
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
   sweepMode = false; sweepResults = null; lastReq = null;
   _customDragTable = null;
-  _customDragWarnFired = false;
   if (retryTimer !== null) { clearInterval(retryTimer); retryTimer = null; }
-  if (_computingTimer !== null) { clearTimeout(_computingTimer); _computingTimer = null; }
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
-  const overlay = document.getElementById('computingOverlay');
-  const main = document.querySelector('main.main');
-  if (overlay) overlay.setAttribute('hidden', '');
-  if (main) main.removeAttribute('aria-busy');
 }
 function _setBullets(b)      { bullets = b; }
 function _setSelectedIds(s)  { selectedIds = s; }
@@ -1936,9 +1661,7 @@ if (document.getElementById('bulletList')) {
 }
 
 export {
-  EARTH_ROTATION_RADS,
-  getMockBullets, interpolateDragTable, g1Drag, airDensityRatio,
-  findZeroAngleFps, integrateTrajectoryFps, computeClientSide,
+  getMockBullets, computeClientSide,
   renderBulletList, toggleBullet, updateBulletCards, runSimulation, streamCompare,
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
