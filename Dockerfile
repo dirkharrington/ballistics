@@ -1,20 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# ── Stage 0: Rust/WASM builder ───────────────────────────────────────────────
-FROM rust:1.99.1@sha256:8a4e90c7946b74626488b1446f712c0fe0ed1a596cbd3d871684bc9c5433ae07 AS wasm-builder
-
-WORKDIR /app
-
-# Install wasm-pack (same version as CI) and the wasm32 target.
-# This layer is cached as long as the Rust toolchain and wasm-pack version are unchanged.
-RUN rustup target add wasm32-unknown-unknown && \
-    cargo install wasm-pack --locked --version 0.15.1
-
-COPY engine/ engine/
-
-RUN wasm-pack build engine/ --target web --release
-
-# ── Stage 1: build ───────────────────────────────────────────────────────────
+# ── Stage 0: build ───────────────────────────────────────────────────────────
 FROM maven:3-eclipse-temurin-25-alpine@sha256:c9580801980afad4a46ef80927538baf863df198cf4d48879065e408be46d7a2 AS build
 
 WORKDIR /build
@@ -31,21 +17,8 @@ COPY src ./src
 # Frontend build config (required by frontend-maven-plugin for npm install + Vite build).
 COPY package.json package-lock.json vite.config.js ./
 
-# Hand-written engine files staged alongside the WASM output.
-# loader.d.ts, protocol.d.ts, worker-core.js, engine-entry.js are authored by the
-# frontend layer; they must be present in the integrated build.
-COPY engine/stage.sh engine/stage.sh
-COPY engine/loader.js engine/protocol.d.ts engine/loader.d.ts \
-     engine/worker-core.js engine/engine.worker.js engine/engine-entry.js engine/
-
-# Copy WASM artifacts built in the wasm-builder stage.
-COPY --from=wasm-builder /app/engine/pkg/ engine/pkg/
-
-# Stage all engine assets into src/main/resources/static/wasm/ for Vite to bundle.
-RUN sh engine/stage.sh
-
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn package -DskipTests -Dwasm.required=true -q
+    mvn package -DskipTests -q
 
 # ── Stage 2: extract layered JAR ─────────────────────────────────────────────
 FROM eclipse-temurin:25-jre-alpine@sha256:e1898fd6a11fc965a994d8ace186fd3585aeb636cf8f05f47a723fcfee0b0918 AS extract
