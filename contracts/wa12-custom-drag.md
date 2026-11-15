@@ -1,6 +1,8 @@
 # Contract: Custom Drag Function (WA-12)
 
-Version: 0.1.1 — 2026-11-12 (drop WA12-BE-3 — Java BE superseded by WA-11)  
+Version: 0.1.2 — 2026-11-15 (status banner; 0.1.1 — 2026-11-12 drop WA12-BE-3)
+
+> **ON HOLD (frontend sections).** §5 targets `engine-client.js` `toEngineParams` and the `simulateBulletJS` fallback. SPA-1 ([`spa1-ts-engine.md`](./spa1-ts-engine.md)) deletes both. `customDragTable` is reserved on the TS `TrajectoryParams` and ignored. Re-scoping is pending (spa1-ts-engine.md §15 Q2).
 ADR: none  
 Depends on: [`wasm-engine.md`](./wasm-engine.md) §3 (TrajectoryParams schema), [`engine-parity.md`](./engine-parity.md) §6 (drag table structure)  
 Owners: backend/Rust (§2–§4), ~~backend/Java (§5)~~ superseded by WA-11, frontend (§6), devsecops (§7)

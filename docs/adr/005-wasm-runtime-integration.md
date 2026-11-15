@@ -1,7 +1,7 @@
 # ADR 005: WASM runtime integration and fallback chain
 
 Date: 2026-11-09
-Status: **Proposed** (pending user review)
+Status: **Proposed** (pending user review). **To be superseded by [ADR 008](./008-typescript-sole-physics-engine.md)** when SPA-1 merges.
 Deciders: Architect
 Related stories: WA-3 (gap), WA-4, WA-5
 Contract: [`contracts/wasm-integration.md`](../../contracts/wasm-integration.md)

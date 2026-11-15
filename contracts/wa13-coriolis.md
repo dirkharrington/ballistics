@@ -1,6 +1,8 @@
 # Contract: Coriolis Effect (WA-13)
 
-Version: 0.1.2 — 2026-11-12 (drop WA13-BE-3 — Java BE superseded by WA-11)  
+Version: 0.1.3 — 2026-11-15 (status banner; 0.1.2 — 2026-11-12 drop WA13-BE-3)
+
+> **ON HOLD (frontend sections).** §6.2 and §8 target `engine-client.js` `toEngineParams` and `loader.d.ts`. SPA-1 ([`spa1-ts-engine.md`](./spa1-ts-engine.md)) deletes both. `latitudeDeg` and `azimuthDeg` are reserved on the TS `TrajectoryParams` and ignored. Re-scoping is pending (spa1-ts-engine.md §15 Q2).
 ADR: none  
 Depends on: [`wasm-engine.md`](./wasm-engine.md) §3 (TrajectoryParams, TrajectoryPoint schemas), [`engine-parity.md`](./engine-parity.md) §7 (TrajectoryPoint field verdicts), [`spin-drift.md`](./spin-drift.md) (spinDriftCm field — combined display)  
 Owners: backend/Rust (§2–§4), ~~backend/Java (§5)~~ superseded by WA-11, frontend (§6), devsecops (§7)

@@ -1,6 +1,8 @@
 # Contract: WASM Runtime Integration (WA-3 gap, WA-4, WA-5)
 
-Version: 1.0.0 — 2026-11-09
+Version: 1.0.1 — 2026-11-15 (status banner only; 1.0.0 — 2026-11-09)
+
+> **SUPERSEDED** by [`spa1-ts-engine.md`](./spa1-ts-engine.md) 1.0.0 and ADR 008 when SPA-1 merges. The WASM runtime, worker, engine client, three-tier fallback, async `simulateBullet` facade, and Computing overlay are all removed. The text below is kept for history. Don't implement it.
 ADR: [`../docs/adr/005-wasm-runtime-integration.md`](../docs/adr/005-wasm-runtime-integration.md) (amends [`adr-004-wasm-engine.md`](./adr-004-wasm-engine.md) invariant 5)
 Related: [`wasm-engine.md`](./wasm-engine.md) (WASM exports, JSON schemas §3, loader API §4), [`wasm-build-pipeline.md`](./wasm-build-pipeline.md), [`../docs/architecture/wasm-threat-model.md`](../docs/architecture/wasm-threat-model.md)
 Owners: frontend builder (§3–§8, §10), backend builder (§2.3, §2.5), devsecops (§2.4, §9 review)
