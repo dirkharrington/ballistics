@@ -20,7 +20,7 @@ function serviceWorkerPlugin() {
       const hash = Date.now().toString(36);
       const swSrc = readFileSync(
         resolve(__dirname, 'src/main/resources/static/sw.js'), 'utf-8');
-      const swOut = swSrc.replace("let _wasmHash = 'v1';", `let _wasmHash = '${hash}';`);
+      const swOut = swSrc.replace("let CACHE_VERSION = 'v1';", `let CACHE_VERSION = '${hash}';`);
       writeFileSync(resolve(resolvedOutDir, 'sw.js'), swOut);
     },
   };

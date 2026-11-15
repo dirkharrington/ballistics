@@ -1,3 +1,0 @@
-[workspace]
-members = ["ballistics-core", "ballistics-wasm"]
-resolver = "2"

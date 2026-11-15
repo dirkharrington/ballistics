@@ -19,32 +19,13 @@ jobs:
   changes:
     runs-on: ubuntu-24.04
     outputs:
-      engine:    ${{ steps.filter.outputs.engine }}
-      java:      ${{ steps.filter.outputs.java }}
       frontend:  ${{ steps.filter.outputs.frontend }}
-      container: ${{ steps.filter.outputs.container }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
           filters: |
-            engine:
-              - 'engine/Cargo.toml'
-              - 'engine/Cargo.lock'
-              - 'engine/ballistics-core/**'
-              - 'engine/ballistics-wasm/**'
-              - 'engine/cbindgen.toml'
-            java:
-              - 'src/main/java/**'
-              - 'src/test/java/**'
-              - 'src/main/resources/application*.properties'
-              - 'src/main/resources/bullets.yaml'
-              - 'src/main/resources/physics-tables.yaml'
-              - 'src/main/resources/logback-spring.xml'
-              - 'pom.xml'
-              - 'owasp-suppressions.xml'
-              - '.github/workflows/ci.yml'
             frontend:
               - 'src/main/resources/static/**'
               - 'src/test/js/**'
@@ -54,131 +35,6 @@ jobs:
               - 'tsconfig.json'
               - 'vite.config.js'
               - '.github/workflows/ci.yml'
-            container:
-              - 'Dockerfile'
-              - 'docker-compose.yml'
-              - '.dockerignore'
-              - '.github/workflows/ci.yml'
-
-  # ── Rust / WASM build ────────────────────────────────────────────────────────
-  # Not a required status check — job-level if: is safe here.
-  rust-build:
-    needs: [changes]
-    if: needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Get current week (for Rust toolchain cache rotation)
-        id: date
-        run: echo "week=$(date +'%Y-%U')" >> $GITHUB_OUTPUT
-
-      - name: Cache Rust toolchain
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ~/.rustup
-          key: ${{ runner.os }}-rustup-stable-${{ steps.date.outputs.week }}
-
-      - name: Cache cargo registry
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-${{ hashFiles('engine/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Cache cargo build cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: engine/target
-          key: ${{ runner.os }}-cargo-target-${{ hashFiles('engine/Cargo.lock', 'engine/ballistics-core/src/**', 'engine/ballistics-wasm/src/**') }}
-          restore-keys: ${{ runner.os }}-cargo-target-
-
-      - name: Install Rust stable
-        run: rustup update stable && rustup default stable && rustup target add wasm32-unknown-unknown
-
-      - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov --locked --version 0.9.1
-
-      - name: Install cbindgen
-        run: cargo install cbindgen --locked --version 0.27.0
-
-      - name: Cargo test
-        run: cargo test --manifest-path engine/Cargo.toml --workspace
-
-      - name: Cargo llvm-cov gate
-        run: cargo llvm-cov --manifest-path engine/Cargo.toml --workspace --all-features --ignore-filename-regex 'engine/src/' --fail-under-lines 99
-
-      - name: Generate C FFI header
-        run: |
-          cbindgen --config engine/cbindgen.toml \
-                   --crate ballistics-engine \
-                   --output engine/include/ballistics_engine.h \
-                   -- engine/ballistics-core
-
-      - name: Header drift check
-        run: git diff --exit-code engine/include/
-
-  # ── Java build & test ────────────────────────────────────────────────────────
-  # Required status check.  `if: ${{ !cancelled() }}` prevents GitHub from
-  # propagating rust-build's skip to this job when engine/ is unchanged.
-  # A guard step fails fast when rust-build explicitly failed (not skipped).
-  # Work steps gate on java/engine outputs; the job always posts a green status
-  # quickly when nothing relevant changed.
-  java-build:
-    needs: [changes, rust-build]
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      PUPPETEER_SKIP_DOWNLOAD: 'true'
-
-    steps:
-      - name: Fail if rust-build failed
-        if: needs.rust-build.result == 'failure'
-        run: |
-          echo "rust-build failed — blocking java-build to surface the error."
-          exit 1
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
-
-      - name: Set up JDK 21
-        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-
-      - name: Cache Maven repository
-        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2-
-
-      - name: Cache frontend-maven-plugin Node + modules
-        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: |
-            node
-            node_modules
-          key: ${{ runner.os }}-fmp-${{ hashFiles('pom.xml', 'package-lock.json') }}
-          restore-keys: ${{ runner.os }}-fmp-
-
-      - name: Build and verify
-        if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
-        run: mvn --batch-mode verify -Dskip.npm.test=true -Dskip.wasm.pack=true
-
-      - name: Upload JaCoCo report
-        if: always() && (needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true')
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: jacoco-report
-          path: target/site/jacoco/
 
   # ── Frontend build & test ────────────────────────────────────────────────────
   # Required status check — no job-level if:.  Work steps gate on frontend output.
@@ -231,9 +87,9 @@ jobs:
           path: target/js-coverage/
 
   # ── CodeQL SAST ──────────────────────────────────────────────────────────────
-  # Both matrix entries are required status checks — no job-level if:.
-  # Steps gate per language so the expensive init+analyze only runs for the
-  # affected layer: java layer → java entry; frontend layer → javascript entry.
+  # Required status check — no job-level if:.
+  # Steps gate on frontend output so the expensive init+analyze only runs for the
+  # affected layer.
   #
   # PREREQUISITE — disable GitHub's Default Setup before enabling this workflow:
   #   Settings → Security → Code scanning → Default setup → Disable
@@ -251,33 +107,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [java, javascript]
+        language: [javascript]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        if: |
-          (matrix.language == 'java' && needs.changes.outputs.java == 'true') ||
-          (matrix.language == 'javascript' && needs.changes.outputs.frontend == 'true')
-
-      - name: Set up JDK 21
-        if: matrix.language == 'java' && needs.changes.outputs.java == 'true'
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-
-      - name: Cache Maven repository
-        if: matrix.language == 'java' && needs.changes.outputs.java == 'true'
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-codeql-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2-
+        if: needs.changes.outputs.frontend == 'true'
 
       - name: Initialize CodeQL
-        if: |
-          (matrix.language == 'java' && needs.changes.outputs.java == 'true') ||
-          (matrix.language == 'javascript' && needs.changes.outputs.frontend == 'true')
+        if: needs.changes.outputs.frontend == 'true'
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           languages: ${{ matrix.language }}
@@ -287,116 +124,18 @@ jobs:
               - '**/node_modules/**'
               - 'target/**'
 
-      # Java: mvn compile traces javac so CodeQL can map data flow.
-      # Pass -Dfrontend-maven-plugin.phase=none to unbind the npm install/build
-      # executions from the Maven lifecycle for this CodeQL-only compile.
-      - name: Build Java (CodeQL traces javac)
-        if: matrix.language == 'java' && needs.changes.outputs.java == 'true'
-        run: |
-          mvn --batch-mode compile \
-            -Dskip.npm.test=true \
-            -Dskip.wasm.pack=true \
-            -Dfrontend-maven-plugin.phase=none
-
       # JavaScript: CodeQL analyses source files directly — no build needed.
 
       - name: Perform CodeQL Analysis
-        if: |
-          (matrix.language == 'java' && needs.changes.outputs.java == 'true') ||
-          (matrix.language == 'javascript' && needs.changes.outputs.frontend == 'true')
+        if: needs.changes.outputs.frontend == 'true'
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           category: /language:${{ matrix.language }}
 
-  # ── OWASP Dependency-Check ───────────────────────────────────────────────────
-  # Not a required status check — job-level if: is safe here.
-  dependency-check:
-    name: OWASP Dependency-Check
-    needs: [changes]
-    if: needs.changes.outputs.java == 'true' || needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-24.04
-    # NVD infrastructure is unreliable; Trivy (below) is the hard CVE gate.
-    # continue-on-error prevents a CVE hit from blocking the PR.
-    # No job-level timeout-minutes: a job timeout emits "cancelled" (not
-    # "failure"), which bypasses continue-on-error and still blocks the PR.
-    # The shell timeout below converts a slow-NVD exit into exit 0 instead.
-    continue-on-error: true
-    permissions:
-      contents: read
-      security-events: write
-
-    env:
-      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-
-      - name: Cache Maven repository
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-owasp-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2-
-
-      - name: Get current week (for NVD cache key)
-        id: date
-        run: echo "week=$(date +'%Y-%U')" >> $GITHUB_OUTPUT
-
-      - name: Cache NVD data
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ~/.m2/repository/org/owasp/dependency-check-data
-          # Weekly key: reuses the NVD database within a week instead of
-          # re-downloading 418K records on every run (old key used run_id).
-          key: ${{ runner.os }}-nvd-${{ steps.date.outputs.week }}
-          restore-keys: ${{ runner.os }}-nvd-
-
-      - name: Run OWASP Dependency-Check
-        run: |
-          timeout 50m mvn --batch-mode dependency-check:check \
-            -DskipTests \
-            -DfailOnError=true \
-            -DnvdAnalyzerEnabled=true \
-            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
-            -DossindexAnalyzerEnabled=true \
-            -Dformat=SARIF \
-            -DsuppressionFile=owasp-suppressions.xml || {
-              rc=$?
-              if [ $rc -eq 124 ]; then
-                echo "OWASP scan timed out after 50 min — NVD download too slow."
-                echo "Trivy (job 'trivy') is the hard CVE gate; this result is advisory."
-                exit 0
-              fi
-              exit $rc
-            }
-
-      - name: Upload SARIF to GitHub Security tab
-        # Skip when no report was produced (e.g. scan timed out before generating output).
-        if: always() && hashFiles('target/dependency-check-report.sarif') != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
-        with:
-          sarif_file: target/dependency-check-report.sarif
-          category: dependency-check
-
-      - name: Upload Dependency-Check report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: dependency-check-report
-          path: target/dependency-check-report.*
-
   # ── Trivy filesystem scan ─────────────────────────────────────────────────────
-  # Required status check — no job-level if:.  Work steps gate on any layer change.
-  # container layer (Dockerfile, docker-compose.yml) also triggers this job so
-  # Dockerfile misconfigurations are caught on container-only PRs.
+  # Required status check — no job-level if:.  Work steps gate on frontend changes.
   trivy:
-    name: Trivy Container Scan
+    name: Trivy Filesystem Scan
     needs: [changes]
     runs-on: ubuntu-24.04
     permissions:
@@ -405,51 +144,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        if: |
-          needs.changes.outputs.java == 'true' ||
-          needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true' ||
-          needs.changes.outputs.container == 'true'
-
-      - name: Set up JDK 21
-        if: |
-          needs.changes.outputs.java == 'true' ||
-          needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true' ||
-          needs.changes.outputs.container == 'true'
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-
-      - name: Cache Maven repository
-        if: |
-          needs.changes.outputs.java == 'true' ||
-          needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true' ||
-          needs.changes.outputs.container == 'true'
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2-
-
-      - name: Populate Maven local cache
-        if: |
-          needs.changes.outputs.java == 'true' ||
-          needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true' ||
-          needs.changes.outputs.container == 'true'
-        # Trivy resolves Maven metadata from ~/.m2; without this it fetches POMs from
-        # Maven Central and hits 429 rate-limits on shared GitHub Actions runner IPs.
-        run: mvn --batch-mode dependency:resolve -DskipTests -Dfrontend-maven-plugin.phase=none
+        if: needs.changes.outputs.frontend == 'true'
 
       - name: Run Trivy filesystem scan
-        if: |
-          needs.changes.outputs.java == 'true' ||
-          needs.changes.outputs.frontend == 'true' ||
-          needs.changes.outputs.engine == 'true' ||
-          needs.changes.outputs.container == 'true'
+        if: needs.changes.outputs.frontend == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           # Pin the misconfig rules bundle so upstream rule additions can't
@@ -466,17 +164,13 @@ jobs:
           ignore-unfixed: true
           version: v0.76.2
           # Skip build output and vendored dependency copies; Trivy already reads
-          # the lock files (pom.xml, package-lock.json, Cargo.toml) for the
-          # authoritative list.
+          # the lock files (package-lock.json) for the authoritative list.
           skip-dirs: 'target,node_modules'
 
       - name: Upload Trivy SARIF to GitHub Security
         if: |
           always() &&
-          (needs.changes.outputs.java == 'true' ||
-           needs.changes.outputs.frontend == 'true' ||
-           needs.changes.outputs.engine == 'true' ||
-           needs.changes.outputs.container == 'true')
+          needs.changes.outputs.frontend == 'true'
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: trivy-results.sarif
