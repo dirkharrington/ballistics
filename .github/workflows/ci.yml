@@ -171,7 +171,7 @@ jobs:
 
       - name: Build and verify
         if: needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true'
-        run: mvn --batch-mode verify -Dskip.npm.test=true
+        run: mvn --batch-mode verify -Dskip.npm.test=true -Dskip.wasm.pack=true
 
       - name: Upload JaCoCo report
         if: always() && (needs.changes.outputs.java == 'true' || needs.changes.outputs.engine == 'true')
