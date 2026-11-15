@@ -7,7 +7,7 @@ _Sprint history archived in git (through PR #82)._
 
 ## Milestone 1 — TypeScript physics engine
 
-### ~~SPA-1 · Type the physics engine · FE · Size S~~ ✅ Done (PR #TODO)
+### ~~SPA-1 · Type the physics engine · FE · Size S~~ ✅ Done (PR #86)
 
 `simulateBulletJS()` already implements the full physics correctly and is the
 current no-WASM fallback. This story promotes it to the one and only engine by
