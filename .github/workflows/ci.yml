@@ -27,8 +27,8 @@ jobs:
         with:
           filters: |
             frontend:
-              - 'src/main/resources/static/**'
-              - 'src/test/js/**'
+              - 'app/**'
+              - 'tests/**'
               - 'package.json'
               - 'package-lock.json'
               - 'babel.config.json'
@@ -84,7 +84,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: js-coverage
-          path: target/js-coverage/
+          path: coverage/
 
   # ── CodeQL SAST ──────────────────────────────────────────────────────────────
   # Required status check — no job-level if:.
@@ -165,7 +165,7 @@ jobs:
           version: v0.76.2
           # Skip build output and vendored dependency copies; Trivy already reads
           # the lock files (package-lock.json) for the authoritative list.
-          skip-dirs: 'target,node_modules'
+          skip-dirs: 'dist,node_modules'
 
       - name: Upload Trivy SARIF to GitHub Security
         if: |

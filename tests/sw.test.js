@@ -1,12 +1,12 @@
 /**
  * @jest-environment node
  */
-// Tests for src/main/resources/static/sw.js
+// Tests for app/sw.js
 // Use Node environment: Node 18+ has built-in Response/fetch; sw.js doesn't need DOM.
 // self.skipWaiting and self.clients.claim are set on global (global === self in Node).
 // caches is mocked globally since it's a SW-only API.
 
-const sw = require('../../main/resources/static/sw.js');
+const sw = require('../app/sw.js');
 
 // ── Global mock helpers ───────────────────────────────────────────────────────
 

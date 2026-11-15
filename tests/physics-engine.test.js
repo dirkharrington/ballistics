@@ -7,8 +7,8 @@ const {
   airDensityRatio,
   findZeroAngleFps,
   integrateTrajectoryFps,
-} = require('../../main/resources/static/physics/engine.ts');
-const { G1_TABLE, G7_TABLE } = require('./../../test/js/__mocks__/physics-tables.js');
+} = require('../app/physics/engine.ts');
+const { G1_TABLE, G7_TABLE } = require('./__mocks__/physics-tables.js');
 
 const golden = require('./fixtures/spa1-golden.json');
 

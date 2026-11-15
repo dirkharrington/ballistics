@@ -1,8 +1,7 @@
-# Canonical physics tables shared between the Java engine
-# (com.ballistics.service.BallisticsEngine) and the JS client
-# (src/main/resources/static/ballistics.js, via virtual:physics-tables).
+# Canonical physics tables for the JS client
+# (app/ballistics.js, via virtual:physics-tables).
 #
-# Edits here propagate to both sides.  Do NOT keep duplicate copies.
+# Bundled at build time by the physicsTablesPlugin in vite.config.js.
 
 # ── G1 drag function (Ingalls table approximation) ──────────────────────────
 # v: velocity in fps   f: form factor F(v)

@@ -128,8 +128,8 @@ function buildDOM() {
   `;
 }
 
-const { simulate } = require('../../main/resources/static/physics/engine.ts');
-const mod = require('../../main/resources/static/ballistics.js');
+const { simulate } = require('../app/physics/engine.ts');
+const mod = require('../app/ballistics.js');
 
 // Reset state and DOM before each test
 beforeEach(() => {
@@ -2136,8 +2136,8 @@ describe('runCustom client-side compute', () => {
   test('re-throws non-TrajectoryInputError from simulate', async () => {
     setValidCustomInputs();
     // Temporarily make simulate throw a non-input error to exercise throw branch
-    const { simulate: simFn } = require('../../main/resources/static/physics/engine.ts');
-    const spy = jest.spyOn(require('../../main/resources/static/physics/engine.ts'), 'simulate')
+    const { simulate: simFn } = require('../app/physics/engine.ts');
+    const spy = jest.spyOn(require('../app/physics/engine.ts'), 'simulate')
       .mockImplementationOnce(() => { throw new Error('unexpected'); });
     await expect(mod.runCustom()).rejects.toThrow('unexpected');
     spy.mockRestore();
@@ -3250,7 +3250,7 @@ describe('auto-init guard', () => {
 
     let freshMod;
     jest.isolateModules(() => {
-      freshMod = require('../../main/resources/static/ballistics.js');
+      freshMod = require('../app/ballistics.js');
     });
 
     // If the guard true-branch was entered, init() ran and loaded bullet cards

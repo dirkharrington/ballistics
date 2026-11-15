@@ -45,7 +45,7 @@ ADR-004 chose a Rust/WASM engine running in a Web Worker. Turning that into a sh
 ## Decision
 
 1. **Delivery (A2):**
-   - `engine/stage.sh` stages an explicit allowlist into `src/main/resources/static/wasm/` during `generate-sources`, before Vite runs.
+   - `engine/stage.sh` stages an explicit allowlist into the Vite root `wasm/` during `generate-sources`, before Vite runs.
    - Vite resolves `virtual:wasm-engine` to the staged `engine-entry.js`, or to a stub that reports WASM as unavailable.
 2. **Module worker (B2):** `engine.worker.js` → `worker-core.js` → `loader.js`. Messages are correlated by an integer id.
 3. **Three tiers (C3), with these demotion rules:**

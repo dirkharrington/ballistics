@@ -16,5 +16,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src/main/resources/static/physics/**/*.ts"]
+  "include": ["app/physics/**/*.ts"]
 }

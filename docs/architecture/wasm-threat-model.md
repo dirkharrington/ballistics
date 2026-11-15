@@ -52,7 +52,7 @@ Content-Security-Policy: ... script-src 'self' 'wasm-unsafe-eval'; ...
 
 ### Fetch source constraint
 
-The `.wasm` binary is served from `'self'` (the same origin) via the Spring Boot static resources path (`src/main/resources/static/wasm/`). No cross-origin WASM fetch is required. The existing `script-src 'self'` already covers the fetch; `'wasm-unsafe-eval'` covers only the compilation step.
+The `.wasm` binary is served from `'self'` (the same origin) via the Vite static resources path (`app/wasm/`). No cross-origin WASM fetch is required. The existing `script-src 'self'` already covers the fetch; `'wasm-unsafe-eval'` covers only the compilation step.
 
 ---
 

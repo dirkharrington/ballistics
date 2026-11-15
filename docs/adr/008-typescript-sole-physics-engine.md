@@ -34,7 +34,7 @@ Meanwhile `simulateBulletJS()` already produces the six point fields and three s
 
 Option 2.
 
-- The engine lives in `src/main/resources/static/physics/engine.ts`, with type-only `types.ts`.
+- The engine lives in `app/physics/engine.ts`, with type-only `types.ts`.
 - Output stays bit-identical to `simulateBulletJS()` at `a63f361`. A golden fixture locks this in.
 - Input validation mirrors the server's `TrajectoryRequest` bounds.
 
