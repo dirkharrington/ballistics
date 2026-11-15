@@ -315,7 +315,7 @@ Compute a trajectory for a user-defined round.
 
 ## Bullet Catalog
 
-The catalog lives in [`src/main/resources/bullets.yaml`](src/main/resources/bullets.yaml) and is the single source of truth for both the Java backend and the JavaScript offline fallback. Adding a round requires no code changes.
+The catalog lives in [`app/data/bullets.yaml`](app/data/bullets.yaml) and is the single source of truth for the JavaScript engine. Adding a round requires no code changes.
 
 | Round | BC (G1) | MV (m/s) | Weight (g) |
 |---|---|---|---|
@@ -353,7 +353,7 @@ Restart the server. The new round appears in `/api/bullets` and the UI automatic
 
 ## Configuration
 
-All settings live in [`src/main/resources/application.properties`](src/main/resources/application.properties).
+All settings live in `vite.config.js` (build) and `package.json` (test/dev).
 
 | Property | Default | Description |
 |---|---|---|
@@ -483,74 +483,48 @@ Both gates are enforced in the Maven build — a failure blocks `mvn test`.
 
 ```
 ballistics/
-├── Dockerfile                         # Multi-stage build (Maven → jlink → Alpine)
-├── pom.xml                            # Maven build + frontend-maven-plugin
 ├── vite.config.js                     # Vite config + virtual:bullet-catalog + virtual:physics-tables plugins
 ├── package.json                       # JS deps and Jest config
-├── ballistics-feature-plan.md         # Active feature plan
+├── tsconfig.json                      # TypeScript config (physics engine)
 │
-├── src/main/
-│   ├── java/com/ballistics/
-│   │   ├── BallisticsApplication.java
-│   │   ├── config/
-│   │   │   ├── BulletCatalogConfig.java      # @Bean List<Bullet> and Map<String,Bullet>
-│   │   │   ├── BulletCatalogProperties.java  # @ConfigurationProperties("app")
-│   │   │   ├── CacheConfig.java              # Caffeine cache manager
-│   │   │   ├── ExecutorConfig.java           # Bounded ThreadPoolExecutor
-│   │   │   ├── OpenApiConfig.java
-│   │   │   └── WebConfig.java                # CORS + static-asset cache headers
-│   │   ├── controller/
-│   │   │   ├── BallisticsController.java
-│   │   │   └── GlobalExceptionHandler.java   # @RestControllerAdvice — ProblemDetail error responses
-│   │   ├── model/
-│   │   │   ├── Bullet.java
-│   │   │   ├── CompareRequest.java
-│   │   │   ├── CustomBulletRequest.java
-│   │   │   ├── TrajectoryPoint.java
-│   │   │   ├── TrajectoryRequest.java        # Compact constructor normalises defaults
-│   │   │   └── TrajectoryResult.java
-│   │   └── service/
-│   │       └── BallisticsEngine.java         # RK4 integrator + G1 drag + atmosphere
-│   │
-│   └── resources/
-│       ├── application.properties
-│       ├── application-prod.properties       # Production overrides (logging, etc.)
-│       ├── bullets.yaml                      # Canonical bullet catalog
-│       ├── physics-tables.yaml               # G1 drag table + atmosphere constants (shared with JS)
-│       ├── logback-spring.xml                # JSON structured logging via logstash-logback-encoder
-│       ├── META-INF/native-image/            # GraalVM reflect-config for native image profile
-│       └── static/
-│           ├── index.html
-│           ├── ballistics.js                 # ES6 module — UI, RK4 fallback, charts
-│           └── ballistics.css
+├── app/                               # Application source (Vite root)
+│   ├── index.html
+│   ├── ballistics.js                  # ES6 module — UI, physics calls, charts
+│   ├── ballistics.css
+│   ├── sw.js                          # Service worker (offline / asset caching)
+│   ├── tools.js
+│   ├── url-state.js
+│   ├── custom-rounds.js
+│   ├── drag-csv.js
+│   ├── fonts/                         # Orbitron, Rajdhani, Share Tech Mono woff2
+│   ├── physics/
+│   │   ├── engine.ts                  # RK4 integrator + G1/G7 drag + atmosphere
+│   │   ├── types.ts
+│   │   └── virtual-physics-tables.d.ts
+│   ├── data/
+│   │   ├── bullets.yaml               # Canonical bullet catalog (bundled at build time)
+│   │   └── physics-tables.yaml        # G1/G7 drag tables + atmosphere constants
+│   └── public/                        # Copied to dist/ root verbatim
+│       ├── apple-touch-icon.png
+│       ├── favicon.svg
+│       └── manifest.json
 │
-└── src/test/
-    ├── java/com/ballistics/
-    │   ├── BallisticsEngineTest.java
-    │   ├── BulletCatalog.java                # Shared test fixture — loads bullets.yaml
-    │   ├── CrossValidationTest.java          # Java ↔ JS physics parity checks
-    │   ├── MetricsTest.java
-    │   ├── benchmark/BallisticsEngineBenchmark.java
-    │   ├── controller/
-    │   │   ├── BallisticsControllerTest.java
-    │   │   ├── ContractTest.java
-    │   │   ├── OpenApiTest.java
-    │   │   ├── RateLimitTest.java
-    │   │   └── ValidationTest.java
-    │   ├── model/
-    │   │   ├── BulletTest.java
-    │   │   ├── TrajectoryPointTest.java
-    │   │   ├── TrajectoryRequestTest.java
-    │   │   └── TrajectoryResultTest.java
-    │   └── service/TrajectoryCacheTest.java
-    │
-    └── js/
-        ├── ballistics.test.js
-        ├── cross-validate-runner.cjs         # Node script: runs JS solver, prints JSON for CrossValidationTest
-        ├── e2e/
-        │   └── app.e2e.test.js               # Puppeteer end-to-end tests
-        └── __mocks__/
-            ├── bullet-catalog.js             # Jest mock for virtual:bullet-catalog
-            ├── chart.js                      # Jest mock for Chart.js
-            └── physics-tables.js             # Jest mock for virtual:physics-tables
+├── tests/                             # Jest unit test suite
+│   ├── ballistics.test.js
+│   ├── physics-engine.test.js
+│   ├── sw.test.js
+│   ├── tools.test.js
+│   ├── url-state.test.js
+│   ├── custom-rounds.test.js
+│   ├── drag-csv.test.js
+│   ├── e2e/
+│   │   └── app.e2e.test.js            # Puppeteer end-to-end tests
+│   ├── fixtures/
+│   │   └── spa1-golden.json
+│   └── __mocks__/
+│       ├── bullet-catalog.js          # Jest mock for virtual:bullet-catalog
+│       ├── chart.js                   # Jest mock for Chart.js
+│       └── physics-tables.js          # Jest mock for virtual:physics-tables
+│
+└── dist/                              # Vite build output (gitignored; deployed by CI)
 ```

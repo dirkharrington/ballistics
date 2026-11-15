@@ -19,7 +19,7 @@ function serviceWorkerPlugin() {
       if (!resolvedOutDir) return;
       const hash = Date.now().toString(36);
       const swSrc = readFileSync(
-        resolve(__dirname, 'src/main/resources/static/sw.js'), 'utf-8');
+        resolve(__dirname, 'app/sw.js'), 'utf-8');
       const swOut = swSrc.replace("let CACHE_VERSION = 'v1';", `let CACHE_VERSION = '${hash}';`);
       writeFileSync(resolve(resolvedOutDir, 'sw.js'), swOut);
     },
@@ -37,7 +37,7 @@ function bulletCatalogPlugin() {
     load(id) {
       if (id === resolvedId) {
         const raw = readFileSync(
-          resolve(__dirname, 'src/main/resources/bullets.yaml'), 'utf-8')
+          resolve(__dirname, 'app/data/bullets.yaml'), 'utf-8')
         const data = yaml.load(raw)
         return `export default ${JSON.stringify(data.app.bullets)};`
       }
@@ -45,8 +45,8 @@ function bulletCatalogPlugin() {
   }
 }
 
-// Exposes /src/main/resources/physics-tables.yaml as a virtual ES module so
-// the JS client and the Java engine share a single source of truth for the
+// Exposes /app/data/physics-tables.yaml as a virtual ES module so
+// the JS client has a single source of truth for the
 // G1 drag table and atmosphere model constants.
 function physicsTablesPlugin() {
   const virtualId = 'virtual:physics-tables'
@@ -59,7 +59,7 @@ function physicsTablesPlugin() {
     load(id) {
       if (id === resolvedId) {
         const raw = readFileSync(
-          resolve(__dirname, 'src/main/resources/physics-tables.yaml'), 'utf-8')
+          resolve(__dirname, 'app/data/physics-tables.yaml'), 'utf-8')
         const data = yaml.load(raw)
         const G1_TABLE = data.g1Table.map(({ v, f }) => [v, f])
         const G7_TABLE = data.g7Table.map(({ v, f }) => [v, f])
@@ -74,9 +74,9 @@ function physicsTablesPlugin() {
 }
 
 export default defineConfig({
-  root: 'src/main/resources/static',
+  root: 'app',
   build: {
-    outDir: '../../../../target/classes/static',
+    outDir: '../dist',
     emptyOutDir: true,
   },
   plugins: [serviceWorkerPlugin(), bulletCatalogPlugin(), physicsTablesPlugin()],

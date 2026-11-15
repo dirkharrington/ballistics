@@ -5,7 +5,7 @@ const path = require('path');
 const yaml = require('js-yaml');
 
 const raw = fs.readFileSync(
-  path.resolve(__dirname, '../../../main/resources/physics-tables.yaml'), 'utf-8');
+  path.resolve(__dirname, '../../app/data/physics-tables.yaml'), 'utf-8');
 const data = yaml.load(raw);
 
 const G1_TABLE   = data.g1Table.map(({ v, f }) => [v, f]);

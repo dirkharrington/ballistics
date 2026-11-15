@@ -1,4 +1,4 @@
-import { parseDragCsv } from '../../main/resources/static/drag-csv.js';
+import { parseDragCsv } from '../app/drag-csv.js';
 
 // Minimal valid CSV: 3 points spanning subsonic (≤0.5) through supersonic (≥2.0)
 const VALID_CSV = `Mach,CD

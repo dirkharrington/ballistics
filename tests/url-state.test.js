@@ -1,7 +1,7 @@
 const {
   URL_PARAM_KEYS, URL_BULLET_KEY, MAX_URL_BULLETS,
   encodeState, decodeState, mergeIntoSearch,
-} = require('../../main/resources/static/url-state.js');
+} = require('../app/url-state.js');
 
 // ── Sample states ──────────────────────────────────────────────────────────────
 const BASE_STATE = {

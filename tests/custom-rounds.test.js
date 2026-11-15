@@ -1,7 +1,7 @@
 const {
   CUSTOM_ROUNDS_KEY, MAX_PRESETS, PRESET_NAME_MAX, DEFAULT_PRESET_NAME,
   isValidPreset, loadPresets, savePreset, deletePreset, renderPresetList, newPresetId,
-} = require('../../main/resources/static/custom-rounds.js');
+} = require('../app/custom-rounds.js');
 
 global.console.warn = jest.fn();
 

@@ -11,31 +11,31 @@
   "jest": {
     "testEnvironment": "jsdom",
     "roots": [
-      "src/test/js"
+      "tests"
     ],
     "testMatch": [
       "**/*.test.js"
     ],
     "testPathIgnorePatterns": [
-      "src/test/js/e2e"
+      "tests/e2e"
     ],
-    "coverageDirectory": "target/js-coverage",
+    "coverageDirectory": "coverage",
     "collectCoverageFrom": [
-      "src/main/resources/static/sw.js",
-      "src/main/resources/static/drag-csv.js",
-      "src/main/resources/static/ballistics.js",
-      "src/main/resources/static/tools.js",
-      "src/main/resources/static/url-state.js",
-      "src/main/resources/static/custom-rounds.js",
-      "src/main/resources/static/physics/engine.ts"
+      "app/sw.js",
+      "app/drag-csv.js",
+      "app/ballistics.js",
+      "app/tools.js",
+      "app/url-state.js",
+      "app/custom-rounds.js",
+      "app/physics/engine.ts"
     ],
     "transform": {
       "^.+\\.[jt]s$": "babel-jest"
     },
     "moduleNameMapper": {
-      "^chart\\.js$": "<rootDir>/src/test/js/__mocks__/chart.js",
-      "^virtual:bullet-catalog$": "<rootDir>/src/test/js/__mocks__/bullet-catalog.js",
-      "^virtual:physics-tables$": "<rootDir>/src/test/js/__mocks__/physics-tables.js"
+      "^chart\\.js$": "<rootDir>/tests/__mocks__/chart.js",
+      "^virtual:bullet-catalog$": "<rootDir>/tests/__mocks__/bullet-catalog.js",
+      "^virtual:physics-tables$": "<rootDir>/tests/__mocks__/physics-tables.js"
     },
     "coverageThreshold": {
       "global": {

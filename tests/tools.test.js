@@ -3,7 +3,7 @@
 const {
   calcMoaMrad, convertUnit, initTools, CONVERSIONS,
   interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC,
-} = require('../../main/resources/static/tools.js');
+} = require('../app/tools.js');
 
 function flushPromises() {
   return new Promise(r => setTimeout(r, 0));
