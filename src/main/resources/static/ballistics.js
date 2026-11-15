@@ -8,7 +8,6 @@ import { simulate, TrajectoryInputError } from './physics/engine.ts';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const API_BASE = '/api';
 
 // Derived from bullets.yaml via virtual:bullet-catalog at build time
 const BULLET_COLORS = Object.fromEntries(BULLET_CATALOG.map(b => [b.id, b.hexColor]));
@@ -57,8 +56,6 @@ let bullets = [];
 let selectedIds = new Set();
 let lastResults = [];
 let charts = {};
-let offlineMode = false;
-let retryTimer  = null;
 // Crosshair state (task 5)
 let crosshairIndex  = null;  // data-point index currently under the cursor
 let crosshairPinned = false; // true after user clicks a range to lock the readout
@@ -150,50 +147,7 @@ function updateBulletCards() {
   });
 }
 
-// ── SSE streaming helper ──────────────────────────────────────────────────────
-async function streamCompare(req, onResult) {
-  const response = await fetch(`${API_BASE}/trajectories/compare/stream`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(req)
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  /* istanbul ignore next -- ReadableStream guard; always supported in modern browsers */
-  if (!response.body) throw new Error('ReadableStream not supported');
-
-  const reader  = response.body.getReader();
-  const decoder = new TextDecoder();
-  let   buffer  = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split('\n\n');
-    buffer = events.pop();
-    for (const event of events) {
-      const line = event.split('\n').find(l => l.startsWith('data:'));
-      /* istanbul ignore else -- SSE events without a data: line are heartbeats; rare in tests */
-      if (line) {
-        const json = line.slice(5).trim();
-        /* istanbul ignore else -- empty data: payload is a server-side edge case */
-        if (json) onResult(JSON.parse(json));
-      }
-    }
-  }
-}
-
 // ── Error handling helpers ────────────────────────────────────────────────────
-
-/** Returns {status, detail, retryAfterSeconds} from a fetch Response. Never throws. */
-async function _parseRejection(res) {
-  let body = null;
-  try { body = await res.json(); } catch (_) {}
-  const detail = body?.detail ?? 'Server rejected the request.';
-  const retryAfterParsed = parseInt(res.headers.get('Retry-After') ?? '0', 10);
-  const retryAfterSeconds = Number.isFinite(retryAfterParsed) ? retryAfterParsed : 0;
-  return { status: res.status, detail, retryAfterSeconds };
-}
 
 /** Shows or hides the inline simulation error banner. */
 function _setSimulationError(message) {
@@ -210,7 +164,7 @@ function _setSimulationError(message) {
 }
 
 // ── Simulation ────────────────────────────────────────────────────────────────
-async function runSimulation() {
+function runSimulation() {
   if (selectedIds.size === 0) { alert('Select at least one round.'); return; }
   _setSimulationError(null);
 
@@ -219,7 +173,7 @@ async function runSimulation() {
   if (latRaw && (+latRaw < -90 || +latRaw > 90)) { _setSimulationError('Latitude must be between −90 and 90.'); return; }
   if (azRaw  && (+azRaw  < 0  || +azRaw  > 360)) { _setSimulationError('Azimuth must be between 0 and 360.'); return; }
 
-  const btn   = document.getElementById('runBtn');
+  const btn = document.getElementById('runBtn');
   btn.classList.add('loading');
 
   const twistRaw = document.getElementById('twistRate')?.value;
@@ -240,79 +194,18 @@ async function runSimulation() {
     ...(azRaw    ? { azimuthDeg:  +azRaw  } : {}),
   };
   lastReq = req;
-  const total   = req.bulletIds.length;
-  const results = [];
-  let   done    = 0;
-
-  const setProgress = () => {
-    btn.querySelector('span').textContent = `⏳ ${done}/${total} COMPUTED...`;
-  };
-  setProgress();
 
   try {
-    try {
-      await streamCompare(req, result => {
-        results.push(result);
-        done++;
-        setProgress();
-        renderResults(results, req);
-      });
-      setOfflineMode(false);
-    } catch (_streamErr) {
-      /* istanbul ignore else -- partial-results path requires a stream that delivers some events then fails; not exercised in unit tests */
-      if (results.length === 0) {
-        let res;
-        try {
-          res = await fetch(`${API_BASE}/trajectories/compare`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify(req)
-          });
-        } catch (networkErr) {
-          // Network/DNS/CORS errors → OFFLINE fallback
-          try {
-            computeClientSide(req).forEach(r => results.push(r));
-          } catch (inputErr) {
-            /* istanbul ignore else */
-            if (inputErr instanceof TrajectoryInputError) { _setSimulationError(inputErr.message); return; }
-            else throw inputErr; // simulate only throws TrajectoryInputError
-          }
-          setOfflineMode(true);
-          renderResults(results, req);
-          lastResults = results;
-          return;
-        }
-
-        if (!res.ok) {
-          const ct = res.headers?.get('Content-Type') ?? '';
-          if (res.status < 500 && ct.includes('problem+json')) {
-            const { detail, retryAfterSeconds } = await _parseRejection(res);
-            const msg = retryAfterSeconds > 0
-              ? `${detail} Retry after ${retryAfterSeconds} s.`
-              : detail;
-            _setSimulationError(msg);
-            return;
-          }
-          // 4xx non-JSON or 5xx → existing OFFLINE fallback
-          try {
-            computeClientSide(req).forEach(r => results.push(r));
-          } catch (inputErr) {
-            /* istanbul ignore else */
-            if (inputErr instanceof TrajectoryInputError) { _setSimulationError(inputErr.message); return; }
-            else throw inputErr; // simulate only throws TrajectoryInputError
-          }
-          setOfflineMode(true);
-        } else {
-          (await res.json()).forEach(r => results.push(r));
-          if (res.headers?.get('X-Served-By') !== 'sw-offline') setOfflineMode(false);
-        }
-        renderResults(results, req);
-      }
-    }
+    const results = computeClientSide(req);
+    renderResults(results, req);
     lastResults = results;
     updateSweepButtonVisibility();
   } catch (err) {
-    console.error(err);
+    if (err instanceof TrajectoryInputError) {
+      _setSimulationError(err.message);
+    } else {
+      console.error(err);
+    }
   } finally {
     btn.classList.remove('loading');
     btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
@@ -426,80 +319,25 @@ async function runCustom() {
     ...(_customDragTable ? { customDragTable: _customDragTable } : {}),
   };
 
+  const bullet = {
+    id: 'custom', name, caliber: 'Custom',
+    bulletWeightGrams: weight, muzzleVelocityMps: mv,
+    ballisticCoefficient: bc, bulletDiameterMm: dia,
+    muzzleEnergyJoules: Math.round(0.5 * (weight / 1000) * mv * mv),
+  };
   let result;
   try {
-    const res = await fetch(`${API_BASE}/trajectories/custom`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(req)
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    result = await res.json();
-  } catch (e) {
-    // offline fallback
-    const bullet = {
-      id: 'custom', name, caliber: 'Custom',
-      bulletWeightGrams: weight, muzzleVelocityMps: mv,
-      ballisticCoefficient: bc, bulletDiameterMm: dia,
-      muzzleEnergyJoules: Math.round(0.5 * (weight / 1000) * mv * mv)
-    };
-    try {
-      result = simulate(bullet, req);
-    } catch (inputErr) {
-      /* istanbul ignore else */
-      if (inputErr instanceof TrajectoryInputError) return showCustomError(inputErr.message);
-      else throw inputErr; // simulate only throws TrajectoryInputError
+    result = simulate(bullet, req);
+  } catch (err) {
+    if (err instanceof TrajectoryInputError) {
+      return showCustomError(err.message);
     }
+    throw err;
   }
   lastResults = [result];
   renderResults([result], req);
 }
 
-// ── Offline indicator + auto-retry ───────────────────────────────────────────
-function setOfflineMode(isOffline) {
-  offlineMode = isOffline;
-  const pill  = document.getElementById('statusPill');
-  const btn   = document.getElementById('retryBtn');
-  if (pill) {
-    if (isOffline) {
-      pill.className   = 'status-pill status-offline';
-      pill.textContent = '⚠ OFFLINE — LOCAL COMPUTE';
-    } else {
-      pill.className   = 'status-pill status-live';
-      pill.textContent = '● READY';
-    }
-  }
-  /* istanbul ignore else -- #retryBtn is always present in the app shell */
-  if (btn) btn.style.display = isOffline ? 'inline-block' : 'none';
-
-  if (isOffline && retryTimer === null) {
-    retryTimer = setInterval(probeServer, 60_000);
-  } else if (!isOffline && retryTimer !== null) {
-    clearInterval(retryTimer);
-    retryTimer = null;
-  }
-}
-
-// Probe the server; on success reload bullets, clear offline mode, show toast.
-async function probeServer() {
-  try {
-    const res = await fetch(`${API_BASE}/rpc`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'bullets.list', id: 1 }),
-    });
-    if (!res.ok) throw new Error(`status ${res.status}`);
-    const data = await res.json();
-    if (data.error) throw new Error('RPC error');
-    bullets = data.result;
-    setOfflineMode(false);
-    renderBulletList();
-    updateBulletCards();
-    showToast('Reconnected to server');
-  } catch {
-    // stay offline; timer will retry
-  }
-}
 
 function showToast(msg) {
   const el = document.getElementById('toast');
@@ -1308,7 +1146,7 @@ async function copyLink() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 let _initListenerController = null;
 
-async function init() {
+function init() {
   if (_initListenerController) _initListenerController.abort();
   _initListenerController = new AbortController();
   const { signal } = _initListenerController;
@@ -1317,11 +1155,6 @@ async function init() {
     navigator.serviceWorker.register('/sw.js', { type: 'module' })
       .catch(err => console.warn('SW registration failed:', err));
   }
-
-  // Online/offline indicator
-  window.addEventListener('offline', () => setOfflineMode(true), { signal });
-  window.addEventListener('online', probeServer, { signal });
-  if (!navigator.onLine) setOfflineMode(true);
 
   // Load saved preferences and URL params; URL takes per-key precedence over localStorage
   const fromUrl = decodeState(window.location.search);
@@ -1340,20 +1173,7 @@ async function init() {
   if (fromUrl.params.latitudeDeg != null) setVal('latitudeDeg', fromUrl.params.latitudeDeg);
   if (fromUrl.params.azimuthDeg  != null) setVal('azimuthDeg',  fromUrl.params.azimuthDeg);
 
-  try {
-    const res = await fetch(`${API_BASE}/rpc`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'bullets.list', id: 1 }),
-    });
-    const data = await res.json();
-    if (data.error) throw new Error('RPC error');
-    bullets = data.result;
-  } catch (e) {
-    console.warn('API offline — using mock data for preview');
-    bullets = getMockBullets();
-    setOfflineMode(true);
-  }
+  bullets = getMockBullets();
   renderBulletList();
 
   // Restore bullet selection: URL params take precedence over saved prefs
@@ -1384,7 +1204,6 @@ async function init() {
   });
 
   // Wire up static event listeners (replaces window.* globals and onclick attrs)
-  document.getElementById('retryBtn')?.addEventListener('click', probeServer);
   document.getElementById('runBtn')?.addEventListener('click', () => { closeSidebar(); runSimulation(); });
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
   document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
@@ -1638,15 +1457,13 @@ function loadPrefs() {
 }
 
 // ── State helpers (for test access) ──────────────────────────────────────────
-function _getState()     { return { bullets, selectedIds, lastResults, charts, crosshairIndex, crosshairPinned, offlineMode, retryTimer }; }
+function _getState()     { return { bullets, selectedIds, lastResults, lastReq, charts, crosshairIndex, crosshairPinned }; }
 function _resetState()   {
   bullets = []; selectedIds = new Set(); lastResults = []; charts = {};
   crosshairIndex = null; crosshairPinned = false;
-  offlineMode = false;
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
   sweepMode = false; sweepResults = null; lastReq = null;
   _customDragTable = null;
-  if (retryTimer !== null) { clearInterval(retryTimer); retryTimer = null; }
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
 }
 function _setBullets(b)      { bullets = b; }
@@ -1662,11 +1479,11 @@ if (document.getElementById('bulletList')) {
 
 export {
   getMockBullets, computeClientSide,
-  renderBulletList, toggleBullet, updateBulletCards, runSimulation, streamCompare,
+  renderBulletList, toggleBullet, updateBulletCards, runSimulation,
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
-  exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, setOfflineMode, probeServer, showToast,
+  exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, showToast,
   _downloadBlob,
   BULLET_COLORS, SWEEP_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
   drawVLine, drawHLine, annotationPlugin, windChartSubtitle,
@@ -1676,6 +1493,6 @@ export {
   updateSweepButtonVisibility, buildSweepRequests, runSweep, clearSweep, renderSweepCharts,
   SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
-  _parseRejection, _setSimulationError,
+  _setSimulationError,
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
 };
