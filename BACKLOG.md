@@ -50,7 +50,7 @@ the WASM/JS dispatch path.
 
 ## Milestone 2 — Drop the server
 
-### SPA-2 · Remove server API calls · FE · Size M
+### ~~SPA-2 · Remove server API calls · FE · Size M~~ · **DONE** (PR #TBD)
 
 Replace every `fetch('/api/...')` call with direct calls to the TS engine from
 SPA-1. No network requests are made at runtime.
