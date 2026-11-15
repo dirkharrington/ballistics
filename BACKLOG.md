@@ -76,7 +76,7 @@ SPA-1. No network requests are made at runtime.
 
 ---
 
-### SPA-3 · Delete Java backend and Rust engine · DevSecOps · Size S
+### ~~SPA-3 · Delete Java backend and Rust engine · DevSecOps · Size S~~ ✅ Done (PR #TBD)
 
 Delete every artefact the Java backend and WASM pipeline produced. After SPA-1
 and SPA-2, nothing in the runtime references them.
