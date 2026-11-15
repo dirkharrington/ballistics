@@ -18,9 +18,6 @@ HTMLCanvasElement.prototype.getContext = jest.fn(() => ({}));
 function buildDOM() {
   document.body.innerHTML = `
   <main class="main">
-    <div id="computingOverlay" class="computing-overlay" role="status" aria-live="polite" hidden>
-      <span class="computing-spinner" aria-hidden="true"></span><span>Computing…</span>
-    </div>
     <div id="bulletList"></div>
     <input id="zeroRange"   value="100" />
     <input id="maxRange"    value="500" />
@@ -133,30 +130,7 @@ function buildDOM() {
   `;
 }
 
-jest.mock('../../main/resources/static/engine-client.js', () => {
-  const WasmUnavailableError = class WasmUnavailableError extends Error {
-    constructor(m) { super(m); this.name = 'WasmUnavailableError'; }
-  };
-  const BallisticsEngineError = class BallisticsEngineError extends Error {
-    constructor(m) { super(m); this.name = 'BallisticsEngineError'; }
-  };
-  return {
-    WasmUnavailableError,
-    BallisticsEngineError,
-    EngineTier: { PENDING: 'PENDING', WORKER: 'WORKER', INLINE: 'INLINE', JS: 'JS' },
-    STARTUP_TIMEOUT_MS: 10000,
-    REQUEST_TIMEOUT_MS: 15000,
-    startEngine: jest.fn(() => Promise.resolve('JS')),
-    computeWithEngine: jest.fn(() => Promise.reject(new WasmUnavailableError('no wasm'))),
-    onBusyChange: jest.fn(() => () => {}),
-    shutdownEngine: jest.fn(),
-    toEngineParams: jest.fn((b, r) => ({ bulletId: b.id, ...r })),
-    toEngineBullet: jest.fn((b) => ({ ...b })),
-    _resetEngineClient: jest.fn(),
-  };
-});
-
-const engineClient = require('../../main/resources/static/engine-client.js');
+const { simulate } = require('../../main/resources/static/physics/engine.ts');
 const mod = require('../../main/resources/static/ballistics.js');
 
 // Reset state and DOM before each test
@@ -170,12 +144,6 @@ beforeEach(() => {
   mockChartUpdate.mockClear();
   global.fetch.mockReset();
   global.alert.mockClear();
-  engineClient.startEngine.mockReset().mockResolvedValue('JS');
-  engineClient.computeWithEngine.mockReset().mockRejectedValue(
-    new engineClient.WasmUnavailableError('no wasm')
-  );
-  engineClient.onBusyChange.mockReset().mockReturnValue(() => {});
-  engineClient.shutdownEngine.mockReset();
   global.console.warn.mockClear();
   // Reset URL so syncUrl side-effects from previous tests don't bleed into init()
   history.replaceState(null, '', '/');
@@ -322,404 +290,12 @@ describe('BULLET_COLORS', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// g1Drag
-// ─────────────────────────────────────────────────────────────────────────────
-describe('g1Drag', () => {
-  test('returns first table value for velocity at or below 0', () => {
-    expect(mod.g1Drag(0)).toBeCloseTo(0.1198);
-    expect(mod.g1Drag(-100)).toBeCloseTo(0.1198);
-  });
 
-  test('returns last table value for velocity at or above 4000', () => {
-    expect(mod.g1Drag(4000)).toBeCloseTo(0.0800);
-    expect(mod.g1Drag(5000)).toBeCloseTo(0.0800);
-  });
 
-  test('returns exact table value at known point', () => {
-    expect(mod.g1Drag(700)).toBeCloseTo(0.1194);
-    expect(mod.g1Drag(1400)).toBeCloseTo(0.2030);
-  });
-
-  test('interpolates between table entries', () => {
-    const v = mod.g1Drag(1025); // between 1000 (0.1250) and 1050 (0.1315)
-    expect(v).toBeGreaterThan(0.1250);
-    expect(v).toBeLessThan(0.1315);
-  });
-
-  test('handles negative input via Math.abs', () => {
-    expect(mod.g1Drag(-700)).toBeCloseTo(mod.g1Drag(700));
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
-// interpolateDragTable (G7 drag model — Task 10)
+// (simulateBulletJS tests removed — engine.ts is the sole physics engine now)
 // ─────────────────────────────────────────────────────────────────────────────
-const { G7_TABLE } = require('../../test/js/__mocks__/physics-tables.js');
-
-describe('interpolateDragTable', () => {
-  test('returns first table value for velocity at or below minimum', () => {
-    const first = G7_TABLE[0];
-    expect(mod.interpolateDragTable(first[0], G7_TABLE)).toBeCloseTo(first[1]);
-    expect(mod.interpolateDragTable(0, G7_TABLE)).toBeCloseTo(first[1]);
-  });
-
-  test('returns last table value for velocity at or above maximum', () => {
-    const last = G7_TABLE[G7_TABLE.length - 1];
-    expect(mod.interpolateDragTable(last[0], G7_TABLE)).toBeCloseTo(last[1]);
-    expect(mod.interpolateDragTable(99999, G7_TABLE)).toBeCloseTo(last[1]);
-  });
-
-  test('G7 values are generally lower than G1 at supersonic speeds', () => {
-    // G7 form factors are ~55–65% of G1 at supersonic speeds
-    const g1At2000 = mod.g1Drag(2000);
-    const g7At2000 = mod.interpolateDragTable(2000, G7_TABLE);
-    expect(g7At2000).toBeLessThan(g1At2000);
-  });
-
-  test('handles negative input via Math.abs', () => {
-    const pos = mod.interpolateDragTable(2000, G7_TABLE);
-    const neg = mod.interpolateDragTable(-2000, G7_TABLE);
-    expect(pos).toBeCloseTo(neg);
-  });
-
-  test('works identically to g1Drag when passed G1_TABLE', () => {
-    const { G1_TABLE } = require('../../test/js/__mocks__/physics-tables.js');
-    expect(mod.interpolateDragTable(1500, G1_TABLE)).toBeCloseTo(mod.g1Drag(1500));
-    expect(mod.interpolateDragTable(2600, G1_TABLE)).toBeCloseTo(mod.g1Drag(2600));
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// airDensityRatio
-// ─────────────────────────────────────────────────────────────────────────────
-describe('airDensityRatio', () => {
-  test('is approximately 1.0 at sea level standard temperature', () => {
-    const ratio = mod.airDensityRatio(0, 59);
-    expect(ratio).toBeCloseTo(1.0, 2);
-  });
-
-  test('is less than sea level at high altitude', () => {
-    const sealevel = mod.airDensityRatio(0, 59);
-    const altitude = mod.airDensityRatio(5000, 59);
-    expect(altitude).toBeLessThan(sealevel);
-  });
-
-  test('is less dense at higher temperature', () => {
-    const cold = mod.airDensityRatio(0, 40);
-    const hot  = mod.airDensityRatio(0, 100);
-    expect(hot).toBeLessThan(cold);
-  });
-
-  test('returns a positive value', () => {
-    expect(mod.airDensityRatio(3000, 70)).toBeGreaterThan(0);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// simulateBulletJS (synchronous JS fallback)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('simulateBulletJS', () => {
-  const bullet308 = {
-    id: '308-win-168gr', name: '.308', ballisticCoefficient: 0.475,
-    bulletWeightGrams: 10.89, muzzleVelocityMps: 807, muzzleEnergyJoules: 3552
-  };
-  const req = {
-    zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 100,
-    windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15
-  };
-
-  test('returns result object with expected shape', () => {
-    const result = mod.simulateBulletJS(bullet308, req);
-    expect(result.bullet).toBe(bullet308);
-    expect(result.request).toBe(req);
-    expect(Array.isArray(result.points)).toBe(true);
-    expect(result.maxOrdinateCm).toBeGreaterThanOrEqual(0);
-    expect(result.supersonicLimitMeters).toBeGreaterThanOrEqual(0);
-  });
-
-  test('produces trajectory points with positive velocity', () => {
-    const result = mod.simulateBulletJS(bullet308, req);
-    expect(result.points.length).toBeGreaterThan(0);
-    result.points.forEach(p => {
-      expect(p.velocityMps).toBeGreaterThan(0);
-      expect(p.energyJoules).toBeGreaterThan(0);
-    });
-  });
-
-  test('first point velocity matches muzzle velocity', () => {
-    const result = mod.simulateBulletJS(bullet308, req);
-    const pts = result.points;
-    expect(pts[0].velocityMps).toBeCloseTo(bullet308.muzzleVelocityMps, 0);
-  });
-
-  test('wind drift is zero when windSpeedKph is 0', () => {
-    const result = mod.simulateBulletJS(bullet308, req);
-    result.points.forEach(p => expect(p.windDriftCm).toBe(0));
-  });
-
-  test('wind drift is computed when wind is nonzero', () => {
-    const windReq = { ...req, windSpeedKph: 16 };
-    const result = mod.simulateBulletJS(bullet308, windReq);
-    expect(result.points).not.toHaveLength(0);
-    expect(result.request.windSpeedKph).toBe(16);
-  });
-
-  test('90° wind direction produces same drift as no direction specified', () => {
-    const windReq90  = { ...req, windSpeedKph: 16, windDirectionDeg: 90  };
-    const windReqDef = { ...req, windSpeedKph: 16 };                        // default = 90
-    const r90  = mod.simulateBulletJS(bullet308, windReq90);
-    const rDef = mod.simulateBulletJS(bullet308, windReqDef);
-    const last90  = r90.points[r90.points.length - 1].windDriftCm;
-    const lastDef = rDef.points[rDef.points.length - 1].windDriftCm;
-    // Explicit 90° must equal the implicit default of 90°
-    expect(last90).toBeCloseTo(lastDef, 1);
-    // Absolute drift sign is verified via integrateTrajectoryFps direct test below;
-    // at typical test ranges the rounded value can be 0 due to near-vacuum G1 drag table.
-  });
-
-  test('0° (headwind) produces zero crosswind drift', () => {
-    const headWind = { ...req, windSpeedKph: 16, windDirectionDeg: 0 };
-    const result = mod.simulateBulletJS(bullet308, headWind);
-    result.points.forEach(p => expect(p.windDriftCm).toBeCloseTo(0, 1));
-  });
-
-  test('270° and 90° crosswinds produce equal-magnitude opposite-sign drift', () => {
-    const leftWind  = { ...req, windSpeedKph: 16, windDirectionDeg: 270 };
-    const rightWind = { ...req, windSpeedKph: 16, windDirectionDeg: 90  };
-    const leftResult  = mod.simulateBulletJS(bullet308, leftWind);
-    const rightResult = mod.simulateBulletJS(bullet308, rightWind);
-    const lastLeft  = leftResult.points[leftResult.points.length - 1].windDriftCm;
-    const lastRight = rightResult.points[rightResult.points.length - 1].windDriftCm;
-    // 270° and 90° are perfect opposites (sin(270°)=−1, sin(90°)=+1),
-    // so drift magnitudes must be equal and opposite.
-    expect(lastLeft).toBeCloseTo(-lastRight, 0);  // symmetric ±
-  });
-
-  test('supersonic limit equals maxRange when bullet stays supersonic', () => {
-    const bullet223 = {
-      id: '223-rem-55gr', ballisticCoefficient: 0.243,
-      bulletWeightGrams: 3.56, muzzleVelocityMps: 987
-    };
-    const longReq = { ...req, maxRangeMeters: 1000, stepMeters: 50 };
-    const result = mod.simulateBulletJS(bullet223, longReq);
-    expect(result.supersonicLimitMeters).toBe(longReq.maxRangeMeters);
-  });
-
-  test('covers velocity < 100 early-break with very slow bullet', () => {
-    const slowBullet = {
-      id: 'slow', ballisticCoefficient: 0.1,
-      bulletWeightGrams: 3.24, muzzleVelocityMps: 12
-    };
-    const result = mod.simulateBulletJS(slowBullet, req);
-    expect(result).toBeDefined();
-    expect(result.supersonicLimitMeters).toBe(0);
-  });
-
-  test('covers velocity < 50 in zero-finder with very slow bullet', () => {
-    const ultraSlow = {
-      id: 'ultra', ballisticCoefficient: 0.05,
-      bulletWeightGrams: 3.24, muzzleVelocityMps: 9
-    };
-    const result = mod.simulateBulletJS(ultraSlow, req);
-    expect(result).toBeDefined();
-  });
-
-  test('max ordinate is positive for normal bullet', () => {
-    const result = mod.simulateBulletJS(bullet308, req);
-    expect(result.maxOrdinateCm).toBeGreaterThan(0);
-  });
-
-  test('high altitude simulation produces valid trajectory', () => {
-    const seaResult = mod.simulateBulletJS(bullet308, { ...req, altitudeMeters: 0 });
-    const altResult = mod.simulateBulletJS(bullet308, { ...req, altitudeMeters: 1524 });
-    expect(seaResult.points.length).toBeGreaterThan(0);
-    expect(altResult.points.length).toBeGreaterThan(0);
-  });
-
-  // ── G7 drag model (Task 10) ──────────────────────────────────────────────
-  test('G7 model produces valid trajectory with expected shape', () => {
-    const result = mod.simulateBulletJS(bullet308, { ...req, dragModel: 'G7' });
-    expect(result.points.length).toBeGreaterThan(0);
-    result.points.forEach(p => {
-      expect(p.velocityMps).toBeGreaterThan(0);
-      expect(p.energyJoules).toBeGreaterThan(0);
-    });
-  });
-
-  test('G7 drag values are lower than G1 at supersonic speeds (table lookup sanity check)', () => {
-    // G7 form factors are ~55–65% of G1 at supersonic speeds.
-    // The test verifies the table routing is correct — G7 interpolation < G1 interpolation.
-    const { G1_TABLE: gt1, G7_TABLE: gt7 } = require('../../test/js/__mocks__/physics-tables.js');
-    const g1val = mod.interpolateDragTable(2000, gt1);
-    const g7val = mod.interpolateDragTable(2000, gt7);
-    expect(g7val).toBeLessThan(g1val);
-    // Expect G7 to be roughly 50–75% of G1 at 2000 fps
-    expect(g7val / g1val).toBeGreaterThan(0.4);
-    expect(g7val / g1val).toBeLessThan(0.9);
-  });
-
-  test('G7 model exercises end-to-end path and produces valid trajectory', () => {
-    // Verifies the G7 code path — dragTable selection, findZeroAngleFps, integrateTrajectoryFps —
-    // runs without error and produces a sensible zeroed trajectory.
-    const longReq = { ...req, maxRangeMeters: 500, stepMeters: 100 };
-    const g1Result = mod.simulateBulletJS(bullet308, { ...longReq, dragModel: 'G1' });
-    const g7Result = mod.simulateBulletJS(bullet308, { ...longReq, dragModel: 'G7' });
-    // Both produce trajectories
-    expect(g1Result.points.length).toBeGreaterThan(0);
-    expect(g7Result.points.length).toBeGreaterThan(0);
-    // Both produce a valid first point (muzzle)
-    const g1First = g1Result.points[0];
-    const g7First = g7Result.points[0];
-    expect(g1First.velocityMps).toBeCloseTo(bullet308.muzzleVelocityMps, 0);
-    expect(g7First.velocityMps).toBeCloseTo(bullet308.muzzleVelocityMps, 0);
-    // G7 has lower drag → can travel at least as far as G1
-    expect(g7Result.points.length).toBeGreaterThanOrEqual(g1Result.points.length);
-  });
-
-  test('absent dragModel defaults to G1 behaviour', () => {
-    const noModel  = mod.simulateBulletJS(bullet308, { ...req });
-    const explicit = mod.simulateBulletJS(bullet308, { ...req, dragModel: 'G1' });
-    const last = noModel.points.length - 1;
-    expect(noModel.points[last].dropCm).toBeCloseTo(explicit.points[last].dropCm, 1);
-  });
-
-  test('no coriolisDeflectionCm on points when latitudeDeg is absent', () => {
-    const result = mod.simulateBulletJS(bullet308, req);
-    result.points.forEach(p => expect(p.coriolisDeflectionCm).toBeUndefined());
-  });
-
-  test('coriolisDeflectionCm is set on all points when latitudeDeg is provided', () => {
-    const corReq = { ...req, latitudeDeg: 45, azimuthDeg: 0 };
-    const result = mod.simulateBulletJS(bullet308, corReq);
-    expect(result.points.length).toBeGreaterThan(0);
-    result.points.forEach(p => expect(typeof p.coriolisDeflectionCm).toBe('number'));
-  });
-
-  test('coriolisDeflectionCm is zero at muzzle (t=0)', () => {
-    const corReq = { ...req, latitudeDeg: 45, azimuthDeg: 0 };
-    const result = mod.simulateBulletJS(bullet308, corReq);
-    expect(result.points[0].coriolisDeflectionCm).toBe(0);
-  });
-
-  test('coriolisDeflectionCm defaults azimuthDeg to 0 when absent', () => {
-    const noAz   = mod.simulateBulletJS(bullet308, { ...req, latitudeDeg: 45 });
-    const withAz = mod.simulateBulletJS(bullet308, { ...req, latitudeDeg: 45, azimuthDeg: 0 });
-    const last = noAz.points.length - 1;
-    expect(noAz.points[last].coriolisDeflectionCm).toBe(withAz.points[last].coriolisDeflectionCm);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// findZeroAngleFps
-// ─────────────────────────────────────────────────────────────────────────────
-describe('findZeroAngleFps', () => {
-  // Standard .308 Win 168gr at sea level, zero at 100 m (328 ft), sight 38.1 mm
-  const mvFps    = 807 * 3.28084;   // ≈ 2648 ft/s
-  const bc       = 0.475;
-  const rho      = 1.0;             // sea level
-  const zeroFt   = 100 * 3.28084;  // 100 m in feet
-  const sightHtFt = 38.1 / 25.4 / 12; // 38.1 mm → feet
-
-  test('returns a small positive angle for a typical rifle load', () => {
-    const angle = mod.findZeroAngleFps(mvFps, bc, rho, zeroFt, sightHtFt);
-    // Barrel must point slightly upward to compensate for gravity and sight height
-    expect(angle).toBeGreaterThan(0);
-    expect(angle).toBeLessThan(0.01); // < ~0.57°
-  });
-
-  test('angle increases when zero range increases', () => {
-    const angle100 = mod.findZeroAngleFps(mvFps, bc, rho, zeroFt, sightHtFt);
-    const angle200 = mod.findZeroAngleFps(mvFps, bc, rho, zeroFt * 2, sightHtFt);
-    expect(angle200).toBeGreaterThan(angle100);
-  });
-
-  test('angle increases for slower muzzle velocity (more drop to compensate)', () => {
-    const angleFast = mod.findZeroAngleFps(mvFps,       bc, rho, zeroFt, sightHtFt);
-    const angleSlow = mod.findZeroAngleFps(mvFps * 0.5, bc, rho, zeroFt, sightHtFt);
-    expect(angleSlow).toBeGreaterThan(angleFast);
-  });
-
-  test('returns a finite number even for very slow (sub-50 fps) bullet', () => {
-    const angle = mod.findZeroAngleFps(15, 0.05, rho, zeroFt, sightHtFt);
-    expect(Number.isFinite(angle)).toBe(true);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// integrateTrajectoryFps
-// ─────────────────────────────────────────────────────────────────────────────
-describe('integrateTrajectoryFps', () => {
-  const mvFps      = 807 * 3.28084;
-  const bc         = 0.475;
-  const rho        = 1.0;
-  const wLbs       = 10.89 / 453.592;
-  const windMph    = 0;
-  const maxRangeYd = 1000 / 0.9144;  // 1000 m in yards
-  const stepYd     = 25 / 0.9144;    // 25 m in yards
-  const sightHtFt  = 38.1 / 25.4 / 12;
-  const zeroFt     = 100 * 3.28084;
-  const angle      = 0.002;          // realistic zero angle (~0.11°)
-
-  test('returns the correct number of trajectory points', () => {
-    const { points } = mod.integrateTrajectoryFps(
-      mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd
-    );
-    // 0–1000 m at 25 m steps = 41 points (0, 25, 50, … 1000)
-    expect(points.length).toBeGreaterThanOrEqual(40);
-    expect(points.length).toBeLessThanOrEqual(42);
-  });
-
-  test('first point has velocity close to muzzle velocity', () => {
-    const { points } = mod.integrateTrajectoryFps(
-      mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd
-    );
-    const muzzleMps = mvFps / 3.28084;
-    expect(points[0].velocityMps).toBeCloseTo(muzzleMps, 0);
-  });
-
-  test('wind drift is zero when windMph is 0', () => {
-    const { points } = mod.integrateTrajectoryFps(
-      mvFps, angle, bc, rho, wLbs, 0, maxRangeYd, stepYd
-    );
-    points.forEach(p => expect(p.windDriftCm).toBe(0));
-  });
-
-  test('output matches simulateBullet for equivalent inputs', () => {
-    const bullet = { ballisticCoefficient: bc, bulletWeightGrams: 10.89, muzzleVelocityMps: 807 };
-    const req = {
-      zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 25,
-      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15
-    };
-    const full   = mod.simulateBulletJS(bullet, req);
-    const rhoReq = 1.0;  // sea-level at 15°C is ≈ 1
-    const angleV = mod.findZeroAngleFps(mvFps, bc, rhoReq, 100 * 3.28084, 38.1 / 25.4 / 12);
-    const { points } = mod.integrateTrajectoryFps(
-      mvFps, angleV, bc, rhoReq, wLbs, 0, 500 / 0.9144, 25 / 0.9144
-    );
-    expect(points.length).toBe(full.points.length);
-    expect(points[0].velocityMps).toBeCloseTo(full.points[0].velocityMps, 0);
-  });
-
-  test('positive windMph produces rightward drift, negative windMph produces leftward drift', () => {
-    // The Pejsa drift formula (windFps × (t − vacuumTof) × 12) requires drag > 0 to
-    // produce a non-zero time lag.  With the current G1 table the per-step deceleration
-    // is tiny (~0.25 fps²), so at typical wind speeds the rounded drift is 0.
-    // Use ±100 mph at 1000 m range to accumulate enough lag for the sign to survive
-    // the 0.1 cm rounding threshold, directly verifying the Pejsa sign convention.
-    const { points: rightPts } = mod.integrateTrajectoryFps(
-      mvFps, angle, bc, rho, wLbs,  100, maxRangeYd, stepYd
-    );
-    const { points: leftPts  } = mod.integrateTrajectoryFps(
-      mvFps, angle, bc, rho, wLbs, -100, maxRangeYd, stepYd
-    );
-    const rightDrift = rightPts[rightPts.length - 1].windDriftCm;
-    const leftDrift  = leftPts[leftPts.length - 1].windDriftCm;
-    expect(rightDrift).toBeGreaterThan(0);          // +windMph → rightward (+)
-    expect(leftDrift).toBeLessThan(0);              // −windMph → leftward  (−)
-    expect(rightDrift).toBeCloseTo(-leftDrift, 0);  // equal magnitude, opposite sign
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // computeClientSide
@@ -1286,6 +862,28 @@ describe('renderResults', () => {
     });
     expect(driftCall).toBeDefined();
   });
+
+  test('Coriolis dataset falls back to #4ADE80 color for unknown bullet ID (line 891 || branch)', () => {
+    const corResults = [{
+      bullet: { id: 'unknown-custom-bullet', name: 'Custom',
+                muzzleVelocityMps: 800, muzzleEnergyJoules: 3000,
+                ballisticCoefficient: 0.4, bulletWeightGrams: 9.5 },
+      request: {},
+      points: [
+        { rangeMeters: 0,   dropCm: 0,  velocityMps: 800, energyJoules: 3000, windDriftCm: 0, timeOfFlightSec: 0,    coriolisDeflectionCm: 0.8 },
+        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0.13, coriolisDeflectionCm: 1.1 },
+      ],
+      maxOrdinateCm: 3, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 820,
+    }];
+    mod.renderResults(corResults, req);
+    const driftCall = MockChart.mock.calls.find(args => {
+      const ds = args[1]?.data?.datasets ?? [];
+      return ds.some(d => d.label && d.label.includes('coriolis'));
+    });
+    expect(driftCall).toBeDefined();
+    const corDs = driftCall[1].data.datasets.find(d => d.label.includes('coriolis'));
+    expect(corDs.borderColor).toBe('#4ADE80');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1336,6 +934,28 @@ describe('runSimulation', () => {
     await mod.runSimulation();
 
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+  });
+
+  test('shows simulation error when computeClientSide throws TrajectoryInputError on network failure (lines 276-277)', async () => {
+    document.getElementById('maxRange').value = '6000';
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockRejectedValue(new Error('Network error'));
+
+    await mod.runSimulation();
+
+    expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(false);
+  });
+
+  test('shows simulation error when computeClientSide throws TrajectoryInputError on server error (line 300)', async () => {
+    document.getElementById('maxRange').value = '6000';
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    global.fetch.mockResolvedValue({ ok: false, status: 500, headers: { get: () => null } });
+
+    await mod.runSimulation();
+
+    expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(false);
   });
 
   test('restores button text in finally block', async () => {
@@ -1878,6 +1498,16 @@ describe('init', () => {
     await Promise.resolve();
     expect(global.fetch).toHaveBeenLastCalledWith('/api/rpc', expect.objectContaining({ method: 'POST' }));
   });
+
+  test('second init() call aborts prior AbortController (line 1311 true branch)', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    // calling init() a second time (without _resetState()) exercises the
+    // if (_initListenerController) branch (true) at line 1311
+    global.fetch.mockRejectedValue(new Error('offline'));
+    await mod.init();
+    expect(document.querySelectorAll('.bullet-card')).toHaveLength(10);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2012,16 +1642,16 @@ describe('sight height parameter', () => {
     windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15
   };
 
-  test('simulateBullet uses default 38.1 mm when sightHeightMm is absent', () => {
-    const r1 = mod.simulateBulletJS(baseBullet, { ...baseReq });
-    const r2 = mod.simulateBulletJS(baseBullet, { ...baseReq, sightHeightMm: 38.1 });
+  test('simulate uses default 38.1 mm when sightHeightMm is absent', () => {
+    const r1 = simulate(baseBullet, { ...baseReq });
+    const r2 = simulate(baseBullet, { ...baseReq, sightHeightMm: 38.1 });
     // Explicit 38.1 should match the default
     expect(r1.points[1].dropCm).toBeCloseTo(r2.points[1].dropCm, 1);
   });
 
   test('higher sight height requires steeper launch angle — max ordinate increases', () => {
-    const low  = mod.simulateBulletJS(baseBullet, { ...baseReq, sightHeightMm: 10 });
-    const high = mod.simulateBulletJS(baseBullet, { ...baseReq, sightHeightMm: 100 });
+    const low  = simulate(baseBullet, { ...baseReq, sightHeightMm: 10 });
+    const high = simulate(baseBullet, { ...baseReq, sightHeightMm: 100 });
     // 90 mm extra sight height → ~0.9 mrad steeper launch angle → bullet peaks ~4 cm higher
     expect(high.maxOrdinateCm).toBeGreaterThan(low.maxOrdinateCm + 1);
   });
@@ -2084,30 +1714,30 @@ describe('shooting angle correction', () => {
   };
 
   test('angle=0 produces same drop as no angle specified', () => {
-    const withNull  = mod.simulateBulletJS(baseBullet, { ...baseReq });
-    const withZero  = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
+    const withNull  = simulate(baseBullet, { ...baseReq });
+    const withZero  = simulate(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
     const last = withNull.points.length - 1;
     expect(withZero.points[last].dropCm).toBeCloseTo(withNull.points[last].dropCm, 1);
   });
 
   test('uphill angle (+20°) reduces apparent drop magnitude vs flat', () => {
-    const flat   = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
-    const uphill = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: 20 });
+    const flat   = simulate(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
+    const uphill = simulate(baseBullet, { ...baseReq, shootingAngleDegrees: 20 });
     const i = flat.points.length - 1;
     // drop is negative past zero; |uphill| < |flat| (cos(20°) ≈ 0.94)
     expect(Math.abs(uphill.points[i].dropCm)).toBeLessThan(Math.abs(flat.points[i].dropCm));
   });
 
   test('downhill angle (-20°) reduces apparent drop magnitude vs flat', () => {
-    const flat = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
-    const down = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: -20 });
+    const flat = simulate(baseBullet, { ...baseReq, shootingAngleDegrees: 0 });
+    const down = simulate(baseBullet, { ...baseReq, shootingAngleDegrees: -20 });
     const i = flat.points.length - 1;
     expect(Math.abs(down.points[i].dropCm)).toBeLessThan(Math.abs(flat.points[i].dropCm));
   });
 
   test('uphill and downhill produce same drop magnitude (cos is symmetric)', () => {
-    const up   = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees:  30 });
-    const down = mod.simulateBulletJS(baseBullet, { ...baseReq, shootingAngleDegrees: -30 });
+    const up   = simulate(baseBullet, { ...baseReq, shootingAngleDegrees:  30 });
+    const down = simulate(baseBullet, { ...baseReq, shootingAngleDegrees: -30 });
     const i = up.points.length - 1;
     expect(Math.abs(up.points[i].dropCm)).toBeCloseTo(Math.abs(down.points[i].dropCm), 1);
   });
@@ -2776,7 +2406,7 @@ describe('exportCSV', () => {
 
   test('builds CSV rows and triggers download when results are present', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBulletJS(bullet, {
+    const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2851,7 +2481,7 @@ describe('exportJSON', () => {
 
   test('creates a JSON blob with all result data and triggers download', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBulletJS(bullet, {
+    const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2897,7 +2527,7 @@ describe('exportMarkdown', () => {
 
   test('creates Markdown with table headers and bullet name heading', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBulletJS(bullet, {
+    const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -3033,6 +2663,14 @@ describe('runCustom server success', () => {
     expect(result).toBeDefined();
     expect(result.bullet).toBeDefined();
     expect(result.bullet.id).toBe('custom');
+  });
+
+  test('shows custom error when simulate throws TrajectoryInputError in offline fallback (lines 447-448)', async () => {
+    setValidCustomInputs();
+    document.getElementById('maxRange').value = '6000';
+    global.fetch.mockResolvedValueOnce({ ok: false, status: 500 });
+    await mod.runCustom();
+    expect(document.getElementById('customError').style.display).toBe('block');
   });
 });
 
@@ -3301,34 +2939,6 @@ describe('init loads customDragTable from localStorage', () => {
   });
 });
 
-describe('simulateBulletJS with customDragTable', () => {
-  const bullet = {
-    id: 'b1', name: 'Test', caliber: '.308', ballisticCoefficient: 0.47,
-    muzzleVelocityMps: 850, bulletWeightGrams: 11.66, bulletDiameterMm: 7.82,
-  };
-  const req = {
-    zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
-    windSpeedKph: 0, windDirectionDeg: 90, altitudeMeters: 0,
-    temperatureC: 15, sightHeightMm: 38.1, shootingAngleDegrees: 0, dragModel: 'G1',
-    customDragTable: [{ mach: 0.3, cd: 0.3 }, { mach: 2.5, cd: 0.4 }],
-  };
-
-  test('logs a console.warn and falls back to dragModel', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    mod.simulateBulletJS(bullet, req);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('JS fallback does not support customDragTable'));
-    warnSpy.mockRestore();
-  });
-
-  test('warn fires only once per session across multiple calls', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    mod.simulateBulletJS(bullet, req);
-    mod.simulateBulletJS(bullet, req);
-    mod.simulateBulletJS(bullet, req);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    warnSpy.mockRestore();
-  });
-});
 
 describe('_resetState clears _customDragTable', () => {
   test('_customDragTable is null after reset', async () => {
@@ -3426,7 +3036,7 @@ describe('export button click handler', () => {
 
   test('clicking .export-btn triggers exportPNG for that chart', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBulletJS(bullet, {
+    const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -3474,7 +3084,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
     // Directly set state via the exported helper would need a setter — use the
     // existing chart-interaction tests pattern: call onHover to set index
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBulletJS(bullet, {
+    const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -3502,7 +3112,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
     // Manually set crosshairIndex to a value beyond the data array length
     // We do this by calling onHover with an element at a large index via the chart mock
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBulletJS(bullet, {
+    const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -3536,7 +3146,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
 describe('updateReadout edge cases', () => {
   test('returns early when there is no point at dataIndex (L525 branch)', () => {
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBulletJS(bullet, {
+    const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 100, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -3549,7 +3159,7 @@ describe('updateReadout edge cases', () => {
   test('renders empty row when a result has no point at dataIndex (L536 branch)', () => {
     const bullet = mod.getMockBullets()[0];
     // Two results: one normal, one without a point at index 1
-    const fullResult = mod.simulateBulletJS(bullet, {
+    const fullResult = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -3565,7 +3175,7 @@ describe('updateReadout edge cases', () => {
 
   test('uses fallback color when bullet id is not in BULLET_COLORS (L547 || branch)', () => {
     const bullet = mod.getMockBullets()[0];
-    const fullResult = mod.simulateBulletJS(bullet, {
+    const fullResult = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 100, stepMeters: 50,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -3618,7 +3228,7 @@ describe('readoutPin unpin with populated charts (L815 forEach arrow fn)', () =>
 
     // Populate charts by running a simulation
     const bullet = mod.getMockBullets()[0];
-    const result = mod.simulateBulletJS(bullet, {
+    const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -4966,6 +4576,24 @@ describe('MH-3: renderResults calls renderDopeCard', () => {
     expect(html).toContain('<thead>');
     expect(html).toContain('.308 Win');
   });
+
+  test('renders Coriolis cell without + prefix for negative coriolis in DOPE table (tools.js:116 false branch)', () => {
+    // Both points have negative coriolisDeflectionCm → hasCoriolis=true (non-zero),
+    // interpolation returns non-null negative cor → `cor >= 0 ? '+' : ''` takes the '' branch
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 0,   dropCm: 0,   velocityMps: 807, energyJoules: 3552, windDriftCm: 0,  timeOfFlightSec: 0,    coriolisDeflectionCm: -1.5 },
+        { rangeMeters: 500, dropCm: -80, velocityMps: 550, energyJoules: 1650, windDriftCm: 15, timeOfFlightSec: 0.72, coriolisDeflectionCm: -2.0 },
+      ],
+      maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
+    };
+    mod.renderResults([result], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('-1');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5069,20 +4697,13 @@ describe('MH-4: runSweep', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  test('calls trajectory.batch RPC on success', async () => {
+  test('runs sweep locally and shows results', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
-    global.fetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(makeSweepApiResult()),
-    });
 
     await mod.runSweep();
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('/rpc'),
-      expect.objectContaining({ method: 'POST' }),
-    );
+    expect(global.fetch).not.toHaveBeenCalled();
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
     expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
   });
@@ -5189,65 +4810,27 @@ describe('MH-4: runSweep', () => {
     expect(mockChart.destroy).toHaveBeenCalled();
   });
 
-  // WA-7: WASM-first batch path
-  test('WA-7: uses WASM batch when computeWithEngine resolves — no fetch call', async () => {
+  test('resets button text when simulate throws TrajectoryInputError (lines 1170-1172)', async () => {
+    document.getElementById('maxRange').value = '6000';
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
-    const engineResult = {
-      points: [
-        { rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
-        { rangeMeters: 100, dropCm: -5, velocityMps: 760, energyJoules: 3150, windDriftCm: 2, timeOfFlightSec: 0.13 },
-      ],
-      supersonicLimitMeters: 820, maxOrdinateCm: 3, maxOrdinateRangeMeters: 50,
-    };
-    engineClient.computeWithEngine.mockResolvedValue(engineResult);
 
     await mod.runSweep();
 
-    // One call per sweep variant (5 variants)
-    expect(engineClient.computeWithEngine).toHaveBeenCalledTimes(5);
-    expect(global.fetch).not.toHaveBeenCalled();
-    expect(global.console.warn).not.toHaveBeenCalled();
-    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
-    expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
+    const btn = document.getElementById('sweepBtn');
+    expect(btn.querySelector('span').textContent).toBe('SWEEP');
+    expect(document.getElementById('resultsContainer').style.display).not.toBe('flex');
   });
 
-  test('WA-7: WasmUnavailableError falls back to API silently — no console.warn', async () => {
-    // Default mock already throws WasmUnavailableError; just confirm warn is suppressed
+  test('if(btn) false in error catch when sweepBtn absent (line 1173)', async () => {
+    document.getElementById('sweepBtn').remove();
+    document.getElementById('maxRange').value = '6000';
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
-    global.fetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(makeSweepApiResult()),
-    });
-
-    await mod.runSweep();
-
-    expect(global.console.warn).not.toHaveBeenCalled();
-    expect(global.fetch).toHaveBeenCalled();
-    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+    await expect(mod.runSweep()).resolves.toBeUndefined();
   });
 
-  test('WA-7: warns and falls back to API when computeWithEngine throws non-WasmUnavailable error', async () => {
-    mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
-    engineClient.computeWithEngine.mockRejectedValue(
-      new engineClient.BallisticsEngineError('physics fault')
-    );
-    global.fetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(makeSweepApiResult()),
-    });
 
-    await mod.runSweep();
-
-    expect(global.console.warn).toHaveBeenCalledWith(
-      '[engine] WASM sweep batch failed:',
-      'physics fault'
-    );
-    expect(global.fetch).toHaveBeenCalled();
-    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5499,178 +5082,9 @@ describe('MH-1: adjustment chart callbacks', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// simulateBullet — async WASM facade (FE-5)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('simulateBullet async facade', () => {
-  const bullet = {
-    id: '308-win-168gr', name: '.308', ballisticCoefficient: 0.475,
-    bulletWeightGrams: 10.89, muzzleVelocityMps: 807
-  };
-  const req = {
-    zeroRangeMeters: 100, maxRangeMeters: 300, stepMeters: 100,
-    windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15
-  };
 
-  test('returns engine result when computeWithEngine succeeds', async () => {
-    const engineResult = { bullet, request: req, points: [{ rangeMeters: 0 }] };
-    engineClient.computeWithEngine.mockResolvedValue(engineResult);
-    const result = await mod.simulateBullet(bullet, req);
-    expect(result.points).toBe(engineResult.points);
-  });
 
-  test('falls back to simulateBulletJS on WasmUnavailableError without warning', async () => {
-    engineClient.computeWithEngine.mockRejectedValue(
-      new engineClient.WasmUnavailableError('no wasm')
-    );
-    const result = await mod.simulateBullet(bullet, req);
-    expect(result.points.length).toBeGreaterThan(0);
-    expect(global.console.warn).not.toHaveBeenCalled();
-  });
 
-  test('falls back to simulateBulletJS on other error and warns', async () => {
-    engineClient.computeWithEngine.mockRejectedValue(new Error('compute failed'));
-    const result = await mod.simulateBullet(bullet, req);
-    expect(result.points.length).toBeGreaterThan(0);
-    expect(global.console.warn).toHaveBeenCalled();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// _setComputing / overlay (FE-5)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('_setComputing overlay', () => {
-  test('shows overlay after COMPUTING_OVERLAY_DELAY_MS on true', () => {
-    const overlay = document.getElementById('computingOverlay');
-    mod._setComputing(true);
-    expect(overlay.hasAttribute('hidden')).toBe(true); // not shown immediately
-    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS);
-    expect(overlay.hasAttribute('hidden')).toBe(false);
-  });
-
-  test('hides overlay immediately on false', () => {
-    const overlay = document.getElementById('computingOverlay');
-    mod._setComputing(true);
-    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS);
-    expect(overlay.hasAttribute('hidden')).toBe(false);
-    mod._setComputing(false);
-    expect(overlay.hasAttribute('hidden')).toBe(true);
-  });
-
-  test('cancels pending timer when false arrives before delay', () => {
-    const overlay = document.getElementById('computingOverlay');
-    mod._setComputing(true);
-    mod._setComputing(false);
-    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS + 100);
-    expect(overlay.hasAttribute('hidden')).toBe(true);
-  });
-
-  test('busy=true when overlay already visible (no hidden attr) → no new timer (line 82 && false)', () => {
-    const overlay = document.getElementById('computingOverlay');
-    overlay.removeAttribute('hidden'); // make overlay visible
-    mod._setComputing(true); // _computingTimer is null but overlay has no 'hidden' → condition false
-    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS + 100);
-    expect(overlay.hasAttribute('hidden')).toBe(false); // unchanged, no timer fired
-  });
-
-  test('busy=true when overlay element absent → timer still starts (line 82 !overlay branch)', () => {
-    const overlay = document.getElementById('computingOverlay');
-    overlay.remove(); // remove overlay from DOM
-    expect(() => {
-      mod._setComputing(true);
-      jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS);
-    }).not.toThrow();
-  });
-
-  test('timer callback when overlay element absent → no crash (line 87 false branch)', () => {
-    mod._setComputing(true);
-    document.getElementById('computingOverlay').remove(); // remove before timer fires
-    expect(() => jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS)).not.toThrow();
-  });
-
-  test('timer callback when main element absent → no crash (line 88 false branch)', () => {
-    mod._setComputing(true);
-    document.querySelector('main.main').remove(); // remove before timer fires
-    expect(() => jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS)).not.toThrow();
-  });
-
-  test('busy=false when overlay absent → no crash (line 93 false branch)', () => {
-    document.getElementById('computingOverlay').remove();
-    expect(() => mod._setComputing(false)).not.toThrow();
-  });
-
-  test('busy=false when main absent → no crash (line 94 false branch)', () => {
-    document.querySelector('main.main').remove();
-    expect(() => mod._setComputing(false)).not.toThrow();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// init() wiring (FE-5)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('init() engine wiring', () => {
-  test('calls onBusyChange and startEngine', async () => {
-    engineClient.startEngine.mockResolvedValue('JS');
-    mod.init();
-    expect(engineClient.onBusyChange).toHaveBeenCalledWith(mod._setComputing);
-    expect(engineClient.startEngine).toHaveBeenCalled();
-    await Promise.resolve();
-  });
-
-  test('sets data-engine-tier on documentElement after startEngine resolves', async () => {
-    engineClient.startEngine.mockResolvedValue('WORKER');
-    mod.init();
-    await engineClient.startEngine.mock.results[0].value;
-    await Promise.resolve();
-    expect(document.documentElement.dataset.engineTier).toBe('WORKER');
-  });
-
-  test('pagehide listener calls shutdownEngine', () => {
-    mod.init();
-    window.dispatchEvent(new Event('pagehide'));
-    expect(engineClient.shutdownEngine).toHaveBeenCalled();
-  });
-
-  test('pageshow with persisted=true calls startEngine again', async () => {
-    engineClient.startEngine.mockResolvedValue('INLINE');
-    mod.init();
-    const callsBefore = engineClient.startEngine.mock.calls.length;
-    window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
-    expect(engineClient.startEngine).toHaveBeenCalledTimes(callsBefore + 1);
-  });
-
-  test('pageshow with persisted=false does not call startEngine again', () => {
-    mod.init();
-    const callsBefore = engineClient.startEngine.mock.calls.length;
-    window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: false }));
-    expect(engineClient.startEngine).toHaveBeenCalledTimes(callsBefore);
-  });
-
-  test('calling init() twice aborts previous listener controller (line 1461)', () => {
-    mod.init(); // first call: _initListenerController = null → false branch
-    expect(() => mod.init()).not.toThrow(); // second call: controller exists → abort (true branch)
-  });
-});
-
-describe('_resetState coverage gaps', () => {
-  test('_resetState while _computingTimer is set clears it (line 1729)', () => {
-    mod._setComputing(true); // sets _computingTimer
-    mod._resetState(); // _computingTimer !== null → clears it (true branch)
-    jest.advanceTimersByTime(mod.COMPUTING_OVERLAY_DELAY_MS + 100);
-    // overlay should still be hidden (timer was cleared)
-    expect(document.getElementById('computingOverlay').hasAttribute('hidden')).toBe(true);
-  });
-
-  test('_resetState when overlay absent → no crash (line 1733 false branch)', () => {
-    document.getElementById('computingOverlay').remove();
-    expect(() => mod._resetState()).not.toThrow();
-  });
-
-  test('_resetState when main absent → no crash (line 1734 false branch)', () => {
-    document.querySelector('main.main').remove();
-    expect(() => mod._resetState()).not.toThrow();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MH-4: export button on sweep chart (line 1344)
