@@ -279,7 +279,7 @@ only on first use. A full offline load after cache warm-up still fetches
 
 ---
 
-### ~~PERF-3~~ · Lazy-load Chart.js · FE · Size XS ✅ Done (PR #TBD)
+### ~~PERF-3~~ · Lazy-load Chart.js · FE · Size XS ✅ Done (PR #106)
 
 Chart.js adds ≈ 200 KB (gzipped ≈ 65 KB) to the initial bundle. It is not
 needed until the user clicks "Simulate". Dynamic import reduces the initial
