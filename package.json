@@ -55,7 +55,7 @@
     "@tootallnate/once": "3.0.1"
   },
   "devDependencies": {
-    "@babel/core": "^8.0.0",
+    "@babel/core": "^8.1.2",
     "@babel/preset-env": "^8.0.7",
     "@babel/preset-typescript": "^8.0.7",
     "babel-jest": "^30.4.1",
