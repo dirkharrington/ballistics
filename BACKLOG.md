@@ -527,6 +527,3 @@ affected render function to cover the data-flow fix.
 
 ---
 
-## Open questions
-
-1. **Custom domain?** GitHub Pages works under `username.github.io/ballistics`; a custom domain needs a `CNAME` and DNS record.
