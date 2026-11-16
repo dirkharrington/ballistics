@@ -157,6 +157,152 @@ Publish the Vite output to a static host on every push to `main`.
 
 ---
 
+## Milestone 5 — Maintenance & Cleanup
+
+### CLN-1 · Remove stale artefacts · FE · Size S
+
+Delete files and folders that existed only to support the Java/Maven/Docker
+stack. None are referenced by the app or tests.
+
+**Delete:**
+- `monitoring/` — Grafana dashboard JSON + `prometheus.yml`; no Docker Compose
+  stack remains to run them
+- `node/` — Node.js binary and npm scripts bundled by `frontend-maven-plugin`
+  for offline Maven builds; npm runs from PATH now
+- `.vscode/settings.json` — contains only `java.compile.nullAnalysis.mode` and
+  `java.configuration.updateBuildConfiguration`; delete the file entirely (or
+  the two keys if other settings exist)
+
+**Update:**
+- `.gitignore` — add `target/` (JaCoCo / Vite cache directory still present
+  locally but not ignored); `target/` currently not in `.gitignore`
+- `app/drag-csv.js` — remove stale comment "drag model override requires server
+  update" from the file input help text; server is gone
+
+**Acceptance:**
+- `monitoring/`, `node/` are deleted from the repo
+- `git grep -r 'java\.' .vscode/` returns nothing
+- `target/` appears in `.gitignore`
+- No comment in `app/drag-csv.js` references "server"
+
+---
+
+### CLN-2 · Rewrite README.md · FE · Size M
+
+The README documents a Java/Spring Boot/Docker/REST stack that no longer exists.
+Rewrite it to reflect the current pure-browser SPA.
+
+**Remove entirely:**
+- "Run with Maven", "Run with Docker", "Run with Monitoring Stack" sections
+- "API Reference" section (all `/api/` endpoints)
+- "Configuration" section (Spring properties)
+- Architecture diagram showing `fetch /api/...` and Spring Boot
+- Prerequisites: Java 21+, Maven 3.9+, Docker
+
+**Replace with:**
+- **Getting started:** `npm install && npm run dev` → `http://localhost:5173`
+- **Tech stack table:** Vite 6, TypeScript, Chart.js, Jest (100% coverage),
+  GitHub Actions CI, GitHub Pages
+- **Architecture:** single-page app — Vite bundles `app/` → `dist/`; physics
+  in `app/physics/engine.ts`; Service Worker caches assets for offline use
+- **Project structure:** `app/` (source), `tests/` (Jest), `dist/` (build
+  output), `contracts/` (design docs)
+- **Build:** `npm run build` → `dist/`; `npm test` → Jest
+
+**Keep:** Physics model section (RK4 integrator description is still accurate),
+bullet catalog section (update path to `app/data/bullets.yaml`).
+
+**Acceptance:**
+- `grep -c 'maven\|spring\|java\|docker\|/api/' README.md` returns 0
+  (case-insensitive)
+- README passes a "cold read" — a developer with only Node installed can follow
+  it to run the app
+
+---
+
+## Milestone 6 — Performance
+
+### PERF-1 · Move `simulate()` to a Web Worker · FE · Size M
+
+`simulate()` is synchronous and runs on the main thread. In worst-case usage
+(10 bullets, 2 000 m range, 1 m step) it performs ~20 000 RK4 iterations per
+click, blocking input and frame rendering for a visible stutter.
+
+**Work items:**
+1. Create `app/physics/engine.worker.ts` — a module worker that receives
+   `{ bullet, params }` via `postMessage` and replies with the
+   `TrajectoryResult`.
+2. Add a thin async wrapper `simulateAsync(bullet, params): Promise<TrajectoryResult>`
+   in `app/ballistics.js` (or a new `app/physics/engine-client.ts`) that
+   dispatches to the worker and resolves on `message`.
+3. Pool or re-use the worker across calls; terminate on `pagehide`.
+4. Update `runSimulation()`, `runCustom()`, and the sweep/compare paths to
+   `await simulateAsync(...)`. Wrap the chart-render step in
+   `requestAnimationFrame` to let the browser paint between computation and
+   render.
+5. Keep the synchronous `simulate()` export for Jest (workers are unavailable
+   in jsdom); tests import the engine directly, not through the worker.
+
+**Coverage:** 100% Jest. Worker dispatch logic is covered by mocking
+`Worker` in `tests/`; physics tests continue to call `simulate()` directly.
+
+**Acceptance:**
+- UI remains responsive (no jank) during a 10-bullet, 2 000 m simulation.
+- `npm test` passes at 100/100/100/100.
+- Worker is terminated on `pagehide`.
+
+---
+
+### PERF-2 · Service Worker: precache all Vite-hashed assets · FE · Size S
+
+The current `sw.js` precaches only four un-hashed URLs (`/`, `/index.html`,
+`/ballistics.css`, `/manifest.json`). Hashed JS/CSS/font assets are cached
+only on first use. A full offline load after cache warm-up still fetches
+~10 network requests.
+
+**Work items:**
+1. Use Vite's `vite-plugin-pwa` (or a custom `generateSW`-style plugin) to
+   inject the full Vite asset manifest into `sw.js` at build time as the
+   precache list.
+2. The `STATIC_ASSETS_TO_PRECACHE` constant becomes the generated manifest;
+   remove the hand-maintained list.
+3. Keep the existing `cacheFirstNetworkFallback` / `networkFirstCacheFallback`
+   strategies and lifecycle handlers.
+
+**Acceptance:**
+- After one full page load, `chrome://serviceworker-internals` shows all
+  hashed assets in the cache.
+- Hard refresh with network set to "Offline" in DevTools loads the app fully.
+- `npm test` passes at 100/100/100/100 (SW tests updated for new precache list).
+
+---
+
+### PERF-3 · Lazy-load Chart.js · FE · Size XS
+
+Chart.js adds ≈ 200 KB (gzipped ≈ 65 KB) to the initial bundle. It is not
+needed until the user clicks "Simulate". Dynamic import reduces the initial
+parse cost on mobile and slow connections.
+
+**Work items:**
+1. Replace the static `import { Chart, … } from 'chart.js'` at the top of
+   `app/ballistics.js` with a dynamic `const { Chart, … } = await
+   import('chart.js')` inside `renderCharts()`.
+2. Register Chart.js components immediately after the dynamic import.
+3. Show the existing "Computing…" spinner while the import resolves (it already
+   covers the simulation; it also covers the first import latency).
+
+**Coverage:** 100% Jest. Mock `import('chart.js')` in tests (already mocked
+for Chart constructor; update mock path if needed).
+
+**Acceptance:**
+- `dist/` initial entry chunk no longer contains Chart.js code (verify with
+  `vite build --reporter json` or `npx vite-bundle-visualizer`).
+- First "Simulate" click loads Chart.js once; subsequent clicks use the
+  cached module.
+- `npm test` passes at 100/100/100/100.
+
+---
+
 ## Open questions
 
 1. **Custom domain?** GitHub Pages works under `username.github.io/ballistics`; a custom domain needs a `CNAME` and DNS record.
