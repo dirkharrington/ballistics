@@ -130,6 +130,7 @@ function renderBulletList() {
     /* istanbul ignore else -- card is always present after innerHTML is set */
     if (card) card.addEventListener('click', () => toggleBullet(b.id));
   });
+  syncSelectAllCheckbox();
 }
 
 function toggleBullet(id) {
@@ -146,6 +147,27 @@ function updateBulletCards() {
     const card = document.getElementById('card-' + b.id);
     if (card) card.classList.toggle('active', selectedIds.has(b.id));
   });
+  syncSelectAllCheckbox();
+  syncRunButton();
+}
+
+function syncSelectAllCheckbox() {
+  const cb = document.getElementById('selectAllBullets');
+  if (!cb) return;
+  if (selectedIds.size === 0) {
+    cb.checked = false;
+    cb.indeterminate = false;
+  } else if (selectedIds.size === bullets.length) {
+    cb.checked = true;
+    cb.indeterminate = false;
+  } else {
+    cb.indeterminate = true;
+  }
+}
+
+function syncRunButton() {
+  const btn = document.getElementById('runBtn');
+  if (btn) btn.disabled = selectedIds.size === 0;
 }
 
 // ── Error handling helpers ────────────────────────────────────────────────────
@@ -166,7 +188,7 @@ function _setSimulationError(message) {
 
 // ── Simulation ────────────────────────────────────────────────────────────────
 async function runSimulation() {
-  if (selectedIds.size === 0) { alert('Select at least one round.'); return; }
+  if (selectedIds.size === 0) { return; }
   _setSimulationError(null);
 
   const latRaw = document.getElementById('latitudeDeg')?.value;
@@ -1204,11 +1226,13 @@ function init() {
       if (merged.selectedIds !== null) {
         selectedIds = new Set(merged.selectedIds.filter(id => validIds.has(id)));
       } else {
-        bullets.forEach(b => selectedIds.add(b.id));
+        /* istanbul ignore next -- getMockBullets() always returns ≥1 bullet in tests */
+        if (bullets.length > 0) selectedIds.add(bullets[0].id);
       }
     }
   }
   updateBulletCards();
+  syncRunButton();
 
   // Persist parameter changes automatically and sync URL
   const paramInputIds = ['zeroRange','maxRange','windSpeed','windDir','altitude','temperature','step','sightHeight','shootingAngle','dragModel'];
@@ -1218,6 +1242,19 @@ function init() {
 
   // Wire up static event listeners (replaces window.* globals and onclick attrs)
   document.getElementById('runBtn')?.addEventListener('click', () => { closeSidebar(); runSimulation(); });
+
+  // UX-3: Select-all / deselect-all checkbox
+  document.getElementById('selectAllBullets')?.addEventListener('change', e => {
+    if (e.target.checked) {
+      bullets.forEach(b => selectedIds.add(b.id));
+    } else {
+      selectedIds.clear();
+    }
+    updateBulletCards();
+    savePrefs();
+    syncUrl();
+    updateSweepButtonVisibility();
+  });
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
   document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
   document.querySelector('.export-md-btn')?.addEventListener('click', exportMarkdown);
@@ -1492,7 +1529,7 @@ if (document.getElementById('bulletList')) {
 
 export {
   getMockBullets, computeClientSide,
-  renderBulletList, toggleBullet, updateBulletCards, runSimulation,
+  renderBulletList, toggleBullet, updateBulletCards, syncSelectAllCheckbox, syncRunButton, runSimulation,
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,

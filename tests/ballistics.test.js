@@ -18,6 +18,10 @@ HTMLCanvasElement.prototype.getContext = jest.fn(() => ({}));
 function buildDOM() {
   document.body.innerHTML = `
   <main class="main">
+    <label class="select-all-label">
+      <input type="checkbox" id="selectAllBullets" aria-label="Select all rounds">
+      <span>Select all</span>
+    </label>
     <div id="bulletList"></div>
     <input id="zeroRange"   value="100" />
     <input id="maxRange"    value="500" />
@@ -431,6 +435,110 @@ describe('updateBulletCards', () => {
     mod.updateBulletCards();
     expect(document.getElementById('card-308-win-168gr').classList.contains('active')).toBe(true);
     expect(document.getElementById('card-223-rem-55gr').classList.contains('active')).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// syncSelectAllCheckbox
+// ─────────────────────────────────────────────────────────────────────────────
+describe('syncSelectAllCheckbox', () => {
+  beforeEach(() => {
+    mod._setBullets(mod.getMockBullets());
+    mod.renderBulletList();
+  });
+
+  test('unchecked and not indeterminate when 0 selected', () => {
+    mod._setSelectedIds(new Set());
+    mod.syncSelectAllCheckbox();
+    const cb = document.getElementById('selectAllBullets');
+    expect(cb.checked).toBe(false);
+    expect(cb.indeterminate).toBe(false);
+  });
+
+  test('indeterminate when some (but not all) selected', () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod.syncSelectAllCheckbox();
+    const cb = document.getElementById('selectAllBullets');
+    expect(cb.indeterminate).toBe(true);
+  });
+
+  test('checked and not indeterminate when all selected', () => {
+    const allIds = new Set(mod.getMockBullets().map(b => b.id));
+    mod._setSelectedIds(allIds);
+    mod.syncSelectAllCheckbox();
+    const cb = document.getElementById('selectAllBullets');
+    expect(cb.checked).toBe(true);
+    expect(cb.indeterminate).toBe(false);
+  });
+
+  test('no-op when checkbox element is absent', () => {
+    document.getElementById('selectAllBullets').remove();
+    expect(() => mod.syncSelectAllCheckbox()).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// syncRunButton
+// ─────────────────────────────────────────────────────────────────────────────
+describe('syncRunButton', () => {
+  test('disables runBtn when selectedIds is empty', () => {
+    mod._setSelectedIds(new Set());
+    mod.syncRunButton();
+    expect(document.getElementById('runBtn').disabled).toBe(true);
+  });
+
+  test('enables runBtn when selectedIds is non-empty', () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod.syncRunButton();
+    expect(document.getElementById('runBtn').disabled).toBe(false);
+  });
+
+  test('no-op when runBtn element is absent', () => {
+    document.getElementById('runBtn').remove();
+    expect(() => mod.syncRunButton()).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// select-all checkbox wired by init
+// ─────────────────────────────────────────────────────────────────────────────
+describe('select-all checkbox interaction (via init)', () => {
+  beforeEach(() => {
+    mod.init();
+  });
+
+  test('checking select-all adds all bullet ids to selectedIds', () => {
+    const cb = document.getElementById('selectAllBullets');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change'));
+    const { selectedIds, bullets } = mod._getState();
+    expect(selectedIds.size).toBe(bullets.length);
+  });
+
+  test('unchecking select-all clears selectedIds', () => {
+    // First select all
+    const cb = document.getElementById('selectAllBullets');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change'));
+    // Then deselect all
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change'));
+    const { selectedIds } = mod._getState();
+    expect(selectedIds.size).toBe(0);
+  });
+
+  test('runBtn is disabled after deselecting all via checkbox', () => {
+    const cb = document.getElementById('selectAllBullets');
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change'));
+    expect(document.getElementById('runBtn').disabled).toBe(true);
+  });
+
+  test('runBtn is enabled after selecting all via checkbox', () => {
+    const cb = document.getElementById('selectAllBullets');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change'));
+    expect(document.getElementById('runBtn').disabled).toBe(false);
   });
 });
 
@@ -916,10 +1024,11 @@ describe('runSimulation', () => {
     }
   ];
 
-  test('alerts and returns when no bullets selected', () => {
+  test('returns early without calling compute when no bullets selected', () => {
     mod._setSelectedIds(new Set());
     mod.runSimulation();
-    expect(global.alert).toHaveBeenCalledWith('Select at least one round.');
+    expect(global.alert).not.toHaveBeenCalled();
+    expect(simulateAsync).not.toHaveBeenCalled();
   });
 
   test('calls computeClientSide and renders results', async () => {
@@ -1099,11 +1208,13 @@ describe('init', () => {
     expect(document.querySelectorAll('.bullet-card')).toHaveLength(10);
   });
 
-  test('selects all bullets by default after init', () => {
+  test('first-visit init selects only bullets[0] (no localStorage, no URL)', () => {
     mod.init();
-    const { selectedIds } = mod._getState();
-    expect(selectedIds.size).toBe(10);
+    const { selectedIds, bullets } = mod._getState();
+    expect(selectedIds.size).toBe(1);
+    expect(selectedIds.has(bullets[0].id)).toBe(true);
   });
+
 
   test('readoutPin click wired by init toggles crosshairPinned', () => {
     mod.init();
@@ -2905,14 +3016,15 @@ describe('init with saved preferences', () => {
     expect(selectedIds.has('223-rem-55gr')).toBe(false);
   });
 
-  test('selects all bullets on first visit (null savedIds)', async () => {
-    // localStorage is empty → first visit behavior → all selected
+  test('selects only bullets[0] on first visit (null savedIds)', async () => {
+    // localStorage is empty → first visit behavior → only first bullet selected
     global.fetch.mockRejectedValue(new Error('offline'));
 
     await mod.init();
 
-    const { selectedIds } = mod._getState();
-    mod.getMockBullets().forEach(b => expect(selectedIds.has(b.id)).toBe(true));
+    const { selectedIds, bullets } = mod._getState();
+    expect(selectedIds.size).toBe(1);
+    expect(selectedIds.has(bullets[0].id)).toBe(true);
   });
 
   test('filters out stale IDs no longer in catalog', async () => {
