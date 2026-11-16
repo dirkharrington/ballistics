@@ -224,6 +224,9 @@ async function runSimulation() {
       renderResults(results, req);
       lastResults = results;
       updateSweepButtonVisibility();
+      const exportBtn = document.getElementById('exportCsvBtn');
+      /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
+      if (exportBtn) exportBtn.style.display = '';
       btn.classList.remove('loading');
       btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
     });
@@ -244,6 +247,29 @@ function _downloadBlob(blob, filename) {
   const a   = document.createElement('a');
   a.href     = url;
   a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Trajectory CSV export (UX-2) ─────────────────────────────────────────────
+// Columns: Distance (m), Velocity (m/s), Energy (J), Drop (m), Bullet
+// Supports compare mode — all selected bullets in one file, distinguished by
+// the Bullet column.  Filename includes a millisecond timestamp so each
+// download is unique.  Bullet names are RFC 4180-escaped via csvCell().
+function exportTrajectoryCSV() {
+  if (!lastResults.length) return;
+  const rows = ['Distance (m),Velocity (m/s),Energy (J),Drop (m),Bullet'];
+  lastResults.forEach(r => {
+    r.points.forEach(p => {
+      rows.push(`${p.rangeMeters},${p.velocityMps},${p.energyJoules},${p.dropCm / 100},${csvCell(r.bullet.name)}`);
+    });
+  });
+  const csv = rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `trajectory-${Date.now()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -1255,6 +1281,7 @@ function init() {
     syncUrl();
     updateSweepButtonVisibility();
   });
+  document.getElementById('exportCsvBtn')?.addEventListener('click', exportTrajectoryCSV);
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
   document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
   document.querySelector('.export-md-btn')?.addEventListener('click', exportMarkdown);
@@ -1533,6 +1560,7 @@ export {
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
+  exportTrajectoryCSV,
   exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, showToast,
   _downloadBlob,
   BULLET_COLORS, SWEEP_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,

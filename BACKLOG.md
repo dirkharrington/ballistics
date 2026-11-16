@@ -403,7 +403,7 @@ storage throws.
 
 ---
 
-### UX-2 · Trajectory export · FE · Size S
+### ~~UX-2 · Trajectory export · FE · Size S~~ ✅ Done (PR pending)
 
 After a simulation the user has no way to take the data elsewhere — into a
 spreadsheet, a ballistic card, or another tool. This story adds a one-click
