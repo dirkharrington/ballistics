@@ -24,6 +24,7 @@ interface WorkerErrorResponse {
 }
 
 self.addEventListener('message', (evt: MessageEvent<WorkerRequest>) => {
+  if (typeof evt.data?.id !== 'number') return;
   const { id, bullet, params } = evt.data;
   try {
     const result = simulate(bullet, params);
