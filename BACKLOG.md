@@ -305,8 +305,84 @@ for Chart constructor; update mock path if needed).
 
 ---
 
+## Milestone 7 — User Experience
+
+### UX-1 · Custom bullet catalog · FE · Size M
+
+Users can only select bullets bundled at build time. Adding a custom load
+(wildcat cartridge, handload, suppressor-specific subsonic) requires a code
+change and a redeploy. This story lets users define and save custom bullets
+locally without touching the source.
+
+**Work items:**
+1. Add a "Custom bullets" section to the bullet-selector UI with an **Add**
+   button that opens an inline form: name, short name, mass (grains), BC G1,
+   BC G7 (optional), diameter (inch), muzzle velocity (fps).
+2. Validate inputs on submit (all required fields numeric and in range; name
+   non-empty and unique within custom bullets).
+3. Persist custom bullets to `localStorage` as a JSON array under a versioned
+   key (e.g. `ballistics:custom-bullets:v1`). Wrap every read/write in
+   try/catch — storage may be blocked or full.
+4. Merge custom bullets with the bundled catalog at selector-population time.
+   Custom bullets appear in a labelled group below built-in ones.
+5. Add a **Delete** control per custom bullet (with a brief confirmation) that
+   removes it from storage and from the selector. Prevent deletion of a bullet
+   currently selected in either slot.
+6. Pre-populate the form with the selected bullet when the user clicks an
+   **Edit** control, saving back to the same entry.
+
+**Coverage:** 100% Jest. Test: form validation (missing fields, out-of-range
+values, duplicate name), localStorage serialisation/deserialisation, merge with
+built-in catalog, delete guard when bullet is active, graceful degradation when
+storage throws.
+
+**Acceptance:**
+- A custom bullet survives a hard refresh.
+- Selecting a custom bullet and running Simulate produces a valid trajectory.
+- Deleting a custom bullet removes it from the selector and storage.
+- If `localStorage` is unavailable the UI renders with built-in bullets only
+  and no uncaught error.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### UX-2 · Trajectory export · FE · Size S
+
+After a simulation the user has no way to take the data elsewhere — into a
+spreadsheet, a ballistic card, or another tool. This story adds a one-click
+CSV download of the full trajectory table.
+
+**Work items:**
+1. Add an **Export CSV** button to the results panel, visible only after a
+   successful simulation (hidden or disabled before first run).
+2. Build the CSV in-browser from the trajectory array:
+   - Header row: `Range (m), Drop (cm), Wind Drift (cm), Velocity (m/s),
+     Energy (J), Time of Flight (s), MOA Adjustment, MRAD Adjustment,
+     Spin Drift (cm), Coriolis Deflection (cm)`
+   - One data row per `TrajectoryPoint`; values rounded to two decimal places.
+3. Trigger a download via a temporary `<a href="data:text/csv,...">` or
+   `URL.createObjectURL` + `a.click()` pattern; revoke the object URL
+   immediately after.
+4. Name the file `<bullet-name>-<zero-range>m-zero.csv`
+   (e.g. `Hornady-ELD-X-175gr-100m-zero.csv`), sanitising the bullet name
+   (replace non-alphanumeric runs with `-`, trim leading/trailing dashes).
+5. If the Compare tab is active, export both trajectories as a single CSV
+   with a `Bullet` column prepended so rows are distinguishable.
+
+**Coverage:** 100% Jest. Test: CSV header and row content, filename
+sanitisation, compare-mode dual-trajectory output, button visibility state
+before and after simulation.
+
+**Acceptance:**
+- Clicking Export CSV immediately downloads a file with the correct name.
+- Opening the file in a spreadsheet shows labelled columns and one row per
+  range step.
+- Compare export contains rows for both bullets with the `Bullet` column
+  populated.
+- `npm test` passes at 100/100/100/100.
+
+---
+
 ## Open questions
 
 1. **Custom domain?** GitHub Pages works under `username.github.io/ballistics`; a custom domain needs a `CNAME` and DNS record.
-2. **Bullet catalog editing?** Currently read-only (bundled at build time). Should users be able to add/edit bullets locally (e.g. saved to `localStorage`)? Raise as a new story if yes.
-3. **Trajectory export?** CSV / PDF download is pure-client and straightforward — raise as a new story if wanted.
