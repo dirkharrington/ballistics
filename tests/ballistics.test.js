@@ -128,7 +128,11 @@ function buildDOM() {
   `;
 }
 
+jest.mock('../app/physics/engine-async.ts', () => ({
+  simulateAsync: jest.fn(),
+}));
 const { simulate } = require('../app/physics/engine.ts');
+const { simulateAsync } = require('../app/physics/engine-async.ts');
 const mod = require('../app/ballistics.js');
 
 // Reset state and DOM before each test
@@ -143,6 +147,15 @@ beforeEach(() => {
   global.fetch.mockReset();
   global.alert.mockClear();
   global.console.warn.mockClear();
+  simulateAsync.mockReset();
+  simulateAsync.mockImplementation((bullet, params) => Promise.resolve({
+    bullet,
+    request: params,
+    points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+    maxOrdinateCm: 0,
+    maxOrdinateRangeMeters: 0,
+    supersonicLimitMeters: 0,
+  }));
   // Reset URL so syncUrl side-effects from previous tests don't bleed into init()
   history.replaceState(null, '', '/');
 });
@@ -909,51 +922,52 @@ describe('runSimulation', () => {
     expect(global.alert).toHaveBeenCalledWith('Select at least one round.');
   });
 
-  test('calls computeClientSide and renders results', () => {
+  test('calls computeClientSide and renders results', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
 
-    mod.runSimulation();
+    await mod.runSimulation();
+    jest.runAllTimers();
 
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
   });
 
-  test('shows simulation error when computeClientSide throws TrajectoryInputError', () => {
-    document.getElementById('maxRange').value = '6000';
+  test('shows simulation error when computeClientSide throws TrajectoryInputError', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
+    const { TrajectoryInputError } = require('../app/physics/engine.ts');
+    simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
 
-    mod.runSimulation();
+    await mod.runSimulation();
 
     expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(false);
-    document.getElementById('maxRange').value = '1000';
   });
 
-  test('restores button text in finally block', () => {
+  test('restores button text after successful simulation', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
 
-    mod.runSimulation();
+    await mod.runSimulation();
+    jest.runAllTimers();
 
     const btn = document.getElementById('runBtn');
     expect(btn.querySelector('span').textContent).toBe('▶ COMPUTE TRAJECTORIES');
     expect(btn.classList.contains('loading')).toBe(false);
   });
 
-  test('outer catch logs error when renderResults throws', () => {
+  test('outer catch logs error when simulateAsync rejects with non-input error', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
-    // Remove the table so renderTable's tableBody.innerHTML throws
-    document.querySelector('#tableBody').parentElement.remove();
+    simulateAsync.mockRejectedValueOnce(new Error('physics exploded'));
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    mod.runSimulation();
+    await mod.runSimulation();
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
     const btn = document.getElementById('runBtn');
     expect(btn.querySelector('span').textContent).toBe('▶ COMPUTE TRAJECTORIES');
   });
 
-  test('reads parameters from DOM inputs', () => {
+  test('reads parameters from DOM inputs', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
     document.getElementById('zeroRange').value   = '200';
@@ -964,7 +978,8 @@ describe('runSimulation', () => {
     document.getElementById('temperature').value = '20';
     document.getElementById('step').value        = '50';
 
-    mod.runSimulation();
+    await mod.runSimulation();
+    jest.runAllTimers();
 
     const req = mod._getState().lastResults[0]?.request ?? mod._getState().lastResults[0]?.req;
     // Verify results were rendered (parameters accepted)
@@ -1262,6 +1277,7 @@ describe('sight height parameter', () => {
     });
 
     await mod.runSimulation();
+    jest.runAllTimers();
     expect(capturedBody?.sightHeightMm ?? mod._getState().lastResults[0]?.request?.sightHeightMm).toBe(50);
   });
 
@@ -1280,6 +1296,7 @@ describe('sight height parameter', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSimulation();
+    jest.runAllTimers();
     const result = mod._getState().lastResults[0];
     expect(result?.request?.latitudeDeg).toBe(45);
     expect(result?.request?.azimuthDeg).toBe(90);
@@ -1291,6 +1308,7 @@ describe('sight height parameter', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSimulation();
+    jest.runAllTimers();
     const result = mod._getState().lastResults[0];
     expect(result?.request?.latitudeDeg).toBeUndefined();
   });
@@ -1348,6 +1366,7 @@ describe('shooting angle correction', () => {
     });
 
     await mod.runSimulation();
+    jest.runAllTimers();
     // Either captured from API call or from offline fallback
     const angle = capturedBody?.shootingAngleDegrees ??
                   mod._getState().lastResults[0]?.request?.shootingAngleDegrees;
@@ -2125,22 +2144,18 @@ describe('runCustom client-side compute', () => {
     expect(result.bullet.id).toBe('custom');
   });
 
-  test('shows custom error when simulate throws TrajectoryInputError', async () => {
+  test('shows custom error when simulateAsync throws TrajectoryInputError', async () => {
     setValidCustomInputs();
-    document.getElementById('maxRange').value = '6000';
+    const { TrajectoryInputError } = require('../app/physics/engine.ts');
+    simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
     await mod.runCustom();
     expect(document.getElementById('customError').style.display).toBe('block');
-    document.getElementById('maxRange').value = '1000';
   });
 
-  test('re-throws non-TrajectoryInputError from simulate', async () => {
+  test('re-throws non-TrajectoryInputError from simulateAsync', async () => {
     setValidCustomInputs();
-    // Temporarily make simulate throw a non-input error to exercise throw branch
-    const { simulate: simFn } = require('../app/physics/engine.ts');
-    const spy = jest.spyOn(require('../app/physics/engine.ts'), 'simulate')
-      .mockImplementationOnce(() => { throw new Error('unexpected'); });
+    simulateAsync.mockRejectedValueOnce(new Error('unexpected'));
     await expect(mod.runCustom()).rejects.toThrow('unexpected');
-    spy.mockRestore();
   });
 });
 
@@ -2430,13 +2445,14 @@ describe('_resetState clears _customDragTable', () => {
 });
 
 describe('runSimulation with customDragTable loaded', () => {
-  test('renders results when customDragTable is loaded (no crash)', () => {
+  test('renders results when customDragTable is loaded (no crash)', async () => {
     const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
 
     mod.init();
     mod._setSelectedIds(new Set([mod.getMockBullets()[0].id]));
-    mod.runSimulation();
+    await mod.runSimulation();
+    jest.runAllTimers();
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
   });
 });
@@ -3058,6 +3074,7 @@ describe('G7 drag model — runSimulation and renderResults', () => {
     });
 
     await mod.runSimulation();
+    jest.runAllTimers();
     const dragModel = capturedBody?.dragModel ?? mod._getState().lastResults[0]?.request?.dragModel;
     expect(dragModel).toBe('G7');
   });
@@ -3130,6 +3147,7 @@ describe('G7 drag model — runSimulation and renderResults', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSimulation();
+    jest.runAllTimers();
     const result = mod._getState().lastResults[0];
     // G7 uses a different drag table — result should still be valid
     expect(result).toBeDefined();
@@ -4248,8 +4266,9 @@ describe('MH-4: runSweep', () => {
     expect(mockChart.destroy).toHaveBeenCalled();
   });
 
-  test('resets button text when simulate throws TrajectoryInputError (lines 1170-1172)', async () => {
-    document.getElementById('maxRange').value = '6000';
+  test('resets button text when simulateAsync throws TrajectoryInputError (lines 1170-1172)', async () => {
+    const { TrajectoryInputError } = require('../app/physics/engine.ts');
+    simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
 
@@ -4262,7 +4281,8 @@ describe('MH-4: runSweep', () => {
 
   test('if(btn) false in error catch when sweepBtn absent (line 1173)', async () => {
     document.getElementById('sweepBtn').remove();
-    document.getElementById('maxRange').value = '6000';
+    const { TrajectoryInputError } = require('../app/physics/engine.ts');
+    simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getMockBullets());
     await expect(mod.runSweep()).resolves.toBeUndefined();
