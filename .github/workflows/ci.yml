@@ -31,7 +31,7 @@ jobs:
               - 'tests/**'
               - 'package.json'
               - 'package-lock.json'
-              - 'babel.config.json'
+              - 'babel.config.js'
               - 'tsconfig.json'
               - 'vite.config.js'
               - '.github/workflows/ci.yml'
@@ -176,21 +176,16 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy
 
-  # ── GitHub Pages deploy ───────────────────────────────────────────────────────
-  deploy:
-    name: Deploy to GitHub Pages
+  # ── GitHub Pages build (unprivileged) ────────────────────────────────────────
+  pages-build:
+    name: Pages Build
     needs: [frontend-build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     permissions:
-      pages: write
-      id-token: write
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      contents: read
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -209,20 +204,38 @@ jobs:
 
       - name: Install
         run: npm ci
-
-      - name: Build
-        run: npm run build
         env:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
 
+      - name: Build
+        run: npm run build
+
       - name: Configure Pages
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: dist
 
+  # ── GitHub Pages deploy (privileged, isolated) ───────────────────────────────
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: [pages-build, codeql, trivy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
