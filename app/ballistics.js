@@ -1,12 +1,10 @@
 import { parseDragCsv } from './drag-csv.js';
-import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from 'chart.js';
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
 import { TrajectoryInputError } from './physics/engine.ts';
 import { simulateAsync } from './physics/engine-async.ts';
-Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -639,7 +637,7 @@ function windChartSubtitle(req) {
 }
 
 // ── Results rendering (~30-line orchestrator) ─────────────────────────────────
-function renderResults(rawResults, req) {
+async function renderResults(rawResults, req) {
   const results = rawResults.filter(r => r?.bullet);
   document.getElementById('emptyState').style.display = 'none';
   const rc = document.getElementById('resultsContainer');
@@ -680,6 +678,9 @@ function renderResults(rawResults, req) {
     { id: 'energyChart',   title: 'KINETIC ENERGY',      subtitle: 'joules downrange',                   yLabel: 'Energy (J)',      key: 'energyJoules', annotations: sonicAnn },
     { id: 'windChart',     title: 'WIND DRIFT',           subtitle: windChartSubtitle(req), yLabel: 'Drift (cm)',     key: 'windDriftCm',  annotations: sonicAnn }
   ];
+
+  const { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } = await import('chart.js');
+  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
   chartDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
@@ -1029,16 +1030,16 @@ async function runSweep() {
   if (clearBtn) clearBtn.style.display = 'block';
 }
 
-function clearSweep() {
+async function clearSweep() {
   sweepMode    = false;
   sweepResults = null;
   const clearBtn = document.getElementById('clearSweepBtn');
   if (clearBtn) clearBtn.style.display = 'none';
   /* istanbul ignore else -- only callable after a simulation has run */
-  if (lastResults.length) renderResults(lastResults, lastReq ?? {});
+  if (lastResults.length) await renderResults(lastResults, lastReq ?? {});
 }
 
-function renderSweepCharts(sweepResultsList, sweepParam) {
+async function renderSweepCharts(sweepResultsList, sweepParam) {
   const values = SWEEP_RANGES[sweepParam] ?? SWEEP_RANGES.wind;
   const labels = { wind: 'km/h', altitude: 'm alt', temperature: '°C' };
   const unit   = labels[sweepParam] ?? '';
@@ -1057,6 +1058,9 @@ function renderSweepCharts(sweepResultsList, sweepParam) {
     { id: 'sweepWindChart', title: 'SWEEP — WIND DRIFT',  yLabel: 'Drift (cm)',     key: 'windDriftCm' },
     { id: 'sweepVelChart',  title: 'SWEEP — VELOCITY',    yLabel: 'Velocity (m/s)', key: 'velocityMps' },
   ];
+
+  const { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } = await import('chart.js');
+  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
   sweepDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
