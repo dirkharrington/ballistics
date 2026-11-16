@@ -442,7 +442,7 @@ before and after simulation.
 
 ## Milestone 8 — Security hygiene
 
-### SEC-1 · Pin vulnerable transitive Jest dependencies · DevSecOps · Size XS
+### ✅ SEC-1 · Pin vulnerable transitive Jest dependencies · DevSecOps · Size XS · DONE
 
 Dependabot and Trivy report three open vulnerabilities (medium × 2, low × 1),
 all transitive dependencies pulled in by Jest. None reach the browser bundle —
