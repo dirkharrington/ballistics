@@ -24,6 +24,8 @@ interface WorkerErrorResponse {
 }
 
 self.addEventListener('message', (evt: MessageEvent<WorkerRequest>) => {
+  // Module workers receive messages only from their owning page; origin is '' for Worker.postMessage()
+  if (evt.origin !== '') return;
   if (typeof evt.data?.id !== 'number') return;
   const { id, bullet, params } = evt.data;
   try {
