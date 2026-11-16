@@ -2,9 +2,7 @@
 // See: https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers
 
 export const CACHE_PREFIX = 'ballistics-sw';
-export const STATIC_ASSETS_TO_PRECACHE = [
-  '/', '/index.html', '/ballistics.css', '/manifest.json',
-];
+export const STATIC_ASSETS_TO_PRECACHE = ['__VITE_PRECACHE_MANIFEST__'];
 
 // ── Cache versioning ──────────────────────────────────────────────────────────
 // Vite injects a build timestamp here at bundle time.
