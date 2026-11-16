@@ -22,10 +22,10 @@ function serviceWorkerPlugin() {
       // Collect every hashed asset Vite emitted
       const hashedAssets = Object.keys(bundle)
         .filter(key => /\.(js|css|woff2?|ttf|eot|png|jpe?g|gif|svg|ico|webp)$/.test(key))
-        .map(key => `/${key}`);
+        .map(key => `/ballistics/${key}`);
 
       // Always include un-hashed root-level URLs
-      const allAssets = ['/', '/index.html', '/manifest.json', ...hashedAssets];
+      const allAssets = ['/ballistics/', '/ballistics/index.html', '/ballistics/manifest.json', ...hashedAssets];
       const manifestJson = allAssets.map(a => JSON.stringify(a)).join(', ');
 
       const swSrc = readFileSync(resolve(__dirname, 'app/sw.js'), 'utf-8');
@@ -85,6 +85,7 @@ function physicsTablesPlugin() {
 }
 
 export default defineConfig({
+  base: '/ballistics/',
   root: 'app',
   build: {
     outDir: '../dist',

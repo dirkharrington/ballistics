@@ -135,7 +135,7 @@ artefact. Rename it. Contract: `contracts/spa4-flatten-layout.md` v1.0.0.
 
 ## Milestone 4 — Deploy
 
-### SPA-5 · Static hosting · DevSecOps · Size S
+### ~~SPA-5 · Static hosting · DevSecOps · Size S~~ ✅ Done (PR #107)
 
 Publish the Vite output to a static host on every push to `main`.
 
