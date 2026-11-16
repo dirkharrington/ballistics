@@ -383,6 +383,93 @@ before and after simulation.
 
 ---
 
+## Milestone 8 — Security hygiene
+
+### SEC-1 · Pin vulnerable transitive Jest dependencies · DevSecOps · Size XS
+
+Dependabot and Trivy report three open vulnerabilities (medium × 2, low × 1),
+all transitive dependencies pulled in by Jest. None reach the browser bundle —
+they exist only in the test environment — but they keep the security dashboard
+red and will block any future devsecops gate that enforces zero open findings.
+
+| Package | Version | Advisory | Severity | Via |
+|---|---|---|---|---|
+| `minimatch` | 10.2.6 | GHSA-g3hv-75wg-m249 | Medium | `jest` → `@jest/reporters` → `glob` → `minimatch` |
+| `glob` | 13.0.6 | GHSA-3g3m-2fjr-6pw4 | Medium | `jest` → `@jest/reporters` → `glob` |
+| `deepmerge` | 4.3.1 | GHSA-gcqx-w48m-w2h4 (CVE-2026-93753) | Low | `jest` → `jest-config` → `deepmerge` |
+
+**Work items:**
+1. Run `npm audit` and confirm all three are still open and unresolved upstream.
+2. If a patched version is available for each package, add an `overrides` block
+   to `package.json` to force the patched versions:
+   ```json
+   "overrides": {
+     "minimatch": ">=<patched-version>",
+     "glob": ">=<patched-version>",
+     "deepmerge": ">=<patched-version>"
+   }
+   ```
+3. Run `npm install` to regenerate `package-lock.json`, then `npm test` to
+   confirm Jest still works with the pinned versions.
+4. If no patched version exists for a package, dismiss the corresponding
+   Dependabot alert with reason `tolerable_risk` and a note explaining the
+   dev-only scope (these packages are never bundled into `dist/`).
+5. Run `npm audit --audit-level=high` and confirm it exits 0 (medium/low
+   findings that remain unresolvable are acceptable until upstream patches land).
+
+**Coverage:** No coverage change — no app code changes.
+
+**Acceptance:**
+- `npm audit --audit-level=high` exits 0.
+- Dependabot alerts #74 and #77 are closed (fixed or dismissed with rationale).
+- Code-scanning alerts #83, #84, #85 are closed.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### SEC-2 · Resolve stale CodeQL XSS alert and audit innerHTML usage · DevSecOps · Size XS
+
+CodeQL alert #12 flags `innerHTML` usage as a potential DOM XSS vector at
+`src/main/resources/static/tools.js` — a path that was deleted in SPA-4 (moved
+to `app/tools.js`). The alert is stale: CodeQL's current analysis of the live
+codebase does not re-raise it, suggesting the data flow does not reach a
+sensitive sink. However, the alert remains open and the `innerHTML` calls in
+`app/tools.js` should be audited before it is dismissed.
+
+**Work items:**
+1. Read `app/tools.js` lines ~110–145 (the two `innerHTML` assignments at the
+   DOPE table render and the distance-input row render). Trace every value
+   injected into the template literal:
+   - `thCols`, `thSub` — confirm these come from computed constants, not
+     user-controlled input.
+   - `bodyRows` — confirm values are numeric trajectory results, not
+     unsanitised strings.
+   - `_dopeDistances[i]` in the input row — confirm values are validated
+     integers before being written back into the DOM attribute.
+2. If any path lets untrusted string data reach `innerHTML`:
+   - Replace with `element.textContent`, `setAttribute`, or explicit
+     `document.createElement` + `appendChild` calls so no HTML parsing occurs.
+   - Write a regression test proving the sanitised path.
+3. If all data flows are confirmed safe (computed numbers / controlled
+   constants only):
+   - Dismiss CodeQL alert #12 via the GitHub API with reason `false_positive`
+     and a note that the flagged file no longer exists and the equivalent code
+     in `app/tools.js` only writes numeric values.
+4. Confirm no other `innerHTML`/`insertAdjacentHTML`/`outerHTML`/`document.write`
+   calls exist elsewhere in `app/` that accept user-supplied strings without
+   sanitisation (`grep -rn "innerHTML\|insertAdjacentHTML" app/`).
+
+**Coverage:** If any `innerHTML` call is replaced, add or update tests for the
+affected render function to cover the data-flow fix.
+
+**Acceptance:**
+- CodeQL alert #12 is closed (dismissed as false positive or fixed).
+- `grep -rn "innerHTML" app/` shows only calls where every interpolated value
+  is a numeric expression, a trusted constant, or explicitly sanitised.
+- `npm test` passes at 100/100/100/100.
+
+---
+
 ## Open questions
 
 1. **Custom domain?** GitHub Pages works under `username.github.io/ballistics`; a custom domain needs a `CNAME` and DNS record.
