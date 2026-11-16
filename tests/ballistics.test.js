@@ -1129,7 +1129,7 @@ describe('init', () => {
       value: { register }, configurable: true, writable: true,
     });
     mod.init();
-    expect(register).toHaveBeenCalledWith('/sw.js', { type: 'module' });
+    expect(register).toHaveBeenCalledWith('/sw.js', { type: 'module', scope: '/' });
     delete navigator.serviceWorker;
   });
 

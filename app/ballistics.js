@@ -1162,7 +1162,10 @@ function init() {
   const { signal } = _initListenerController;
   // Service Worker registration (requires HTTPS or localhost; see sw.js)
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js', { type: 'module' })
+    navigator.serviceWorker.register(
+      import.meta.env.BASE_URL + 'sw.js',
+      { type: 'module', scope: import.meta.env.BASE_URL }
+    )
       .catch(err => console.warn('SW registration failed:', err));
   }
 
