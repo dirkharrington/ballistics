@@ -307,6 +307,63 @@ for Chart constructor; update mock path if needed).
 
 ## Milestone 7 — User Experience
 
+### UX-3 · Bullet list selection UX · FE · Size S
+
+The bullet list currently selects all rounds on first visit, has no way to
+toggle all at once, and blocks simulation with a browser `alert()` when nothing
+is selected. The user experience should start focused (one round), offer a
+quick all/none toggle, and give the button itself the disabled feedback rather
+than an interrupting dialog.
+
+**Current behaviour (see `app/ballistics.js`):**
+- `init()` line 1207: first visit selects all bullets (`bullets.forEach(b => selectedIds.add(b.id))`)
+- `runSimulation()` line 169: zero-selection guard uses `alert('Select at least one round.')`
+- No select-all control exists
+
+**Work items:**
+1. **First-visit default**: change line 1207 from selecting all bullets to
+   selecting only `bullets[0]` (the first entry in the catalog).
+   Returning visits still restore from `localStorage`; URL-driven selection is
+   unchanged.
+2. **Select-all / deselect-all checkbox**: add a `<label>` with an
+   `<input type="checkbox" id="selectAllBullets">` above the `#bulletList`
+   container in `index.html`. Wire it in `ballistics.js`:
+   - **checked** → add every bullet id to `selectedIds`
+   - **unchecked** → clear `selectedIds` (button becomes disabled; see below)
+   - **indeterminate** (some but not all selected) → set
+     `checkbox.indeterminate = true` whenever the count is between 0 and the
+     total (exclusive)
+   - Clicking an individual card must update the checkbox state to match.
+3. **Disabled compute button**: replace the `alert()` guard in
+   `runSimulation()` with a no-op early return; instead keep the `#runBtn`
+   disabled while `selectedIds.size === 0` and re-enable it as soon as at
+   least one bullet is selected. Update button disabled state in
+   `updateBulletCards()` (called after every selection change).
+4. Update `renderBulletList()` to call the new checkbox-sync helper so the
+   state is correct after the initial render and after prefs/URL restore.
+
+**Coverage:** 100% Jest. Test:
+- First-visit default selects exactly one bullet (index 0).
+- Selecting all individually checks the checkbox; deselecting one makes it
+  indeterminate; deselecting the last unchecks it.
+- Checking the select-all box adds all ids to `selectedIds`.
+- Unchecking the select-all box clears `selectedIds`.
+- `#runBtn` is disabled when `selectedIds` is empty; enabled when non-empty.
+- `runSimulation()` returns early (no alert, no network/worker call) when
+  `selectedIds` is empty.
+
+**Acceptance:**
+- Fresh load (cleared localStorage): exactly one bullet is selected and
+  `#runBtn` is enabled.
+- Unchecking that bullet disables `#runBtn`; checking any bullet re-enables it.
+- The select-all checkbox reflects checked / indeterminate / unchecked
+  accurately after every individual card click.
+- Clicking select-all then deselect-all leaves zero bullets selected and
+  `#runBtn` disabled.
+- `npm test` passes at 100/100/100/100.
+
+---
+
 ### UX-1 · Custom bullet catalog · FE · Size M
 
 Users can only select bullets bundled at build time. Adding a custom load
