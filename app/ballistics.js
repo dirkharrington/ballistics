@@ -4,7 +4,8 @@ import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
-import { simulate, TrajectoryInputError } from './physics/engine.ts';
+import { TrajectoryInputError } from './physics/engine.ts';
+import { simulateAsync } from './physics/engine-async.ts';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -103,12 +104,14 @@ function getMockBullets() {
 
 
 // ── Compute trajectories client-side for all selected bullet IDs ──────────────
-function computeClientSide(req) {
-  return req.bulletIds.map(id => {
+async function computeClientSide(req) {
+  const promises = req.bulletIds.map(id => {
     const bullet = bullets.find(b => b.id === id);
     if (!bullet) return null;
-    return simulate(bullet, req);
-  }).filter(Boolean);
+    return simulateAsync(bullet, req);
+  });
+  const results = await Promise.all(promises.filter(Boolean));
+  return results;
 }
 
 // ── Bullet list UI ────────────────────────────────────────────────────────────
@@ -164,7 +167,7 @@ function _setSimulationError(message) {
 }
 
 // ── Simulation ────────────────────────────────────────────────────────────────
-function runSimulation() {
+async function runSimulation() {
   if (selectedIds.size === 0) { alert('Select at least one round.'); return; }
   _setSimulationError(null);
 
@@ -196,19 +199,22 @@ function runSimulation() {
   lastReq = req;
 
   try {
-    const results = computeClientSide(req);
-    renderResults(results, req);
-    lastResults = results;
-    updateSweepButtonVisibility();
+    const results = await computeClientSide(req);
+    requestAnimationFrame(() => {
+      renderResults(results, req);
+      lastResults = results;
+      updateSweepButtonVisibility();
+      btn.classList.remove('loading');
+      btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
+    });
   } catch (err) {
+    btn.classList.remove('loading');
+    btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
     if (err instanceof TrajectoryInputError) {
       _setSimulationError(err.message);
     } else {
       console.error(err);
     }
-  } finally {
-    btn.classList.remove('loading');
-    btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
   }
 }
 
@@ -327,7 +333,7 @@ async function runCustom() {
   };
   let result;
   try {
-    result = simulate(bullet, req);
+    result = await simulateAsync(bullet, req);
   } catch (err) {
     if (err instanceof TrajectoryInputError) {
       return showCustomError(err.message);
@@ -1006,7 +1012,7 @@ async function runSweep() {
 
   let results;
   try {
-    results = requests.map(r => simulate(bullet, r));
+    results = await Promise.all(requests.map(r => simulateAsync(bullet, r)));
   } catch (err) {
     if (btn) btn.querySelector('span').textContent = 'SWEEP';
     /* istanbul ignore else -- simulate only throws TrajectoryInputError */
@@ -1282,8 +1288,8 @@ function init() {
   document.getElementById('azimuthDeg')?.addEventListener('input', syncUrl, { signal });
 
   // MH-3, SH-2: Tools tab
-  initDopeCard(simulate);
-  initBcSolver(simulate);
+  initDopeCard(simulateAsync);
+  initBcSolver(simulateAsync);
 
   // WA-12: Load custom drag table from localStorage on startup
   try {

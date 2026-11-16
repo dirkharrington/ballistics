@@ -14,7 +14,8 @@
       "tests"
     ],
     "testMatch": [
-      "**/*.test.js"
+      "**/*.test.js",
+      "**/*.test.ts"
     ],
     "testPathIgnorePatterns": [
       "tests/e2e"
@@ -27,7 +28,8 @@
       "app/tools.js",
       "app/url-state.js",
       "app/custom-rounds.js",
-      "app/physics/engine.ts"
+      "app/physics/engine.ts",
+      "app/physics/engine-async.ts"
     ],
     "transform": {
       "^.+\\.[jt]s$": "babel-jest"
