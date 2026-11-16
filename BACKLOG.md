@@ -255,7 +255,7 @@ click, blocking input and frame rendering for a visible stutter.
 
 ---
 
-### PERF-2 · Service Worker: precache all Vite-hashed assets · FE · Size S
+### ~~PERF-2 · Service Worker: precache all Vite-hashed assets · FE · Size S~~ ✅ Done (PR #98)
 
 The current `sw.js` precaches only four un-hashed URLs (`/`, `/index.html`,
 `/ballistics.css`, `/manifest.json`). Hashed JS/CSS/font assets are cached

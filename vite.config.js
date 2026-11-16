@@ -15,12 +15,23 @@ function serviceWorkerPlugin() {
         resolvedOutDir = resolve(config.root, config.build.outDir);
       }
     },
-    closeBundle() {
+    writeBundle(_options, bundle) {
       if (!resolvedOutDir) return;
       const hash = Date.now().toString(36);
-      const swSrc = readFileSync(
-        resolve(__dirname, 'app/sw.js'), 'utf-8');
-      const swOut = swSrc.replace("let CACHE_VERSION = 'v1';", `let CACHE_VERSION = '${hash}';`);
+
+      // Collect every hashed asset Vite emitted
+      const hashedAssets = Object.keys(bundle)
+        .filter(key => /\.(js|css|woff2?|ttf|eot|png|jpe?g|gif|svg|ico|webp)$/.test(key))
+        .map(key => `/${key}`);
+
+      // Always include un-hashed root-level URLs
+      const allAssets = ['/', '/index.html', '/manifest.json', ...hashedAssets];
+      const manifestJson = allAssets.map(a => JSON.stringify(a)).join(', ');
+
+      const swSrc = readFileSync(resolve(__dirname, 'app/sw.js'), 'utf-8');
+      const swOut = swSrc
+        .replace("let CACHE_VERSION = 'v1';", `let CACHE_VERSION = '${hash}';`)
+        .replace("'__VITE_PRECACHE_MANIFEST__'", manifestJson);
       writeFileSync(resolve(resolvedOutDir, 'sw.js'), swOut);
     },
   };
