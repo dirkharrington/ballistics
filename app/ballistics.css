@@ -237,6 +237,28 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
+/* ── select-all checkbox ── */
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+}
+.select-all-label input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 /* ── bullet cards ── */
 .bullet-list { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
 
