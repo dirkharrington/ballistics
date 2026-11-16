@@ -730,45 +730,45 @@ describe('renderResults', () => {
 
   const req = { zeroRangeMeters: 100, windSpeedKph: 16 };
 
-  test('hides empty state and shows results container', () => {
-    mod.renderResults(results, req);
+  test('hides empty state and shows results container', async () => {
+    await mod.renderResults(results, req);
     expect(document.getElementById('emptyState').style.display).toBe('none');
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
   });
 
-  test('creates 5 Chart instances (4 trajectory + 1 adjustment)', () => {
-    mod.renderResults(results, req);
+  test('creates 5 Chart instances (4 trajectory + 1 adjustment)', async () => {
+    await mod.renderResults(results, req);
     expect(MockChart).toHaveBeenCalledTimes(5);
   });
 
-  test('destroys existing charts before rendering new ones', () => {
+  test('destroys existing charts before rendering new ones', async () => {
     const fakeChart = { destroy: jest.fn() };
     mod._setCharts({ old: fakeChart });
-    mod.renderResults(results, req);
+    await mod.renderResults(results, req);
     expect(fakeChart.destroy).toHaveBeenCalled();
   });
 
-  test('renders stats grid with bullet info', () => {
-    mod.renderResults(results, req);
+  test('renders stats grid with bullet info', async () => {
+    await mod.renderResults(results, req);
     expect(document.getElementById('chartContainer').innerHTML).toContain('.308 Win 168gr BTHP');
     expect(document.getElementById('chartContainer').innerHTML).toContain('807');
   });
 
-  test('renders table rows', () => {
-    mod.renderResults(results, req);
+  test('renders table rows', async () => {
+    await mod.renderResults(results, req);
     const rows = document.querySelectorAll('#tableBody tr');
     expect(rows.length).toBeGreaterThan(0);
   });
 
-  test('handles refLine present (velocityChart)', () => {
+  test('handles refLine present (velocityChart)', async () => {
     // The velocity chart def has refLine — this covers the if(def.refLine) branch
-    mod.renderResults(results, req);
+    await mod.renderResults(results, req);
     const calls = MockChart.mock.calls;
     const velocityCall = calls.find(args => args[1]?.type === 'line');
     expect(velocityCall).toBeDefined();
   });
 
-  test('handles result with bullet having unknown color ID (fallback)', () => {
+  test('handles result with bullet having unknown color ID (fallback)', async () => {
     const unknownResult = [{
       bullet: {
         id: 'unknown-bullet', name: 'Unknown',
@@ -781,10 +781,10 @@ describe('renderResults', () => {
       ],
       maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0
     }];
-    expect(() => mod.renderResults(unknownResult, req)).not.toThrow();
+    await mod.renderResults(unknownResult, req);
   });
 
-  test('XSS payload in bullet name is escaped in stat card', () => {
+  test('XSS payload in bullet name is escaped in stat card', async () => {
     const xssResult = [{
       bullet: {
         id: '308-win-168gr', name: '<img src=x onerror=alert(1)>',
@@ -795,14 +795,14 @@ describe('renderResults', () => {
       points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
       maxOrdinateCm: 8.1, maxOrdinateRangeMeters: 68, supersonicLimitMeters: 823
     }];
-    mod.renderResults(xssResult, req);
+    await mod.renderResults(xssResult, req);
     const html = document.getElementById('chartContainer').innerHTML;
     // Unescaped <img would be injected as a real element; escaped form is safe text
     expect(html).not.toContain('<img src=x');
     expect(html).toContain('&lt;img src=x');
   });
 
-  test('non-numeric API field in stat card renders as NaN not as HTML', () => {
+  test('non-numeric API field in stat card renders as NaN not as HTML', async () => {
     const badResult = [{
       bullet: {
         id: '308-win-168gr', name: 'Safe Name',
@@ -813,13 +813,13 @@ describe('renderResults', () => {
       points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
       maxOrdinateCm: 8.1, maxOrdinateRangeMeters: 68, supersonicLimitMeters: 823
     }];
-    mod.renderResults(badResult, req);
+    await mod.renderResults(badResult, req);
     const html = document.getElementById('chartContainer').innerHTML;
     expect(html).not.toContain('<b>fast</b>');
     expect(html).toContain('NaN');
   });
 
-  test('unknown color ID gets fallback color in stat card', () => {
+  test('unknown color ID gets fallback color in stat card', async () => {
     const customResult = [{
       bullet: {
         id: 'custom', name: 'Custom Load',
@@ -830,13 +830,13 @@ describe('renderResults', () => {
       points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 850, energyJoules: 3200, windDriftCm: 0, timeOfFlightSec: 0 }],
       maxOrdinateCm: 5.0, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 900
     }];
-    mod.renderResults(customResult, req);
+    await mod.renderResults(customResult, req);
     const html = document.getElementById('chartContainer').innerHTML;
     expect(html).toContain('#4ADE80');
     expect(html).not.toContain('undefined');
   });
 
-  test('renderStatCards silently skips results missing bullet property', () => {
+  test('renderStatCards silently skips results missing bullet property', async () => {
     const mixedResults = [
       { points: [], maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0 },
       {
@@ -848,11 +848,11 @@ describe('renderResults', () => {
         maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
       }
     ];
-    expect(() => mod.renderResults(mixedResults, req)).not.toThrow();
+    await mod.renderResults(mixedResults, req);
     expect(document.getElementById('chartContainer').innerHTML).toContain('.308 Win 168gr BTHP');
   });
 
-  test('renderResults adds Coriolis drift dataset when coriolisDeflectionCm is nonzero', () => {
+  test('renderResults adds Coriolis drift dataset when coriolisDeflectionCm is nonzero', async () => {
     const corResults = [{
       bullet: { id: '308-win-168gr', name: '.308 Win',
                 muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
@@ -865,7 +865,7 @@ describe('renderResults', () => {
       ],
       maxOrdinateCm: 3, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 823,
     }];
-    mod.renderResults(corResults, req);
+    await mod.renderResults(corResults, req);
     // The Coriolis drift series should have been added to the drift chart
     const driftCall = MockChart.mock.calls.find(args => {
       const ds = args[1]?.data?.datasets ?? [];
@@ -874,7 +874,7 @@ describe('renderResults', () => {
     expect(driftCall).toBeDefined();
   });
 
-  test('Coriolis dataset falls back to #4ADE80 color for unknown bullet ID (line 891 || branch)', () => {
+  test('Coriolis dataset falls back to #4ADE80 color for unknown bullet ID (line 891 || branch)', async () => {
     const corResults = [{
       bullet: { id: 'unknown-custom-bullet', name: 'Custom',
                 muzzleVelocityMps: 800, muzzleEnergyJoules: 3000,
@@ -886,7 +886,7 @@ describe('renderResults', () => {
       ],
       maxOrdinateCm: 3, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 820,
     }];
-    mod.renderResults(corResults, req);
+    await mod.renderResults(corResults, req);
     const driftCall = MockChart.mock.calls.find(args => {
       const ds = args[1]?.data?.datasets ?? [];
       return ds.some(d => d.label && d.label.includes('coriolis'));
@@ -1401,7 +1401,7 @@ describe('crosshairPlugin', () => {
     expect(fakeChart.ctx.beginPath).not.toHaveBeenCalled();
   });
 
-  test('all five charts are created with crosshairPlugin in plugins array', () => {
+  test('all five charts are created with crosshairPlugin in plugins array', async () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -1411,7 +1411,7 @@ describe('crosshairPlugin', () => {
       maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800
     }];
     MockChart.mockClear();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     expect(MockChart).toHaveBeenCalledTimes(5);
     MockChart.mock.calls.forEach(([, cfg]) => {
       expect(Array.isArray(cfg.plugins)).toBe(true);
@@ -1419,7 +1419,7 @@ describe('crosshairPlugin', () => {
     });
   });
 
-  test('all five charts use interaction mode index', () => {
+  test('all five charts use interaction mode index', async () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -1429,7 +1429,7 @@ describe('crosshairPlugin', () => {
       maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800
     }];
     MockChart.mockClear();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     MockChart.mock.calls.forEach(([, cfg]) => {
       expect(cfg.options.interaction.mode).toBe('index');
     });
@@ -1545,9 +1545,9 @@ describe('annotationPlugin integration with renderResults', () => {
     };
   }
 
-  test('all five charts receive an annotationPlugin in their plugins array', () => {
+  test('all five charts receive an annotationPlugin in their plugins array', async () => {
     MockChart.mockClear();
-    mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
     expect(MockChart).toHaveBeenCalledTimes(5);
     MockChart.mock.calls.forEach(([, cfg]) => {
       const hasAnnot = cfg.plugins.some(p => p.id === 'ballistics-annotations');
@@ -1555,9 +1555,9 @@ describe('annotationPlugin integration with renderResults', () => {
     });
   });
 
-  test('drop chart plugin carries 3 annotations (supersonic + maxOrd + peak)', () => {
+  test('drop chart plugin carries 3 annotations (supersonic + maxOrd + peak)', async () => {
     MockChart.mockClear();
-    mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
     // First Chart call is for dropChart
     const dropCfg = MockChart.mock.calls[0][1];
     const annotPlug = dropCfg.plugins.find(p => p.id === 'ballistics-annotations');
@@ -1580,9 +1580,9 @@ describe('annotationPlugin integration with renderResults', () => {
     expect(ctx.stroke).toHaveBeenCalledTimes(3);
   });
 
-  test('non-drop charts carry only 1 annotation (supersonic limit)', () => {
+  test('non-drop charts carry only 1 annotation (supersonic limit)', async () => {
     MockChart.mockClear();
-    mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
     // calls[1] = velocityChart, [2] = energyChart, [3] = windChart
     [1, 2, 3].forEach(i => {
       const cfg = MockChart.mock.calls[i][1];
@@ -1611,10 +1611,10 @@ describe('annotationPlugin integration with renderResults', () => {
     expect(ctx.stroke).not.toHaveBeenCalled();
   });
 
-  test('renderResults with empty array uses empty annotation arrays (ternary false branches)', () => {
+  test('renderResults with empty array uses empty annotation arrays (ternary false branches)', async () => {
     MockChart.mockClear();
     // Covers sonicAnn = [] and dropAnns = [] branches when results[0] is undefined
-    mod.renderResults([], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([], { zeroRangeMeters: 100, windSpeedKph: 0 });
     expect(MockChart).toHaveBeenCalledTimes(5);
     MockChart.mock.calls.forEach(([, cfg]) => {
       const annotPlug = cfg.plugins.find(p => p.id === 'ballistics-annotations');
@@ -1805,58 +1805,58 @@ describe('chart interaction callbacks', () => {
     maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800
   }];
 
-  function renderAndGetCallbacks() {
+  async function renderAndGetCallbacks() {
     MockChart.mockClear();
-    mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
     return MockChart.mock.calls[0][1].options;
   }
 
-  test('onHover with elements sets crosshairIndex and shows readout', () => {
-    const opts = renderAndGetCallbacks();
+  test('onHover with elements sets crosshairIndex and shows readout', async () => {
+    const opts = await renderAndGetCallbacks();
     opts.onHover({}, [{ index: 1 }]);
     expect(mod._getState().crosshairIndex).toBe(1);
     expect(document.getElementById('rangeReadout').style.display).toBe('block');
   });
 
-  test('onHover with no elements clears crosshairIndex and hides readout', () => {
-    const opts = renderAndGetCallbacks();
+  test('onHover with no elements clears crosshairIndex and hides readout', async () => {
+    const opts = await renderAndGetCallbacks();
     opts.onHover({}, [{ index: 0 }]);
     opts.onHover({}, []);
     expect(mod._getState().crosshairIndex).toBeNull();
   });
 
-  test('onHover does nothing when crosshairPinned is true', () => {
-    const opts = renderAndGetCallbacks();
+  test('onHover does nothing when crosshairPinned is true', async () => {
+    const opts = await renderAndGetCallbacks();
     opts.onClick({}, [{ index: 0 }]);  // pin
     expect(mod._getState().crosshairPinned).toBe(true);
     opts.onHover({}, [{ index: 1 }]);
     expect(mod._getState().crosshairIndex).toBe(0); // unchanged
   });
 
-  test('onClick toggles pin and sets crosshairIndex', () => {
-    const opts = renderAndGetCallbacks();
+  test('onClick toggles pin and sets crosshairIndex', async () => {
+    const opts = await renderAndGetCallbacks();
     opts.onClick({}, [{ index: 1 }]);
     expect(mod._getState().crosshairPinned).toBe(true);
     expect(mod._getState().crosshairIndex).toBe(1);
     expect(document.getElementById('readoutPin').textContent).toBe('UNPIN');
   });
 
-  test('onClick with no elements is a no-op', () => {
-    const opts = renderAndGetCallbacks();
+  test('onClick with no elements is a no-op', async () => {
+    const opts = await renderAndGetCallbacks();
     opts.onClick({}, []);
     expect(mod._getState().crosshairPinned).toBe(false);
   });
 
-  test('onClick unpins and hides readout on second click', () => {
-    const opts = renderAndGetCallbacks();
+  test('onClick unpins and hides readout on second click', async () => {
+    const opts = await renderAndGetCallbacks();
     opts.onClick({}, [{ index: 0 }]);
     opts.onClick({}, [{ index: 0 }]);
     expect(mod._getState().crosshairPinned).toBe(false);
     expect(document.getElementById('rangeReadout').style.display).toBe('none');
   });
 
-  test('crosshairPlugin afterDraw draws a line when crosshairIndex is set', () => {
-    const opts = renderAndGetCallbacks();
+  test('crosshairPlugin afterDraw draws a line when crosshairIndex is set', async () => {
+    const opts = await renderAndGetCallbacks();
     opts.onHover({}, [{ index: 1 }]);
     const ctx = {
       save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(),
@@ -1872,8 +1872,8 @@ describe('chart interaction callbacks', () => {
     expect(ctx.stroke).toHaveBeenCalled();
   });
 
-  test('crosshairPlugin uses brighter stroke when pinned', () => {
-    const opts = renderAndGetCallbacks();
+  test('crosshairPlugin uses brighter stroke when pinned', async () => {
+    const opts = await renderAndGetCallbacks();
     opts.onClick({}, [{ index: 1 }]);  // pin
     const ctx = {
       save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(),
@@ -2493,14 +2493,14 @@ describe('export button click handler', () => {
     delete HTMLAnchorElement.prototype.click;
   });
 
-  test('clicking .export-btn triggers exportPNG for that chart', () => {
+  test('clicking .export-btn triggers exportPNG for that chart', async () => {
     const bullet = mod.getMockBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
 
-    mod.renderResults([result], {
+    await mod.renderResults([result], {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2537,7 +2537,7 @@ describe('bullet card click listener', () => {
 // crosshairPlugin — afterDraw when the data point is absent (L504)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('crosshairPlugin afterDraw edge cases', () => {
-  test('returns early when meta.data[crosshairIndex] is undefined', () => {
+  test('returns early when meta.data[crosshairIndex] is undefined', async () => {
     // Simulate a hover at index 5 but the chart only has data up to index 2
     mod._getState().crosshairIndex;  // prime state via existing test pattern
     // Directly set state via the exported helper would need a setter — use the
@@ -2547,7 +2547,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
-    mod.renderResults([result], {
+    await mod.renderResults([result], {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2567,7 +2567,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
     expect(ctx.beginPath).not.toHaveBeenCalled();
   });
 
-  test('returns early when crosshairIndex points past end of data array', () => {
+  test('returns early when crosshairIndex points past end of data array', async () => {
     // Manually set crosshairIndex to a value beyond the data array length
     // We do this by calling onHover with an element at a large index via the chart mock
     const bullet = mod.getMockBullets()[0];
@@ -2575,7 +2575,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
-    mod.renderResults([result], {
+    await mod.renderResults([result], {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -2691,7 +2691,7 @@ describe('readoutPin unpin with populated charts (L815 forEach arrow fn)', () =>
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
-    mod.renderResults([result], {
+    await mod.renderResults([result], {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
@@ -3105,7 +3105,7 @@ describe('G7 drag model — runSimulation and renderResults', () => {
     expect(result?.request?.azimuthDeg).toBe(180);
   });
 
-  test('renderResults updates #modelStatus pill with dragModel from req', () => {
+  test('renderResults updates #modelStatus pill with dragModel from req', async () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -3113,11 +3113,11 @@ describe('G7 drag model — runSimulation and renderResults', () => {
       points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
       maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
     }];
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G7' });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G7' });
     expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G7');
   });
 
-  test('renderResults shows MODEL: G1 when dragModel is G1', () => {
+  test('renderResults shows MODEL: G1 when dragModel is G1', async () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -3125,11 +3125,11 @@ describe('G7 drag model — runSimulation and renderResults', () => {
       points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
       maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
     }];
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
     expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G1');
   });
 
-  test('renderResults defaults modelStatus to G1 when dragModel absent', () => {
+  test('renderResults defaults modelStatus to G1 when dragModel absent', async () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -3137,7 +3137,7 @@ describe('G7 drag model — runSimulation and renderResults', () => {
       points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
       maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
     }];
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G1');
   });
 
@@ -3221,9 +3221,9 @@ describe('chart canvas touchmove → mousemove forwarding', () => {
     supersonicLimitMeters: 800, maxOrdinateCm: 5, maxOrdinateRangeMeters: 100,
   }];
 
-  test('touchmove on chart canvas dispatches a mousemove event', () => {
+  test('touchmove on chart canvas dispatches a mousemove event', async () => {
     mod._setLastResults(mockResults);
-    mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
+    await mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
 
     const canvas = document.getElementById('dropChart');
     expect(canvas).toBeTruthy();
@@ -3241,8 +3241,8 @@ describe('chart canvas touchmove → mousemove forwarding', () => {
     expect(dispatched[0].clientY).toBe(80);
   });
 
-  test('touchmove handler calls preventDefault to suppress page scroll', () => {
-    mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
+  test('touchmove handler calls preventDefault to suppress page scroll', async () => {
+    await mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
 
     const canvas = document.getElementById('dropChart');
     const touchEvent = new Event('touchmove', { bubbles: true, cancelable: true });
@@ -3603,10 +3603,10 @@ describe('FE-3: _getSortState', () => {
     expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
   });
 
-  test('returns updated state after onSortHeaderClick', () => {
+  test('returns updated state after onSortHeaderClick', async () => {
     const results = makeTableResults();
     mod._setLastResults(results);
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
   });
@@ -3632,48 +3632,48 @@ describe('FE-3: onSortHeaderClick', () => {
     expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
   });
 
-  test('no-op when key is not in SORTABLE_COLUMNS', () => {
+  test('no-op when key is not in SORTABLE_COLUMNS', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('bogus');
     expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
   });
 
-  test('first click sets column and asc direction', () => {
+  test('first click sets column and asc direction', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
   });
 
-  test('second click on same column toggles to desc', () => {
+  test('second click on same column toggles to desc', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     mod.onSortHeaderClick('range');
     expect(mod._getSortState()).toEqual({ column: 'range', direction: 'desc' });
   });
 
-  test('third click on same column toggles back to asc', () => {
+  test('third click on same column toggles back to asc', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     mod.onSortHeaderClick('range'); // desc
     mod.onSortHeaderClick('range'); // back to asc
     expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
   });
 
-  test('click on different column resets to asc', () => {
+  test('click on different column resets to asc', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     mod.onSortHeaderClick('drop');
     expect(mod._getSortState()).toEqual({ column: 'drop', direction: 'asc' });
   });
 
-  test('re-renders table on valid sort', () => {
+  test('re-renders table on valid sort', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     const rows = document.querySelectorAll('#tableBody tr');
     expect(rows.length).toBe(2);
@@ -3681,18 +3681,18 @@ describe('FE-3: onSortHeaderClick', () => {
 });
 
 describe('FE-3: renderTable sort logic', () => {
-  test('sorts asc by range — row with lower range comes first', () => {
+  test('sorts asc by range — row with lower range comes first', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range'); // asc
     const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
     expect(Number(cells[0].textContent)).toBe(100);
     expect(Number(cells[1].textContent)).toBe(200);
   });
 
-  test('sorts desc by range — row with higher range comes first', () => {
+  test('sorts desc by range — row with higher range comes first', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range'); // asc
     mod.onSortHeaderClick('range'); // desc
     const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
@@ -3700,7 +3700,7 @@ describe('FE-3: renderTable sort logic', () => {
     expect(Number(cells[1].textContent)).toBe(100);
   });
 
-  test('NaN values sort last', () => {
+  test('NaN values sort last', async () => {
     const resultsWithNaN = [{
       bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -3711,14 +3711,14 @@ describe('FE-3: renderTable sort logic', () => {
       ],
       maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
     }];
-    mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
     // first row should be the finite one (100)
     expect(Number(cells[0].textContent)).toBe(100);
   });
 
-  test('both NaN values remain stable (return 0)', () => {
+  test('both NaN values remain stable (return 0)', async () => {
     const resultsWithNaN = [{
       bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -3729,12 +3729,12 @@ describe('FE-3: renderTable sort logic', () => {
       ],
       maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
     }];
-    mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
     expect(() => mod.onSortHeaderClick('range')).not.toThrow();
     expect(document.querySelectorAll('#tableBody tr')).toHaveLength(2);
   });
 
-  test('finite value beats NaN (bFin false branch)', () => {
+  test('finite value beats NaN (bFin false branch)', async () => {
     const resultsWithNaN = [{
       bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -3745,36 +3745,36 @@ describe('FE-3: renderTable sort logic', () => {
       ],
       maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
     }];
-    mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
     expect(Number(cells[0].textContent)).toBe(100);
   });
 
-  test('renderResults resets sort state before rendering', () => {
+  test('renderResults resets sort state before rendering', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range'); // set a sort
     expect(mod._getSortState().column).toBe('range');
     // renderResults should reset it
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
   });
 });
 
 describe('FE-3: updateSortIndicators', () => {
-  test('sets aria-sort and ▲ on active column asc', () => {
+  test('sets aria-sort and ▲ on active column asc', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
     expect(th.getAttribute('aria-sort')).toBe('ascending');
     expect(th.querySelector('.sort-indicator').textContent).toBe('▲');
   });
 
-  test('sets aria-sort descending and ▼ on active column desc', () => {
+  test('sets aria-sort descending and ▼ on active column desc', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     mod.onSortHeaderClick('range');
     const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
@@ -3782,9 +3782,9 @@ describe('FE-3: updateSortIndicators', () => {
     expect(th.querySelector('.sort-indicator').textContent).toBe('▼');
   });
 
-  test('inactive columns have no aria-sort and empty indicator', () => {
+  test('inactive columns have no aria-sort and empty indicator', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('range');
     const th = document.querySelector('#dataTable thead th[data-sort-key="drop"]');
     expect(th.hasAttribute('aria-sort')).toBe(false);
@@ -3801,9 +3801,9 @@ describe('FE-3: updateSortIndicators', () => {
 });
 
 describe('FE-3: _resetState resets sort variables', () => {
-  test('resets sortColumn, sortDirection, tableResults', () => {
+  test('resets sortColumn, sortDirection, tableResults', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     mod.onSortHeaderClick('drop');
     mod._resetState();
     expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
@@ -3821,7 +3821,7 @@ describe('FE-3: init() thead click listener', () => {
 
   test('click on sort-key th calls onSortHeaderClick', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     await runInit();
     const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
     th.click();
@@ -3830,7 +3830,7 @@ describe('FE-3: init() thead click listener', () => {
 
   test('click on Round th (no data-sort-key) is a no-op', async () => {
     const results = makeTableResults();
-    mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     await runInit();
     const roundTh = document.querySelector('#dataTable thead th:not([data-sort-key])');
     roundTh.click();
@@ -3857,15 +3857,15 @@ describe('MH-1: renderResults creates adjustment chart as 5th panel', () => {
     };
   }
 
-  test('renders 5 Chart instances', () => {
+  test('renders 5 Chart instances', async () => {
     MockChart.mockClear();
-    mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
     expect(MockChart).toHaveBeenCalledTimes(5);
   });
 
-  test('adjustment chart has dual y-axes (yMoa and yMrad)', () => {
+  test('adjustment chart has dual y-axes (yMoa and yMrad)', async () => {
     MockChart.mockClear();
-    mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
     // 5th call is adjustChart
     const adjustCfg = MockChart.mock.calls[4][1];
     expect(adjustCfg.options.scales.yMoa).toBeDefined();
@@ -3874,9 +3874,9 @@ describe('MH-1: renderResults creates adjustment chart as 5th panel', () => {
     expect(adjustCfg.options.scales.yMrad.position).toBe('right');
   });
 
-  test('adjustment chart datasets include MOA and MRAD series', () => {
+  test('adjustment chart datasets include MOA and MRAD series', async () => {
     MockChart.mockClear();
-    mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
     const adjustCfg = MockChart.mock.calls[4][1];
     const labels = adjustCfg.data.datasets.map(d => d.label);
     const hasMoa  = labels.some(l => l.includes('MOA'));
@@ -3885,9 +3885,9 @@ describe('MH-1: renderResults creates adjustment chart as 5th panel', () => {
     expect(hasMrad).toBe(true);
   });
 
-  test('MRAD datasets use dashed border', () => {
+  test('MRAD datasets use dashed border', async () => {
     MockChart.mockClear();
-    mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([makeAdjResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
     const adjustCfg = MockChart.mock.calls[4][1];
     const mradDs = adjustCfg.data.datasets.filter(d => d.label.includes('MRAD'));
     mradDs.forEach(ds => {
@@ -3953,9 +3953,9 @@ describe('SH-1 FE: spin drift dashed series on wind chart', () => {
     };
   }
 
-  test('adds spin drift dataset to windChart when spinDriftCm present', () => {
+  test('adds spin drift dataset to windChart when spinDriftCm present', async () => {
     MockChart.mockClear();
-    mod.renderResults([makeSpinResult(true)], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([makeSpinResult(true)], { zeroRangeMeters: 100, windSpeedKph: 0 });
     // windChart is the 4th chart (index 3)
     const windCfg = MockChart.mock.calls[3][1];
     const spinDs = windCfg.data.datasets.filter(d => d.label.includes('spin drift'));
@@ -3964,18 +3964,18 @@ describe('SH-1 FE: spin drift dashed series on wind chart', () => {
     spinDs.forEach(ds => expect(Array.isArray(ds.borderDash)).toBe(true));
   });
 
-  test('no spin drift dataset when spinDriftCm absent from all points', () => {
+  test('no spin drift dataset when spinDriftCm absent from all points', async () => {
     MockChart.mockClear();
-    mod.renderResults([makeSpinResult(false)], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([makeSpinResult(false)], { zeroRangeMeters: 100, windSpeedKph: 0 });
     const windCfg = MockChart.mock.calls[3][1];
     const spinDs = windCfg.data.datasets.filter(d => d.label.includes('spin drift'));
     expect(spinDs.length).toBe(0);
   });
 
-  test('spin drift ?? 0 covers undefined spinDriftCm on a point', () => {
+  test('spin drift ?? 0 covers undefined spinDriftCm on a point', async () => {
     // First point has spinDriftCm (triggers hasSpinDrift=true); second lacks it → ?? 0 fires
     MockChart.mockClear();
-    mod.renderResults([{
+    await mod.renderResults([{
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
       request: {},
@@ -3991,9 +3991,9 @@ describe('SH-1 FE: spin drift dashed series on wind chart', () => {
     expect(spinDs[0].data[1].y).toBe(0); // undefined ?? 0 = 0
   });
 
-  test('fallback color used when bullet id not in BULLET_COLORS', () => {
+  test('fallback color used when bullet id not in BULLET_COLORS', async () => {
     MockChart.mockClear();
-    mod.renderResults([{
+    await mod.renderResults([{
       bullet: { id: 'unknown-custom-bullet', name: 'Custom', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
       request: {},
@@ -4014,7 +4014,7 @@ describe('SH-1 FE: spin drift dashed series on wind chart', () => {
 // MH-3: renderDopeCard called from renderResults
 // ─────────────────────────────────────────────────────────────────────────────
 describe('MH-3: renderResults calls renderDopeCard', () => {
-  test('dopeTable is populated after renderResults', () => {
+  test('dopeTable is populated after renderResults', async () => {
     const result = {
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -4026,14 +4026,14 @@ describe('MH-3: renderResults calls renderDopeCard', () => {
       ],
       maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
     };
-    mod.renderResults([result], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([result], { zeroRangeMeters: 100, windSpeedKph: 0 });
     const html = document.getElementById('dopeTable').innerHTML;
     // dopeTable should have content (thead + tbody)
     expect(html).toContain('<thead>');
     expect(html).toContain('.308 Win');
   });
 
-  test('renders Coriolis cell without + prefix for negative coriolis in DOPE table (tools.js:116 false branch)', () => {
+  test('renders Coriolis cell without + prefix for negative coriolis in DOPE table (tools.js:116 false branch)', async () => {
     // Both points have negative coriolisDeflectionCm → hasCoriolis=true (non-zero),
     // interpolation returns non-null negative cor → `cor >= 0 ? '+' : ''` takes the '' branch
     const result = {
@@ -4046,7 +4046,7 @@ describe('MH-3: renderResults calls renderDopeCard', () => {
       ],
       maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
     };
-    mod.renderResults([result], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults([result], { zeroRangeMeters: 100, windSpeedKph: 0 });
     const html = document.getElementById('dopeTable').innerHTML;
     expect(html).toContain('-1');
   });
@@ -4311,7 +4311,7 @@ describe('MH-4: clearSweep', () => {
       maxOrdinateCm: 3, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 820,
     };
     mod._setLastResults([result]);
-    mod.clearSweep();
+    await mod.clearSweep();
     expect(document.getElementById('clearSweepBtn').style.display).toBe('none');
   });
 
@@ -4325,12 +4325,12 @@ describe('MH-4: clearSweep', () => {
     };
     mod._setLastResults([result]);
     MockChart.mockClear();
-    mod.clearSweep();
+    await mod.clearSweep();
     // renderResults should have been called → new charts created
     expect(MockChart).toHaveBeenCalled();
   });
 
-  test('clearSweepBtn absent: if(clearBtn) false does not throw (line 1306)', () => {
+  test('clearSweepBtn absent: if(clearBtn) false does not throw (line 1306)', async () => {
     document.getElementById('clearSweepBtn').remove();
     const result = {
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
@@ -4340,7 +4340,7 @@ describe('MH-4: clearSweep', () => {
       maxOrdinateCm: 3, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 820,
     };
     mod._setLastResults([result]);
-    expect(() => mod.clearSweep()).not.toThrow();
+    await mod.clearSweep();
   });
 });
 
@@ -4361,36 +4361,36 @@ describe('MH-4: renderSweepCharts', () => {
     }));
   }
 
-  test('creates 3 Chart instances (drop, wind, velocity)', () => {
+  test('creates 3 Chart instances (drop, wind, velocity)', async () => {
     MockChart.mockClear();
-    mod.renderSweepCharts(makeSweepList(), 'wind');
+    await mod.renderSweepCharts(makeSweepList(), 'wind');
     expect(MockChart).toHaveBeenCalledTimes(3);
   });
 
-  test('shows resultsContainer', () => {
-    mod.renderSweepCharts(makeSweepList(), 'wind');
+  test('shows resultsContainer', async () => {
+    await mod.renderSweepCharts(makeSweepList(), 'wind');
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
   });
 
-  test('uses SWEEP_COLORS for datasets', () => {
+  test('uses SWEEP_COLORS for datasets', async () => {
     MockChart.mockClear();
-    mod.renderSweepCharts(makeSweepList(), 'wind');
+    await mod.renderSweepCharts(makeSweepList(), 'wind');
     const cfg = MockChart.mock.calls[0][1];
     cfg.data.datasets.forEach((ds, i) => {
       expect(ds.borderColor).toBe(mod.SWEEP_COLORS[i % mod.SWEEP_COLORS.length]);
     });
   });
 
-  test('renders altitude sweep without error', () => {
-    expect(() => mod.renderSweepCharts(makeSweepList(), 'altitude')).not.toThrow();
+  test('renders altitude sweep without error', async () => {
+    await mod.renderSweepCharts(makeSweepList(), 'altitude');
   });
 
-  test('renders temperature sweep without error', () => {
-    expect(() => mod.renderSweepCharts(makeSweepList(), 'temperature')).not.toThrow();
+  test('renders temperature sweep without error', async () => {
+    await mod.renderSweepCharts(makeSweepList(), 'temperature');
   });
 
-  test('falls back to wind unit for unknown sweepParam', () => {
-    expect(() => mod.renderSweepCharts(makeSweepList(), 'unknown')).not.toThrow();
+  test('falls back to wind unit for unknown sweepParam', async () => {
+    await mod.renderSweepCharts(makeSweepList(), 'unknown');
   });
 });
 
@@ -4464,15 +4464,15 @@ describe('MH-1: adjustment chart callbacks', () => {
     maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
   }];
 
-  function renderAndGetAdjCallbacks() {
+  async function renderAndGetAdjCallbacks() {
     MockChart.mockClear();
-    mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    await mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
     // 5th chart is adjustChart
     return MockChart.mock.calls[4][1].options;
   }
 
-  test('onHover with no elements hides readout (adjustChart)', () => {
-    const opts = renderAndGetAdjCallbacks();
+  test('onHover with no elements hides readout (adjustChart)', async () => {
+    const opts = await renderAndGetAdjCallbacks();
     // First set a crosshairIndex
     opts.onHover({}, [{ index: 0 }]);
     // Then clear it
@@ -4481,28 +4481,28 @@ describe('MH-1: adjustment chart callbacks', () => {
     expect(document.getElementById('rangeReadout').style.display).toBe('none');
   });
 
-  test('onClick with elements pins readout (adjustChart)', () => {
-    const opts = renderAndGetAdjCallbacks();
+  test('onClick with elements pins readout (adjustChart)', async () => {
+    const opts = await renderAndGetAdjCallbacks();
     opts.onClick({}, [{ index: 1 }]);
     expect(mod._getState().crosshairPinned).toBe(true);
     expect(mod._getState().crosshairIndex).toBe(1);
   });
 
-  test('onClick with no elements is no-op (adjustChart)', () => {
-    const opts = renderAndGetAdjCallbacks();
+  test('onClick with no elements is no-op (adjustChart)', async () => {
+    const opts = await renderAndGetAdjCallbacks();
     opts.onClick({}, []);
     expect(mod._getState().crosshairPinned).toBe(false);
   });
 
-  test('onClick unpins and hides readout on second click (adjustChart)', () => {
-    const opts = renderAndGetAdjCallbacks();
+  test('onClick unpins and hides readout on second click (adjustChart)', async () => {
+    const opts = await renderAndGetAdjCallbacks();
     opts.onClick({}, [{ index: 0 }]);
     opts.onClick({}, [{ index: 0 }]);
     expect(mod._getState().crosshairPinned).toBe(false);
   });
 
-  test('onHover when crosshairPinned returns early without changing index (adjustChart)', () => {
-    const opts = renderAndGetAdjCallbacks();
+  test('onHover when crosshairPinned returns early without changing index (adjustChart)', async () => {
+    const opts = await renderAndGetAdjCallbacks();
     opts.onHover({}, [{ index: 0 }]);           // set crosshairIndex = 0
     opts.onClick({}, [{ index: 0 }]);            // pin crosshairPinned = true
     expect(mod._getState().crosshairPinned).toBe(true);
@@ -4510,10 +4510,10 @@ describe('MH-1: adjustment chart callbacks', () => {
     expect(mod._getState().crosshairIndex).toBe(0); // unchanged
   });
 
-  test('export button on adjustChart calls exportPNG', () => {
+  test('export button on adjustChart calls exportPNG', async () => {
     HTMLCanvasElement.prototype.toDataURL = jest.fn(() => 'data:image/png;base64,abc');
     try {
-      mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
+      await mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
       const btn = document.querySelector('[data-chart-id="adjustChart"]');
       expect(btn).not.toBeNull();
       btn.click();
@@ -4522,8 +4522,8 @@ describe('MH-1: adjustment chart callbacks', () => {
     }
   });
 
-  test('touchmove on adjustChart canvas fires mousemove', () => {
-    mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
+  test('touchmove on adjustChart canvas fires mousemove', async () => {
+    await mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
     const canvas = document.getElementById('adjustChart');
     expect(canvas).not.toBeNull();
     const listener = jest.fn();
@@ -4557,10 +4557,10 @@ describe('MH-4: sweep export button', () => {
     }));
   }
 
-  test('clicking export-btn on a sweep chart panel calls exportPNG', () => {
+  test('clicking export-btn on a sweep chart panel calls exportPNG', async () => {
     HTMLCanvasElement.prototype.toDataURL = jest.fn(() => 'data:image/png;base64,abc');
     try {
-      mod.renderSweepCharts(makeSweepList5(), 'wind');
+      await mod.renderSweepCharts(makeSweepList5(), 'wind');
       const btn = document.querySelector('.export-btn');
       expect(btn).not.toBeNull();
       btn.click();
