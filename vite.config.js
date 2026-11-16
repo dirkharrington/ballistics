@@ -90,5 +90,8 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
   },
+  worker: {
+    plugins: () => [bulletCatalogPlugin(), physicsTablesPlugin()],
+  },
   plugins: [serviceWorkerPlugin(), bulletCatalogPlugin(), physicsTablesPlugin()],
 })
