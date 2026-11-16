@@ -159,7 +159,7 @@ Publish the Vite output to a static host on every push to `main`.
 
 ## Milestone 5 — Maintenance & Cleanup
 
-### ~~CLN-1 · Remove stale artefacts · FE · Size S~~ ✅ Done (PR #XX)
+### ~~CLN-1 · Remove stale artefacts · FE · Size S~~ ✅ Done (PR #95)
 
 Delete files and folders that existed only to support the Java/Maven/Docker
 stack. None are referenced by the app or tests.
