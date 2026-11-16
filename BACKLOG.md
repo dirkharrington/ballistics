@@ -187,7 +187,7 @@ stack. None are referenced by the app or tests.
 
 ---
 
-### CLN-2 · Rewrite README.md · FE · Size M
+### ~~CLN-2 · Rewrite README.md · FE · Size M~~ ✅ Done (PR #96)
 
 The README documents a Java/Spring Boot/Docker/REST stack that no longer exists.
 Rewrite it to reflect the current pure-browser SPA.
