@@ -4801,6 +4801,18 @@ describe('exportTrajectoryCSV', () => {
     const blobArgs = global.Blob.mock.calls[0];
     expect(blobArgs[1]).toEqual({ type: 'text/csv' });
   });
+
+  test('formula-injection trigger in bullet name is prefixed with apostrophe', () => {
+    const result = {
+      bullet: { id: 'custom', name: '=HYPERLINK("x")' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('"\'=HYPERLINK(""x"")"');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -264,14 +264,7 @@ function exportTrajectoryCSV() {
       rows.push(`${p.rangeMeters},${p.velocityMps},${p.energyJoules},${p.dropCm / 100},${csvCell(r.bullet.name)}`);
     });
   });
-  const csv = rows.join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `trajectory-${Date.now()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), `trajectory-${Date.now()}.csv`);
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────────
