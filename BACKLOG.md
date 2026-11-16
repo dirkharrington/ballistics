@@ -222,11 +222,13 @@ bullet catalog section (update path to `app/data/bullets.yaml`).
 
 ## Milestone 6 — Performance
 
-### PERF-1 · Move `simulate()` to a Web Worker · FE · Size M
+### PERF-1 · Move `simulate()` to a Web Worker · FE · Size M · **Contract written, builder pending**
 
 `simulate()` is synchronous and runs on the main thread. In worst-case usage
 (10 bullets, 2 000 m range, 1 m step) it performs ~20 000 RK4 iterations per
 click, blocking input and frame rendering for a visible stutter.
+
+**Contract:** [`contracts/perf1-web-worker.md`](contracts/perf1-web-worker.md) v1.0.0 (2026-11-15)
 
 **Work items:**
 1. Create `app/physics/engine.worker.ts` — a module worker that receives
