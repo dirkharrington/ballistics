@@ -442,6 +442,8 @@ header {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 20px;
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 380px;
 }
 
 .chart-header {
