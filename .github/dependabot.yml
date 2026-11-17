@@ -21,6 +21,13 @@ updates:
     labels:
       - dependencies
       - javascript
+    ignore:
+      # deepmerge 4.3.1 is the latest available version; no upstream patch exists.
+      # It is used only by devDependencies (jest-config, jest-environment-puppeteer)
+      # and has no production exposure. Track at GHSA-gcqx-w48m-w2h4; re-evaluate
+      # when a patched version is published.
+      - dependency-name: deepmerge
+        versions: ["4.x"]
 
   # Docker base images
   - package-ecosystem: docker
