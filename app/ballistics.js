@@ -3,7 +3,7 @@ import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
-import { TrajectoryInputError } from './physics/engine.ts';
+import { TrajectoryInputError } from './physics/errors.ts';
 import { simulateAsync } from './physics/engine-async.ts';
 import {
   loadCustomBullets, saveCustomBullets, mergeCatalog, isCustomBulletId,
@@ -67,6 +67,22 @@ let bullets = [];
 let selectedIds = new Set();
 let lastResults = [];
 let charts = {};
+
+// Memoised chart.js import — resolved once, reused on every renderResults /
+// renderSweepCharts call, so Chart.register() fires at most once per page load.
+let _chartModPromise = null;
+function _loadChart() {
+  if (!_chartModPromise) {
+    _chartModPromise = import('chart.js').then(mod => {
+      mod.Chart.register(
+        mod.LineController, mod.LineElement, mod.PointElement,
+        mod.LinearScale, mod.CategoryScale, mod.Tooltip, mod.Legend,
+      );
+      return mod;
+    });
+  }
+  return _chartModPromise;
+}
 
 // UX-1: Custom bullet catalog state
 let customRecords       = [];    // CustomBulletRecordV1[] — mirror of storage
@@ -530,6 +546,20 @@ const crosshairPlugin = {
   }
 };
 
+// ── Touch forwarder — translates touchmove to mousemove on chart canvases ─────
+// touch-action: none in CSS stops the browser from scrolling the page when
+// a touch starts on a chart canvas; this listener is therefore { passive: true }
+// and does NOT call preventDefault().
+export function _attachTouchForwarder(canvas) {
+  canvas.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    canvas.dispatchEvent(new MouseEvent('mousemove', {
+      clientX: t.clientX, clientY: t.clientY,
+      bubbles: true, cancelable: true,
+    }));
+  }, { passive: true });
+}
+
 // ── Range readout — populate the panel below the charts ──────────────────────
 function updateReadout(results, dataIndex) {
   const panel = document.getElementById('rangeReadout');
@@ -755,8 +785,7 @@ async function renderResults(rawResults, req) {
     { id: 'windChart',     title: 'WIND DRIFT',           subtitle: windChartSubtitle(req), yLabel: 'Drift (cm)',     key: 'windDriftCm',  annotations: sonicAnn }
   ];
 
-  const { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } = await import('chart.js');
-  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+  const { Chart } = await _loadChart();
 
   chartDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
@@ -826,19 +855,12 @@ async function renderResults(rawResults, req) {
 
     // Item 4: forward touchmove as mousemove so the crosshair readout works
     // on both iOS (unreliable synthetic mouse events) and Android Chrome.
-    // passive:false lets us call preventDefault() to suppress page scroll
-    // while the user is scrubbing the chart.
+    // Page scroll is suppressed by touch-action: none on the canvas (CSS),
+    // so the listener is passive.
     const canvas = document.getElementById(def.id);
     /* istanbul ignore else -- canvas is always present after chart creation */
     if (canvas) {
-      canvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        canvas.dispatchEvent(new MouseEvent('mousemove', {
-          clientX: t.clientX, clientY: t.clientY,
-          bubbles: true, cancelable: true,
-        }));
-      }, { passive: false });
+      _attachTouchForwarder(canvas);
     }
   });
 
@@ -929,11 +951,7 @@ async function renderResults(rawResults, req) {
     const adjCanvas = document.getElementById('adjustChart');
     /* istanbul ignore else */
     if (adjCanvas) {
-      adjCanvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        adjCanvas.dispatchEvent(new MouseEvent('mousemove', { clientX: t.clientX, clientY: t.clientY, bubbles: true, cancelable: true }));
-      }, { passive: false });
+      _attachTouchForwarder(adjCanvas);
     }
   }
 
@@ -1135,8 +1153,7 @@ async function renderSweepCharts(sweepResultsList, sweepParam) {
     { id: 'sweepVelChart',  title: 'SWEEP — VELOCITY',    yLabel: 'Velocity (m/s)', key: 'velocityMps' },
   ];
 
-  const { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } = await import('chart.js');
-  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+  const { Chart } = await _loadChart();
 
   sweepDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
@@ -1867,6 +1884,7 @@ function _resetState()   {
   _customDragTable = null;
   customRecords = []; customStorageStatus = 'ok';
   editingCustomId = null; pendingDeleteId = null;
+  _chartModPromise = null;
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
 }
 function _setBullets(b)              { bullets = b; }
@@ -1899,7 +1917,7 @@ export {
   updateSweepButtonVisibility, buildSweepRequests, runSweep, clearSweep, renderSweepCharts,
   SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
-  _setSimulationError,
+  _setSimulationError, _loadChart,
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
   // UX-1 test helpers (openCustomBulletAdd/Edit/close/requestDelete are exported at declaration)
   _setCustomRecords, _setCustomStorageStatus,

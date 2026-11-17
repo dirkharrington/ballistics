@@ -2,14 +2,8 @@ import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
 import type { Bullet, TrajectoryParams, TrajectoryPoint, TrajectoryResult, DragTable } from './types.ts';
 export type * from './types.ts';
 
-export class TrajectoryInputError extends RangeError {
-  override readonly name = 'TrajectoryInputError';
-  readonly field: string;
-  constructor(field: string, constraint: string) {
-    super(`${field} must be ${constraint}`);
-    this.field = field;
-  }
-}
+import { TrajectoryInputError } from './errors.ts';
+export { TrajectoryInputError } from './errors.ts';
 
 // ── Physics constants (imperial unit system used by the RK4 engine) ───────────
 const G_FPS2      = 32.174;
@@ -64,18 +58,29 @@ function validate(bullet: Bullet, params: TrajectoryParams): void {
   }
 }
 
-/** Linear interpolation on |v|, clamped to the first and last rows. @internal */
+/**
+ * Interpolates the drag coefficient for speed |v| from a drag table.
+ * Precondition: table v-values (column 0) are strictly ascending.
+ * @internal
+ */
 export function interpolateDragTable(v: number, table: DragTable): number {
+  if (Number.isNaN(v)) return Number.NaN;
   v = Math.abs(v);
   if (v <= table[0]![0]) return table[0]![1];
-  if (v >= table[table.length - 1]![0]) return table[table.length - 1]![1];
-  for (let i = 1; i < table.length; i++) {
-    if (v <= table[i]![0]) {
-      const t = (v - table[i - 1]![0]) / (table[i]![0] - table[i - 1]![0]);
-      return table[i - 1]![1] + t * (table[i]![1] - table[i - 1]![1]);
-    }
+  const last = table.length - 1;
+  if (v >= table[last]![0]) return table[last]![1];
+  // Lower-bound binary search: find smallest i in [1, n-1] with table[i][0] >= v.
+  // Picks the same bracket as the former linear scan.
+  let lo = 1, hi = last;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (table[mid]![0] < v) lo = mid + 1;
+    else hi = mid;
   }
-  return Number.NaN;
+  const a = table[lo - 1]!;
+  const b = table[lo]!;
+  const t = (v - a[0]) / (b[0] - a[0]);
+  return a[1] + t * (b[1] - a[1]);
 }
 
 /** @internal */

@@ -1,5 +1,5 @@
 import { createPhysicsWorker } from './create-physics-worker.ts';
-import { TrajectoryInputError } from './engine.ts';
+import { TrajectoryInputError } from './errors.ts';
 import type { Bullet, TrajectoryParams, TrajectoryResult } from './types.ts';
 
 interface WorkerRequest {

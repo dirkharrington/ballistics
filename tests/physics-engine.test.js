@@ -371,6 +371,117 @@ describe('interpolateDragTable', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// interpolateDragTable — equivalence against verbatim linear scan (PERF-8)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('interpolateDragTable equivalence (binary search vs linear scan)', () => {
+  // Verbatim copy of the pre-PERF-8 linear scan; must NOT be modified.
+  function linearScan(v, table) {
+    v = Math.abs(v);
+    if (v <= table[0][0]) return table[0][1];
+    if (v >= table[table.length - 1][0]) return table[table.length - 1][1];
+    for (let i = 1; i < table.length; i++) {
+      if (v <= table[i][0]) {
+        const t = (v - table[i - 1][0]) / (table[i][0] - table[i - 1][0]);
+        return table[i - 1][1] + t * (table[i][1] - table[i - 1][1]);
+      }
+    }
+    return Number.NaN;
+  }
+
+  // Mulberry32 seeded PRNG — deterministic, good distribution.
+  function makePrng(seed) {
+    let s = seed >>> 0;
+    return function () {
+      s += 0x6d2b79f5;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function agree(v, table) {
+    const bs = interpolateDragTable(v, table);
+    const ls = linearScan(v, table);
+    if (!Object.is(bs, ls)) {
+      throw new Error(
+        `v=${v}: binarySearch=${bs} !== linearScan=${ls}`
+      );
+    }
+  }
+
+  test('G1_TABLE is strictly ascending', () => {
+    for (let i = 1; i < G1_TABLE.length; i++) {
+      expect(G1_TABLE[i][0]).toBeGreaterThan(G1_TABLE[i - 1][0]);
+    }
+  });
+
+  test('G7_TABLE is strictly ascending', () => {
+    for (let i = 1; i < G7_TABLE.length; i++) {
+      expect(G7_TABLE[i][0]).toBeGreaterThan(G7_TABLE[i - 1][0]);
+    }
+  });
+
+  test('agrees on breakpoints, ±ε, midpoints for G1_TABLE', () => {
+    const eps = Number.EPSILON;
+    for (const table of [G1_TABLE, G7_TABLE]) {
+      for (let i = 0; i < table.length; i++) {
+        const v = table[i][0];
+        agree(v, table);
+        agree(v + eps * v, table);
+        agree(v - eps * v, table);
+        if (i + 1 < table.length) {
+          agree((v + table[i + 1][0]) / 2, table);
+        }
+      }
+    }
+  });
+
+  test('agrees on signed zeros, ±Infinity, NaN', () => {
+    for (const table of [G1_TABLE, G7_TABLE]) {
+      agree(0, table);
+      agree(-0, table);
+      agree(Infinity, table);
+      agree(-Infinity, table);
+      agree(NaN, table);
+    }
+  });
+
+  test('agrees on 10 000 seeded-PRNG samples across G1 and G7 velocity ranges', () => {
+    const rng = makePrng(0xdeadbeef);
+    const minV = G1_TABLE[0][0];
+    const maxV = G1_TABLE[G1_TABLE.length - 1][0];
+    for (let i = 0; i < 10000; i++) {
+      // Sample broadly: include sub-min and super-max values via range * 1.1 offset
+      const v = (rng() * (maxV - minV) * 1.1 + minV * 0.95) * (rng() < 0.5 ? 1 : -1);
+      agree(v, G1_TABLE);
+      agree(v, G7_TABLE);
+    }
+  });
+
+  test('agrees on 2-row edge table', () => {
+    const tiny = [[100, 0.1], [200, 0.2]];
+    agree(50, tiny);
+    agree(100, tiny);
+    agree(150, tiny);
+    agree(200, tiny);
+    agree(300, tiny);
+    agree(NaN, tiny);
+  });
+
+  test('agrees on 3-row edge table', () => {
+    const tri = [[100, 0.1], [200, 0.3], [300, 0.2]];
+    agree(50, tri);
+    agree(100, tri);
+    agree(150, tri);
+    agree(200, tri);
+    agree(250, tri);
+    agree(300, tri);
+    agree(400, tri);
+    agree(NaN, tri);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // airDensityRatio
 // ─────────────────────────────────────────────────────────────────────────────
 describe('airDensityRatio', () => {

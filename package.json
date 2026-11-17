@@ -20,6 +20,7 @@
     "testPathIgnorePatterns": [
       "tests/e2e"
     ],
+    "cacheDirectory": ".jest-cache",
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
       "app/sw.js",
@@ -30,7 +31,8 @@
       "app/url-state.js",
       "app/custom-rounds.js",
       "app/physics/engine.ts",
-      "app/physics/engine-async.ts"
+      "app/physics/engine-async.ts",
+      "app/physics/errors.ts"
     ],
     "transform": {
       "^.+\\.[jt]s$": "babel-jest"
