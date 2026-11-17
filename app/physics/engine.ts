@@ -2,14 +2,8 @@ import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
 import type { Bullet, TrajectoryParams, TrajectoryPoint, TrajectoryResult, DragTable } from './types.ts';
 export type * from './types.ts';
 
-export class TrajectoryInputError extends RangeError {
-  override readonly name = 'TrajectoryInputError';
-  readonly field: string;
-  constructor(field: string, constraint: string) {
-    super(`${field} must be ${constraint}`);
-    this.field = field;
-  }
-}
+import { TrajectoryInputError } from './errors.ts';
+export { TrajectoryInputError } from './errors.ts';
 
 // ── Physics constants (imperial unit system used by the RK4 engine) ───────────
 const G_FPS2      = 32.174;
