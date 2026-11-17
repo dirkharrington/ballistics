@@ -20,6 +20,7 @@
     "testPathIgnorePatterns": [
       "tests/e2e"
     ],
+    "cacheDirectory": ".jest-cache",
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
       "app/sw.js",
