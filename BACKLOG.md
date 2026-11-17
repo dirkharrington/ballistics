@@ -999,7 +999,7 @@ A screen reader user clicking "Compute Trajectories" receives no feedback that t
 
 ---
 
-### DM-1 · Re-import previously exported trajectory JSON · FE · Size S
+### ~~DM-1 · Re-import previously exported trajectory JSON · FE · Size S~~ — DONE (PR #TBD)
 
 Users can export trajectory results as JSON but have no way to reload a saved session. The exported JSON file contains everything needed to redisplay the results.
 

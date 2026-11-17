@@ -18,9 +18,14 @@ import {
 const BULLET_COLORS = Object.fromEntries(BULLET_CATALOG.map(b => [b.id, b.hexColor]));
 
 // ── Colour helper ─────────────────────────────────────────────────────────────
+/** Regex for a safe CSS hex colour — #rrggbb exactly. */
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
 /** Returns the display colour for any bullet (custom or built-in). */
 export function colorFor(bullet) {
-  return bullet.hexColor || BULLET_COLORS[bullet.id] || '#4ADE80';
+  const hex = bullet.hexColor;
+  const validHex = (typeof hex === 'string' && HEX_COLOR_RE.test(hex)) ? hex : null;
+  return validHex || BULLET_COLORS[bullet.id] || '#4ADE80';
 }
 
 // Five-step sweep color ramp (independent of bullet catalog colors)
@@ -349,6 +354,154 @@ function exportJSON() {
     new Blob([JSON.stringify(lastResults, null, 2)], { type: 'application/json' }),
     'trajectory.json'
   );
+}
+
+// ── JSON import (DM-1) ────────────────────────────────────────────────────────
+// Validates and sanitises the parsed value — must be a non-empty array of
+// trajectory result objects.  Every field is rebuilt from an allowlist so that
+// only known-safe values reach innerHTML / style sinks.
+//
+// Limits:  5 MB file, 10 results, 2000 points per result.
+// Strings: bullet.id and bullet.name capped at 200 chars.
+// Colours: bullet.hexColor must match /^#[0-9a-f]{6}$/i or is dropped.
+// Numbers: every numeric field checked with Number.isFinite().
+
+/** Bullet-level numeric fields we copy from the import. */
+const BULLET_NUMERIC_FIELDS = [
+  'muzzleVelocityMps', 'ballisticCoefficient', 'bulletWeightGrams',
+  'bulletDiameterMm', 'muzzleEnergyJoules',
+];
+
+/** Result-level numeric fields we copy from the import. */
+const RESULT_NUMERIC_FIELDS = [
+  'supersonicLimitMeters', 'maxOrdinateCm', 'maxOrdinateRangeMeters', 'densityAltitudeMeters',
+];
+
+/** Point-level numeric fields we copy from the import. */
+const POINT_NUMERIC_FIELDS = [
+  'rangeMeters', 'dropCm', 'velocityMps', 'energyJoules', 'windDriftCm',
+  'timeOfFlightSec', 'spinDriftCm', 'coriolisDeflectionCm',
+];
+
+function importResultsFromFile(file) {
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    _setSimulationError('Import failed: file exceeds 5 MB limit.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(e.target.result);
+    } catch (_) {
+      _setSimulationError('Import failed: file is not valid JSON.');
+      return;
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      _setSimulationError('Import failed: JSON must be a non-empty array of trajectory results.');
+      return;
+    }
+    if (parsed.length > 10) {
+      _setSimulationError('Import failed: file contains more than 10 results.');
+      return;
+    }
+
+    const sanitized = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object' || !item.bullet || !item.points) {
+        _setSimulationError('Import failed: each result must have a "bullet" and "points" property.');
+        return;
+      }
+      if (!Array.isArray(item.points)) {
+        _setSimulationError('Import failed: each result "points" must be an array.');
+        return;
+      }
+      if (item.points.length > 2000) {
+        _setSimulationError('Import failed: a result contains more than 2000 points.');
+        return;
+      }
+
+      // ── Validate & rebuild bullet ────────────────────────────────────────────
+      const rawBullet = item.bullet;
+      if (!rawBullet || typeof rawBullet !== 'object') {
+        _setSimulationError('Import failed: bullet must be an object.');
+        return;
+      }
+      if (typeof rawBullet.id !== 'string' || rawBullet.id.length > 200) {
+        _setSimulationError('Import failed: bullet.id must be a string of at most 200 characters.');
+        return;
+      }
+      if (typeof rawBullet.name !== 'string' || rawBullet.name.length > 200) {
+        _setSimulationError('Import failed: bullet.name must be a string of at most 200 characters.');
+        return;
+      }
+
+      const hexColorRaw = rawBullet.hexColor;
+      const hexColor = (typeof hexColorRaw === 'string' && HEX_COLOR_RE.test(hexColorRaw))
+        ? hexColorRaw : undefined;
+
+      const bullet = { id: rawBullet.id, name: rawBullet.name };
+      if (hexColor !== undefined) bullet.hexColor = hexColor;
+
+      for (const field of BULLET_NUMERIC_FIELDS) {
+        if (rawBullet[field] !== undefined) {
+          if (!Number.isFinite(rawBullet[field])) {
+            _setSimulationError(`Import failed: bullet.${field} must be a finite number.`);
+            return;
+          }
+          bullet[field] = rawBullet[field];
+        }
+      }
+
+      // ── Validate & rebuild result-level numeric fields ───────────────────────
+      const sanitizedResult = { bullet, points: [] };
+      for (const field of RESULT_NUMERIC_FIELDS) {
+        if (item[field] !== undefined) {
+          if (!Number.isFinite(item[field])) {
+            _setSimulationError(`Import failed: ${field} must be a finite number.`);
+            return;
+          }
+          sanitizedResult[field] = item[field];
+        }
+      }
+
+      // ── Validate & rebuild points ────────────────────────────────────────────
+      for (const pt of item.points) {
+        if (!pt || typeof pt !== 'object') {
+          _setSimulationError('Import failed: each point must be an object.');
+          return;
+        }
+        const sanitizedPoint = {};
+        for (const field of POINT_NUMERIC_FIELDS) {
+          if (pt[field] !== undefined) {
+            if (!Number.isFinite(pt[field])) {
+              _setSimulationError(`Import failed: point.${field} must be a finite number.`);
+              return;
+            }
+            sanitizedPoint[field] = pt[field];
+          }
+        }
+        sanitizedResult.points.push(sanitizedPoint);
+      }
+
+      sanitized.push(sanitizedResult);
+    }
+
+    _setSimulationError(null);
+    lastResults = sanitized;
+    try {
+      await renderResults(sanitized, {});
+    } catch (_) {
+      _setSimulationError('Import failed: could not render the imported data.');
+      lastResults = [];
+      return;
+    }
+    const exportBtn = document.getElementById('exportCsvBtn');
+    /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
+    if (exportBtn) exportBtn.style.display = '';
+  };
+  reader.readAsText(file);
 }
 
 // ── Markdown export ───────────────────────────────────────────────────────────
@@ -1403,6 +1556,15 @@ function init() {
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
   document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
   document.querySelector('.export-md-btn')?.addEventListener('click', exportMarkdown);
+  document.getElementById('importJsonBtn')?.addEventListener('click', () => {
+    document.getElementById('importJsonFile')?.click();
+  });
+  document.getElementById('importJsonFile')?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    importResultsFromFile(file);
+    // Reset so the same file can be re-selected
+    e.target.value = '';
+  });
   document.querySelector('.export-toggle')?.addEventListener('click', function() {
     this.closest('.export-dropdown')?.classList.toggle('open');
   });
@@ -1970,7 +2132,7 @@ export {
   renderResults, renderTable, updateReadout, switchTab, init,
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
   exportTrajectoryCSV,
-  exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, showToast,
+  exportCSV, exportJSON, exportMarkdown, exportPNG, importResultsFromFile, runCustom, showToast,
   _downloadBlob,
   BULLET_COLORS, SWEEP_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
   drawVLine, drawHLine, annotationPlugin, windChartSubtitle,

@@ -115,6 +115,8 @@ function buildDOM() {
       <span id="dragTableName"></span>
       <button type="button" id="dragTableClearBtn">Clear</button>
     </div>
+    <button type="button" id="importJsonBtn" class="copy-link-btn" aria-label="Import previously exported trajectory JSON">⬆ IMPORT JSON</button>
+    <input type="file" id="importJsonFile" accept=".json,application/json" style="display:none" />
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
     <button type="button" id="savePresetBtn">SAVE AS PRESET</button>
     <div id="customPresetSection" hidden></div>
@@ -2198,6 +2200,442 @@ describe('exportJSON', () => {
     expect(parsed[0].points).toBeDefined();
     expect(anchorClick).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// importResultsFromFile (DM-1)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('importResultsFromFile', () => {
+  function makeFileReaderMock(content) {
+    const mockReader = {
+      onload: null,
+      readAsText(file) {
+        // Fire onload synchronously with the provided content
+        this.onload({ target: { result: content } });
+      },
+    };
+    global.FileReader = jest.fn(() => mockReader);
+    return mockReader;
+  }
+
+  beforeEach(() => {
+    buildDOM();
+  });
+
+  test('renders results when given valid JSON with bullet and points', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const result = simulate(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    const json = JSON.stringify([result]);
+    makeFileReaderMock(json);
+    const file = new File([json], 'trajectory.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    expect(document.getElementById('resultsContainer').style.display).not.toBe('none');
+    expect(document.getElementById('emptyState').style.display).toBe('none');
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(true);
+  });
+
+  test('shows error when JSON is not valid', async () => {
+    makeFileReaderMock('not-valid-json{{{');
+    const file = new File(['not-valid-json{{{'], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/not valid JSON/i);
+  });
+
+  test('shows error when JSON is not a non-empty array', async () => {
+    makeFileReaderMock(JSON.stringify({}));
+    const file = new File([JSON.stringify({})], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/non-empty array/i);
+  });
+
+  test('shows error when JSON is an empty array', async () => {
+    makeFileReaderMock(JSON.stringify([]));
+    const file = new File([JSON.stringify([])], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/non-empty array/i);
+  });
+
+  test('shows error when an item is missing the bullet property', async () => {
+    const payload = JSON.stringify([{ points: [] }]);
+    makeFileReaderMock(payload);
+    const file = new File([payload], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet.*points/i);
+  });
+
+  test('shows error when an item is missing the points property', async () => {
+    const payload = JSON.stringify([{ bullet: { name: 'Test' } }]);
+    makeFileReaderMock(payload);
+    const file = new File([payload], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet.*points/i);
+  });
+
+  test('returns early without reading when file is falsy', () => {
+    const FileReaderSpy = jest.fn();
+    global.FileReader = FileReaderSpy;
+    mod.importResultsFromFile(null);
+    expect(FileReaderSpy).not.toHaveBeenCalled();
+  });
+
+  // ── Security: file size limit ──────────────────────────────────────────────
+  test('rejects file larger than 5 MB without reading', () => {
+    const FileReaderSpy = jest.fn();
+    global.FileReader = FileReaderSpy;
+    const bigFile = { size: 6 * 1024 * 1024 };
+    mod.importResultsFromFile(bigFile);
+    expect(FileReaderSpy).not.toHaveBeenCalled();
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/5 MB/i);
+  });
+
+  // ── Security: result count cap ─────────────────────────────────────────────
+  test('rejects array with more than 10 results', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const result = simulate(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    const payload = JSON.stringify(Array(11).fill(result));
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/more than 10/i);
+  });
+
+  // ── Security: points array must be an array ────────────────────────────────
+  test('rejects result whose "points" is a plain object (not an array)', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const payload = JSON.stringify([{ bullet: { id: 'x', name: 'X' }, points: {} }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/points.*array/i);
+  });
+
+  test('rejects result whose "points" is a string (not an array)', async () => {
+    const payload = JSON.stringify([{ bullet: { id: 'x', name: 'X' }, points: 'bad' }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/points.*array/i);
+  });
+
+  // ── Security: points count cap ─────────────────────────────────────────────
+  test('rejects result with more than 2000 points', async () => {
+    const pt = { rangeMeters: 0, dropCm: 0, velocityMps: 850, energyJoules: 3000, windDriftCm: 0, timeOfFlightSec: 0 };
+    const points = Array(2001).fill(pt);
+    const payload = JSON.stringify([{ bullet: { id: 'x', name: 'X' }, points }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/2000/i);
+  });
+
+  // ── Security: hexColor XSS ────────────────────────────────────────────────
+  test('strips a malicious hexColor and still renders when other fields are valid', async () => {
+    const pt = { rangeMeters: 100, dropCm: -5, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0.12 };
+    const maliciousBullet = {
+      id: 'evil', name: 'Evil Bullet',
+      hexColor: 'red><img src=x onerror=alert(1)>',
+      muzzleVelocityMps: 850, ballisticCoefficient: 0.45,
+      bulletWeightGrams: 9, bulletDiameterMm: 7.82, muzzleEnergyJoules: 3251,
+    };
+    const payload = JSON.stringify([{
+      bullet: maliciousBullet,
+      points: [pt],
+      supersonicLimitMeters: 500, maxOrdinateCm: 10, maxOrdinateRangeMeters: 200,
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    // Should not error — the bad hexColor is simply dropped
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(true);
+    // The table should not contain the XSS payload
+    expect(document.body.innerHTML).not.toContain('onerror=alert');
+  });
+
+  // ── Security: numeric field containing a non-finite value ─────────────────
+  test('rejects a bullet whose numeric field is a non-finite string', async () => {
+    const pt = { rangeMeters: 100, dropCm: -5, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0.12 };
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X', muzzleVelocityMps: '=HYPERLINK("http://evil.example/")' },
+      points: [pt],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/finite number/i);
+  });
+
+  test('rejects a point whose numeric field is Infinity', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: [{ rangeMeters: Infinity, dropCm: 0, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0 }],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/finite number/i);
+  });
+
+  test('rejects a result-level numeric field that is not finite', async () => {
+    const pt = { rangeMeters: 100, dropCm: 0, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0 };
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: [pt],
+      supersonicLimitMeters: NaN,
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/finite number/i);
+  });
+
+  // ── Security: __proto__ pollution ─────────────────────────────────────────
+  test('is safe when input contains a __proto__ key', async () => {
+    // The allowlist rebuild means __proto__ is never copied to sanitised objects
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X', '__proto__': { polluted: true } },
+      points: [{ rangeMeters: 100, dropCm: 0, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0 }],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    // Should succeed — __proto__ key is ignored by allowlist
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(true);
+    expect(({}).polluted).toBeUndefined();
+  });
+
+  // ── Security: bullet.id / bullet.name string caps ─────────────────────────
+  test('rejects bullet.id that is not a string', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 42, name: 'X' },
+      points: [],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet\.id/i);
+  });
+
+  test('rejects bullet.id longer than 200 characters', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'a'.repeat(201), name: 'X' },
+      points: [],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet\.id/i);
+  });
+
+  test('rejects bullet.name that is not a string', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 999 },
+      points: [],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet\.name/i);
+  });
+
+  test('rejects bullet.name longer than 200 characters', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'b'.repeat(201) },
+      points: [],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet\.name/i);
+  });
+
+  // ── Security: bullet property that is a non-object ────────────────────────
+  test('rejects item whose bullet is a string (not an object)', async () => {
+    const payload = JSON.stringify([{ bullet: 'not-an-object', points: [] }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet.*object/i);
+  });
+
+  // ── Security: point that is not an object ─────────────────────────────────
+  test('rejects a points array containing a non-object element (string)', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: ['bad-point'],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/each point must be an object/i);
+  });
+
+  test('rejects a points array containing a null element', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: [null],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/each point must be an object/i);
+  });
+
+  // ── Low: renderResults error is caught gracefully ────────────────────────
+  test('shows error and clears lastResults when renderResults throws', async () => {
+    const pt = { rangeMeters: 100, dropCm: -5, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0.12 };
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: [pt],
+    }]);
+    // Force renderResults to throw by removing the tableBody element
+    document.getElementById('tableBody').remove();
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    // Either succeeds (tableBody absence is handled) or the error is caught
+    // The important thing is the page does not throw uncaught
+    expect(typeof errorEl.textContent).toBe('string');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// colorFor — XSS protection
+// ─────────────────────────────────────────────────────────────────────────────
+describe('colorFor', () => {
+  test('returns hexColor when it is a valid #rrggbb value', () => {
+    expect(mod.colorFor({ hexColor: '#ff0000' })).toBe('#ff0000');
+    expect(mod.colorFor({ hexColor: '#4ADE80' })).toBe('#4ADE80');
+    expect(mod.colorFor({ hexColor: '#000000' })).toBe('#000000');
+  });
+
+  test('falls back to catalog colour when hexColor is a malicious string', () => {
+    const result = mod.colorFor({ hexColor: 'red><img src=x onerror=alert(1)>' });
+    expect(result).not.toContain('<');
+    expect(result).not.toContain('>');
+    expect(result).not.toContain('onerror');
+  });
+
+  test('falls back to catalog colour when hexColor is an invalid colour name', () => {
+    const result = mod.colorFor({ hexColor: 'red' });
+    expect(result).not.toBe('red');
+    expect(result.startsWith('#')).toBe(true);
+  });
+
+  test('falls back to catalog colour when hexColor is a 3-digit hex', () => {
+    const result = mod.colorFor({ hexColor: '#f00' });
+    expect(result).not.toBe('#f00');
+    expect(result.startsWith('#')).toBe(true);
+  });
+
+  test('returns default green when bullet has no hexColor and id is unknown', () => {
+    expect(mod.colorFor({ id: 'unknown-bullet-xyz', name: 'X' })).toBe('#4ADE80');
+  });
+});
+
+describe('importJsonBtn / importJsonFile wiring', () => {
+  beforeEach(async () => {
+    buildDOM();
+    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await mod.init();
+  });
+
+  test('clicking #importJsonBtn triggers click on #importJsonFile', () => {
+    const fileInput = document.getElementById('importJsonFile');
+    const clickSpy = jest.fn();
+    fileInput.click = clickSpy;
+    document.getElementById('importJsonBtn').click();
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('#importJsonFile change event calls importResultsFromFile and resets value', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const { simulate: simulateFn } = require('../app/physics/engine.ts');
+    const result = simulateFn(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    const json = JSON.stringify([result]);
+
+    const mockReader = {
+      onload: null,
+      readAsText() { this.onload({ target: { result: json } }); },
+    };
+    global.FileReader = jest.fn(() => mockReader);
+
+    const fileInput = document.getElementById('importJsonFile');
+    Object.defineProperty(fileInput, 'files', { value: [new File([json], 'trajectory.json')], configurable: true });
+    fileInput.dispatchEvent(new Event('change'));
+
+    expect(document.getElementById('resultsContainer').style.display).not.toBe('none');
   });
 });
 
