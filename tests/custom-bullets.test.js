@@ -1012,6 +1012,55 @@ describe('renderCustomBulletGroup', () => {
     const nameEl = listEl.querySelector('.bullet-name');
     expect(nameEl.textContent).toBe(payload);
   });
+
+  test('ACC-1: custom card has tabindex="0" and role="button"', () => {
+    const b = toBullet(makeRecord());
+    renderCustomBulletGroup(listEl, [b], makeCtx());
+    const card = listEl.querySelector('.bullet-card--custom');
+    expect(card.getAttribute('tabindex')).toBe('0');
+    expect(card.getAttribute('role')).toBe('button');
+  });
+
+  test('ACC-1: unselected custom card has aria-pressed="false"', () => {
+    const b = toBullet(makeRecord());
+    renderCustomBulletGroup(listEl, [b], makeCtx());
+    const card = listEl.querySelector('.bullet-card--custom');
+    expect(card.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('ACC-1: selected custom card has aria-pressed="true"', () => {
+    const b = toBullet(makeRecord());
+    renderCustomBulletGroup(listEl, [b], makeCtx({ selectedIds: new Set([b.id]) }));
+    const card = listEl.querySelector('.bullet-card--custom');
+    expect(card.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('ACC-1: Enter key on custom card calls onToggle', () => {
+    const toggleFn = jest.fn();
+    const b = toBullet(makeRecord());
+    renderCustomBulletGroup(listEl, [b], makeCtx({ onToggle: toggleFn }));
+    const card = listEl.querySelector('.bullet-card--custom');
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(toggleFn).toHaveBeenCalledWith(b.id);
+  });
+
+  test('ACC-1: Space key on custom card calls onToggle', () => {
+    const toggleFn = jest.fn();
+    const b = toBullet(makeRecord());
+    renderCustomBulletGroup(listEl, [b], makeCtx({ onToggle: toggleFn }));
+    const card = listEl.querySelector('.bullet-card--custom');
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(toggleFn).toHaveBeenCalledWith(b.id);
+  });
+
+  test('ACC-1: other keys on custom card do not call onToggle', () => {
+    const toggleFn = jest.fn();
+    const b = toBullet(makeRecord());
+    renderCustomBulletGroup(listEl, [b], makeCtx({ onToggle: toggleFn }));
+    const card = listEl.querySelector('.bullet-card--custom');
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(toggleFn).not.toHaveBeenCalled();
+  });
 });
 
 // ── N: syncCustomDeleteGuards ──────────────────────────────────────────────────

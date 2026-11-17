@@ -154,18 +154,28 @@ function renderBulletList() {
 
   list.innerHTML = builtIns.map(b => `
     <div class="bullet-card" id="card-${escapeHtml(b.id)}"
+         role="button" tabindex="0"
+         aria-pressed="${selectedIds.has(b.id) ? 'true' : 'false'}"
          style="--bullet-color:${colorFor(b)}">
       <div class="bullet-name">${escapeHtml(b.name)}</div>
       <div class="bullet-specs">
         BC: ${escapeHtml(String(b.ballisticCoefficient))} &nbsp;|&nbsp; MV: ${escapeHtml(String(b.muzzleVelocityMps))} m/s
       </div>
-      <div class="check"></div>
+      <div class="check" aria-hidden="true"></div>
     </div>
   `).join('');
   builtIns.forEach(b => {
     const card = document.getElementById('card-' + b.id);
     /* istanbul ignore else -- card is always present after innerHTML is set */
-    if (card) card.addEventListener('click', () => toggleBullet(b.id));
+    if (card) {
+      card.addEventListener('click', () => toggleBullet(b.id));
+      card.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleBullet(b.id);
+        }
+      });
+    }
   });
 
   // Append custom group (always rendered, even with 0 customs)
@@ -193,7 +203,11 @@ function toggleBullet(id) {
 function updateBulletCards() {
   bullets.forEach(b => {
     const card = document.getElementById('card-' + b.id);
-    if (card) card.classList.toggle('active', selectedIds.has(b.id));
+    if (card) {
+      const isActive = selectedIds.has(b.id);
+      card.classList.toggle('active', isActive);
+      card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
   });
   syncSelectAllCheckbox();
   syncRunButton();
