@@ -536,7 +536,7 @@ Stack: PERF-4 → PERF-5 → PERF-6 → PERF-7 → PERF-8 → PERF-9 → PERF-10
 
 ---
 
-### PERF-4 · Vite build target `esnext` and disable `reportCompressedSize` · DevSecOps · Size XS
+### ~~PERF-4 · Vite build target `esnext` and disable `reportCompressedSize` · DevSecOps · Size XS~~ ✅ Done (PR #115)
 
 `vite.config.js` doesn't set `build.target`, so Vite 8 lowers syntax to its default browser baseline. The app already needs module workers (`create-physics-worker.ts`) and a module service worker (`navigator.serviceWorker.register(..., { type: 'module' })`), so lowering gains no browsers and only makes the output bigger. `reportCompressedSize` defaults to `true`, so every build gzips each chunk just to print a size column.
 
@@ -556,7 +556,7 @@ Stack: PERF-4 → PERF-5 → PERF-6 → PERF-7 → PERF-8 → PERF-9 → PERF-10
 
 ---
 
-### PERF-5 · Preload critical fonts · FE · Size XS
+### ~~PERF-5 · Preload critical fonts · FE · Size XS~~ ✅ Done (PR #118)
 
 `app/index.html` has no font preloads. The browser finds the woff2 files only after `ballistics.css` downloads and parses and an element that uses them is styled. With `font-display: swap`, the header then reflows visibly.
 
@@ -582,7 +582,7 @@ Stack: PERF-4 → PERF-5 → PERF-6 → PERF-7 → PERF-8 → PERF-9 → PERF-10
 
 ---
 
-### PERF-6 · Audit and drop unused font weights · FE · Size S
+### ~~PERF-6 · Audit and drop unused font weights · FE · Size S~~ ✅ Done (PR #119)
 
 `ballistics.css` declares 9 `@font-face` faces (123 KB). The PERF-2 SW precaches **every** woff2 Vite emits, so every visitor downloads all 9 on SW install. A preliminary audit found no rule that uses Rajdhani 300 or 500. Rajdhani 700 is only requested for a `✓` glyph that falls outside the faces' `unicode-range`.
 
@@ -605,7 +605,7 @@ Stack: PERF-4 → PERF-5 → PERF-6 → PERF-7 → PERF-8 → PERF-9 → PERF-10
 
 ---
 
-### PERF-7 · Vite manual chunk split (physics + vendor) · FE · Size XS
+### ~~PERF-7 · Vite manual chunk split (physics + vendor) · FE · Size XS~~ ✅ Done (PR #120)
 
 No chunk strategy is configured. `app/ballistics.js` imports `TrajectoryInputError` from `./physics/engine.ts`, so the **main-thread** bundle carries the whole RK4 engine plus the G1/G7/atmosphere tables, even though only the worker runs them. Every UI-only deploy also changes the hash of the single entry chunk.
 
@@ -644,7 +644,7 @@ Vite 8 builds with Rolldown. The object form of `manualChunks` is no longer supp
 
 ---
 
-### PERF-8 · Binary search in `interpolateDragTable` · FE · Size S
+### ~~PERF-8 · Binary search in `interpolateDragTable` · FE · Size S~~ ✅ Done (PR #121)
 
 `interpolateDragTable` (`app/physics/engine.ts:68`) scans the 40–45-row drag table linearly. It runs 4 times per RK4 step in both the 64-pass zero-angle bisection and the trajectory integration, which is tens of thousands of calls per bullet.
 
@@ -666,7 +666,7 @@ Vite 8 builds with Rolldown. The object form of `manualChunks` is no longer supp
 
 ---
 
-### PERF-9 · Memoize Chart.js dynamic import and registration · FE · Size XS
+### ~~PERF-9 · Memoize Chart.js dynamic import and registration · FE · Size XS~~ ✅ Done (PR #122)
 
 `renderResults` (~line 682) and `renderSweepCharts` (~line 1062) each run `await import('chart.js')` plus `Chart.register(...)` on every render. On a cold cache, the chunk fetch starts only **after** the worker returns. A failed chunk load causes an unhandled rejection inside an un-awaited `requestAnimationFrame` callback, so the user gets no charts and no message.
 
@@ -690,7 +690,7 @@ Vite 8 builds with Rolldown. The object form of `manualChunks` is no longer supp
 
 ---
 
-### PERF-10 · `content-visibility: auto` on lazy result sections · FE · Size XS
+### ~~PERF-10 · `content-visibility: auto` on lazy result sections · FE · Size XS~~ ✅ Done (PR #123)
 
 Each run renders 5 `.chart-panel`s (3 per sweep) into the scrolling `.chart-container`, but only 1–2 are on screen. All of them get style, layout and paint, both on the first render and on every crosshair hover, because `onHover` calls `update('none')` on every chart.
 
@@ -716,7 +716,7 @@ Each run renders 5 `.chart-panel`s (3 per sweep) into the scrolling `.chart-cont
 
 ---
 
-### PERF-11 · Passive event listeners for scroll and touch · FE · Size XS
+### ~~PERF-11 · Passive event listeners for scroll and touch · FE · Size XS~~ ✅ Done (PR #124)
 
 An audit on 2026-11-16 found **no** `scroll` or `wheel` listeners. It found exactly two `touchmove` listeners, both on chart canvases in `renderResults` (`app/ballistics.js` ~758 and ~856). They are registered `{ passive: false }` and call `preventDefault()` so the page doesn't scroll while the user scrubs a chart. Non-passive touch listeners make the compositor wait for the main thread, and Lighthouse flags them.
 
@@ -738,7 +738,7 @@ An audit on 2026-11-16 found **no** `scroll` or `wheel` listeners. It found exac
 
 ---
 
-### PERF-12 · Service Worker NavigationPreload · FE · Size S
+### ~~PERF-12 · Service Worker NavigationPreload · FE · Size S~~ ✅ Done (PR #125)
 
 `app/sw.js` serves navigations network-first, but the `fetch` can't start until the SW has booted. Idle SWs are stopped often, especially on mobile, so every repeat visit pays the boot time before `index.html` is even requested. Navigation Preload sends the request at the same time as SW boot.
 
@@ -762,7 +762,7 @@ An audit on 2026-11-16 found **no** `scroll` or `wheel` listeners. It found exac
 
 ---
 
-### PERF-13 · CI Vite build-cache via `actions/cache` · DevSecOps · Size XS
+### ~~PERF-13 · CI Vite build-cache via `actions/cache` · DevSecOps · Size XS~~ ✅ Done (PR #126)
 
 `ci.yml` caches `~/.npm` but no build or test intermediates. Vite documents `node_modules/.vite` as the dev-server dependency pre-bundling cache, so it's **not yet established** that `vite build` reads it. This story measures first and only merges a cache that pays off.
 
