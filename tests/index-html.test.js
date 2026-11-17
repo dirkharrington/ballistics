@@ -11,7 +11,7 @@ const REQUIRED_PRELOADS = [
 
 describe('index.html font preloads', () => {
   test.each(REQUIRED_PRELOADS)('preloads %s with correct attributes', (href) => {
-    const escaped = href.replace(/\./g, '\\.');
+    const escaped = href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(
       `<link[^>]+rel=["']preload["'][^>]+href=["']${escaped}["'][^>]*>|` +
       `<link[^>]+href=["']${escaped}["'][^>]+rel=["']preload["'][^>]*>`
