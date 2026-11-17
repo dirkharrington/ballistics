@@ -22,7 +22,7 @@ function buildDOM() {
       <input type="checkbox" id="selectAllBullets" aria-label="Select all rounds">
       <span>Select all</span>
     </label>
-    <div id="bulletList"></div>
+    <div id="bulletList" role="group" aria-label="Select bullet"></div>
     <div id="customBulletPanel">
       <button type="button" id="addCustomBulletBtn" aria-controls="customBulletForm" aria-expanded="false">+ ADD CUSTOM BULLET</button>
       <form id="customBulletForm" hidden novalidate>
@@ -402,6 +402,36 @@ describe('renderBulletList', () => {
     expect(html).not.toContain('<img src=x');
     expect(html).toContain('&lt;img src=x');
   });
+
+  test('ACC-1: each built-in card has tabindex="0" and role="button"', () => {
+    mod.renderBulletList();
+    const cards = document.querySelectorAll('#bulletList > .bullet-card');
+    expect(cards.length).toBeGreaterThan(0);
+    cards.forEach(card => {
+      expect(card.getAttribute('tabindex')).toBe('0');
+      expect(card.getAttribute('role')).toBe('button');
+    });
+  });
+
+  test('ACC-1: unselected card has aria-pressed="false"', () => {
+    mod._setSelectedIds(new Set());
+    mod.renderBulletList();
+    const card = document.getElementById('card-308-win-168gr');
+    expect(card.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('ACC-1: selected card has aria-pressed="true"', () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod.renderBulletList();
+    const card = document.getElementById('card-308-win-168gr');
+    expect(card.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('ACC-1: #bulletList has role="group" and aria-label', () => {
+    const list = document.getElementById('bulletList');
+    expect(list.getAttribute('role')).toBe('group');
+    expect(list.getAttribute('aria-label')).toBeTruthy();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -457,6 +487,15 @@ describe('updateBulletCards', () => {
     mod.updateBulletCards();
     expect(document.getElementById('card-308-win-168gr').classList.contains('active')).toBe(true);
     expect(document.getElementById('card-223-rem-55gr').classList.contains('active')).toBe(false);
+  });
+
+  test('ACC-1: syncs aria-pressed on selection change', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod.renderBulletList();
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod.updateBulletCards();
+    expect(document.getElementById('card-308-win-168gr').getAttribute('aria-pressed')).toBe('true');
+    expect(document.getElementById('card-223-rem-55gr').getAttribute('aria-pressed')).toBe('false');
   });
 });
 
@@ -3160,6 +3199,37 @@ describe('bullet card click listener', () => {
     mod._setSelectedIds(new Set());
     card.click();
     expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACC-1: bullet card keyboard listener
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ACC-1: bullet card keyboard listener', () => {
+  beforeEach(() => {
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set());
+    mod.renderBulletList();
+  });
+
+  test('Enter key toggles bullet selection', () => {
+    const card = document.getElementById('card-308-win-168gr');
+    expect(card).not.toBeNull();
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(true);
+  });
+
+  test('Space key toggles bullet selection', () => {
+    const card = document.getElementById('card-308-win-168gr');
+    expect(card).not.toBeNull();
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(true);
+  });
+
+  test('other keys do not toggle bullet selection', () => {
+    const card = document.getElementById('card-308-win-168gr');
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(false);
   });
 });
 

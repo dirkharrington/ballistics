@@ -906,7 +906,7 @@ The drag table help text reads "Stored for future use — drag model override re
 
 ---
 
-### ACC-1 · Keyboard-navigable bullet selector · FE · Size S
+### ~~ACC-1 · Keyboard-navigable bullet selector · FE · Size S~~ — DONE
 
 Bullet selection cards are `<div>` elements with click listeners only. They are unreachable by Tab and cannot be activated with Enter or Space. A keyboard-only user or screen reader user cannot select a round without a mouse.
 
