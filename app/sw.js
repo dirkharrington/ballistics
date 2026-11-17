@@ -45,6 +45,20 @@ export async function networkFirstCacheFallback(request, preloadResponsePromise)
   }
 }
 
+// ── NavigationPreload ─────────────────────────────────────────────────────────
+// If this is ever removed, call registration.navigationPreload.disable() in
+// handleActivate. Browsers keep sending preload requests that nobody consumes.
+
+export async function enableNavigationPreload(registration) {
+  if (!registration?.navigationPreload) return false;
+  try {
+    await registration.navigationPreload.enable();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── Lifecycle handlers ────────────────────────────────────────────────────────
 
 export async function handleInstall() {
@@ -62,10 +76,8 @@ export async function handleActivate() {
     keys.filter(k => k.startsWith(CACHE_PREFIX) && k !== current)
         .map(k => caches.delete(k)),
   );
+  await enableNavigationPreload(self.registration);
   await self.clients.claim();
-  if (self.registration?.navigationPreload) {
-    await self.registration.navigationPreload.enable();
-  }
 }
 
 export function handleFetch(event) {
