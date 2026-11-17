@@ -101,6 +101,7 @@ function buildDOM() {
     <div id="toolsPanel" class="tools-panel"></div>
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
     <div id="toast"></div>
+    <div id="simStatus" aria-live="polite" aria-atomic="true" class="sr-only"></div>
     <input id="customName"   value="" />
     <input id="customWeight" value="9.0" />
     <input id="customMV"     value="850" />
@@ -1155,6 +1156,67 @@ describe('runSimulation — input validation', () => {
   });
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACC-2: aria-live simulation lifecycle announcements
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ACC-2: _setSimStatus', () => {
+  test('sets textContent on #simStatus', () => {
+    mod._setSimStatus('Computing trajectories…');
+    expect(document.getElementById('simStatus').textContent).toBe('Computing trajectories…');
+  });
+
+  test('clears textContent when called with empty string', () => {
+    mod._setSimStatus('some text');
+    mod._setSimStatus('');
+    expect(document.getElementById('simStatus').textContent).toBe('');
+  });
+});
+
+describe('ACC-2: runSimulation aria-live announcements', () => {
+  test('announces "Computing trajectories…" when simulation starts', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    const promise = mod.runSimulation();
+    expect(document.getElementById('simStatus').textContent).toBe('Computing trajectories…');
+    await promise;
+    jest.runAllTimers();
+  });
+
+  test('announces trajectories ready with result count on success', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    await mod.runSimulation();
+    jest.runAllTimers();
+
+    expect(document.getElementById('simStatus').textContent).toMatch(/Trajectories ready\. 1 result computed\./);
+  });
+
+  test('uses plural "results" when multiple trajectories computed', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr', '3006-150gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    await mod.runSimulation();
+    jest.runAllTimers();
+
+    const text = document.getElementById('simStatus').textContent;
+    expect(text).toMatch(/Trajectories ready\. \d+ results computed\./);
+  });
+
+  test('announces simulation failure on TrajectoryInputError', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    const { TrajectoryInputError } = require('../app/physics/engine.ts');
+    simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
+
+    await mod.runSimulation();
+
+    const text = document.getElementById('simStatus').textContent;
+    expect(text).toMatch(/^Simulation failed: /);
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FE-R2: savePrefs / loadPrefs map-driven loop

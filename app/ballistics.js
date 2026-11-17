@@ -223,6 +223,14 @@ function syncRunButton() {
 
 // ── Error handling helpers ────────────────────────────────────────────────────
 
+/** Updates the aria-live status region for screen reader announcements. */
+function _setSimStatus(message) {
+  const el = document.getElementById('simStatus');
+  /* istanbul ignore next -- #simStatus is always present in the app shell */
+  if (!el) return;
+  el.textContent = String(message);
+}
+
 /** Shows or hides the inline simulation error banner. */
 function _setSimulationError(message) {
   const el = document.getElementById('simulationError');
@@ -249,6 +257,7 @@ async function runSimulation() {
 
   const btn = document.getElementById('runBtn');
   btn.classList.add('loading');
+  _setSimStatus('Computing trajectories…');
 
   const twistRaw = document.getElementById('twistRate')?.value;
   const req = {
@@ -280,12 +289,14 @@ async function runSimulation() {
       if (exportBtn) exportBtn.style.display = '';
       btn.classList.remove('loading');
       btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
+      _setSimStatus(`Trajectories ready. ${results.length} result${results.length === 1 ? '' : 's'} computed.`);
     });
   } catch (err) {
     btn.classList.remove('loading');
     btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
     if (err instanceof TrajectoryInputError) {
       _setSimulationError(err.message);
+      _setSimStatus(`Simulation failed: ${err.message}`);
     } else {
       console.error(err);
     }
@@ -1917,7 +1928,7 @@ export {
   updateSweepButtonVisibility, buildSweepRequests, runSweep, clearSweep, renderSweepCharts,
   SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
-  _setSimulationError, _loadChart,
+  _setSimulationError, _setSimStatus, _loadChart,
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
   // UX-1 test helpers (openCustomBulletAdd/Edit/close/requestDelete are exported at declaration)
   _setCustomRecords, _setCustomStorageStatus,
