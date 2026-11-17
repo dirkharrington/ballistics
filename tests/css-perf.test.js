@@ -29,3 +29,15 @@ describe('.chart-panel content-visibility (PERF-10)', () => {
     expect(block).toMatch(/contain-intrinsic-block-size\s*:\s*auto\s+\d+px/);
   });
 });
+
+describe('.chart-wrap canvas touch-action (PERF-11)', () => {
+  const block = blockFor('.chart-wrap canvas');
+
+  test('.chart-wrap canvas block exists', () => {
+    expect(block).not.toBe('');
+  });
+
+  test('has touch-action: none', () => {
+    expect(block).toMatch(/touch-action\s*:\s*none/);
+  });
+});

@@ -3370,7 +3370,7 @@ describe('chart canvas touchmove → mousemove forwarding', () => {
     expect(dispatched[0].clientY).toBe(80);
   });
 
-  test('touchmove handler calls preventDefault to suppress page scroll', async () => {
+  test('touchmove handler does NOT call preventDefault (passive: CSS touch-action instead)', async () => {
     await mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
 
     const canvas = document.getElementById('dropChart');
@@ -3379,7 +3379,7 @@ describe('chart canvas touchmove → mousemove forwarding', () => {
 
     const preventDefaultSpy = jest.spyOn(touchEvent, 'preventDefault');
     canvas.dispatchEvent(touchEvent);
-    expect(preventDefaultSpy).toHaveBeenCalled();
+    expect(preventDefaultSpy).not.toHaveBeenCalled();
   });
 
   test('buildChartConfig includes touch events in the events array', () => {

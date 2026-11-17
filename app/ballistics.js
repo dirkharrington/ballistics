@@ -546,6 +546,20 @@ const crosshairPlugin = {
   }
 };
 
+// ── Touch forwarder — translates touchmove to mousemove on chart canvases ─────
+// touch-action: none in CSS stops the browser from scrolling the page when
+// a touch starts on a chart canvas; this listener is therefore { passive: true }
+// and does NOT call preventDefault().
+export function _attachTouchForwarder(canvas) {
+  canvas.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    canvas.dispatchEvent(new MouseEvent('mousemove', {
+      clientX: t.clientX, clientY: t.clientY,
+      bubbles: true, cancelable: true,
+    }));
+  }, { passive: true });
+}
+
 // ── Range readout — populate the panel below the charts ──────────────────────
 function updateReadout(results, dataIndex) {
   const panel = document.getElementById('rangeReadout');
@@ -841,19 +855,12 @@ async function renderResults(rawResults, req) {
 
     // Item 4: forward touchmove as mousemove so the crosshair readout works
     // on both iOS (unreliable synthetic mouse events) and Android Chrome.
-    // passive:false lets us call preventDefault() to suppress page scroll
-    // while the user is scrubbing the chart.
+    // Page scroll is suppressed by touch-action: none on the canvas (CSS),
+    // so the listener is passive.
     const canvas = document.getElementById(def.id);
     /* istanbul ignore else -- canvas is always present after chart creation */
     if (canvas) {
-      canvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        canvas.dispatchEvent(new MouseEvent('mousemove', {
-          clientX: t.clientX, clientY: t.clientY,
-          bubbles: true, cancelable: true,
-        }));
-      }, { passive: false });
+      _attachTouchForwarder(canvas);
     }
   });
 
@@ -944,11 +951,7 @@ async function renderResults(rawResults, req) {
     const adjCanvas = document.getElementById('adjustChart');
     /* istanbul ignore else */
     if (adjCanvas) {
-      adjCanvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        adjCanvas.dispatchEvent(new MouseEvent('mousemove', { clientX: t.clientX, clientY: t.clientY, bubbles: true, cancelable: true }));
-      }, { passive: false });
+      _attachTouchForwarder(adjCanvas);
     }
   }
 
