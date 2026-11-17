@@ -1,0 +1,16 @@
+{
+  "typescript.tsdk": "./node_modules/typescript/lib",
+  "editor.formatOnSave": false,
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "files.associations": {
+    "*.yaml": "yaml"
+  },
+  "search.exclude": {
+    "dist/**": true,
+    "node_modules/**": true,
+    ".claude/worktrees/**": true
+  },
+  "jest.jestCommandLine": "npm test",
+  "jest.rootPath": "."
+}
