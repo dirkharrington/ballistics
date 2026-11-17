@@ -1,0 +1,23 @@
+{
+  "editor.formatOnSave": false,
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "files.associations": {
+    "*.yaml": "yaml"
+  },
+  "search.exclude": {
+    "dist/**": true,
+    "node_modules/**": true,
+    ".claude/worktrees/**": true,
+    "coverage/**": true,
+    ".jest-cache/**": true
+  },
+  "jest.jestCommandLine": "npx jest",
+  "jest.rootPath": ".",
+  "files.exclude": {
+    "dist": true,
+    "coverage": true,
+    ".jest-cache": true,
+    ".claude/worktrees": true
+  }
+}
