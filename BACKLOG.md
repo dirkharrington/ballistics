@@ -830,7 +830,7 @@ The barrel twist rate input has existed since Sprint 7 and round-trips through U
 
 ---
 
-### FEAT-2 · Coriolis deflection in physics engine · FE · Size S
+### FEAT-2 · Coriolis deflection in physics engine · FE · Size S ✓ Done
 
 The latitude and azimuth inputs were added in Sprint 7 and encoded in URL state. The engine marks both RESERVED. The chart, range readout, data table column, and DOPE card rendering code **all already conditionally handle `coriolisDeflectionCm`**; they never activate because the engine never produces the field.
 

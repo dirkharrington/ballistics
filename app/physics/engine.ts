@@ -13,6 +13,9 @@ const MIN_VEL_FPS = 100;
 const MPH_TO_FPS  = 1.46667;
 const G_PER_LB    = 453.592;
 
+// ── Coriolis deflection ───────────────────────────────────────────────────────
+const EARTH_OMEGA_RADS = 7.2921e-5;
+
 // ── Spin drift (Miller stability + Litz drift) ────────────────────────────────
 const MM_PER_INCH  = 25.4;
 const G_PER_GRAIN  = 0.0648;
@@ -68,6 +71,14 @@ function validate(bullet: Bullet, params: TrajectoryParams): void {
     if (!isFiniteNumber(bullet.bulletDiameterMm) || !(bullet.bulletDiameterMm >= 1) || !(bullet.bulletDiameterMm <= 30))
       throw new TrajectoryInputError('bullet.bulletDiameterMm', 'a finite number between 1 and 30');
   }
+  if (params.latitudeDeg != null) {
+    if (!isFiniteNumber(params.latitudeDeg) || !(params.latitudeDeg >= -90) || !(params.latitudeDeg <= 90))
+      throw new TrajectoryInputError('latitudeDeg', 'a finite number between -90 and 90');
+  }
+  if (params.azimuthDeg != null) {
+    if (!isFiniteNumber(params.azimuthDeg) || !(params.azimuthDeg >= 0) || !(params.azimuthDeg <= 360))
+      throw new TrajectoryInputError('azimuthDeg', 'a finite number between 0 and 360');
+  }
 }
 
 /**
@@ -121,6 +132,8 @@ export function spinDriftInches(sg: number, tofSec: number): number {
 export interface PointExtras {
   /** Gyroscopic stability factor. null/undefined = spin drift disabled (spinDriftCm = 0). */
   readonly stabilityFactor?: number | null;
+  /** OMEGA × sin(lat) × muzzleVelocityMps (m/s²). null/undefined = Coriolis disabled (key omitted). */
+  readonly coriolisK?: number | null;
 }
 
 /** @internal */
@@ -168,6 +181,7 @@ export function integrateTrajectoryFps(
     return [-(vx / vel) * drag, -(vy / vel) * drag - G_FPS2];
   };
   const sg = extras.stabilityFactor ?? null;
+  const ck = extras.coriolisK ?? null;
   let vx = mvFps * Math.cos(angle), vy = mvFps * Math.sin(angle);
   let x = 0, y = 0, t = 0;
   const points: TrajectoryPoint[] = [];
@@ -186,7 +200,7 @@ export function integrateTrajectoryFps(
       const energy    = 0.5 * (wLbs / G_FPS2) * vel * vel;
       const vacuumTof = x / mvHorizFps;
       const windDrift = windFps * (t - vacuumTof) * 12;
-      points.push({
+      const point: TrajectoryPoint = {
         rangeMeters:     Math.round(rangeYd * M_PER_YARD * 10) / 10,
         dropCm:          Math.round(dropIn * CM_PER_INCH * 10) / 10,
         velocityMps:     Math.round(vel / FPS_PER_MPS * 10) / 10,
@@ -194,7 +208,12 @@ export function integrateTrajectoryFps(
         windDriftCm:     Math.round(windDrift * CM_PER_INCH * 10) / 10 + 0,
         timeOfFlightSec: Math.round(t * 10000) / 10000,
         spinDriftCm:     sg == null ? 0 : Math.round(spinDriftInches(sg, t) * CM_PER_INCH * 10) / 10
-      });
+      };
+      if (ck != null) {
+        const deflM = ck * t * t;
+        point.coriolisDeflectionCm = Math.round(deflM * 100 * 10) / 10 + 0;   // + 0 normalises -0
+      }
+      points.push(point);
       if (y * 12 > maxOrdIn) { maxOrdIn = y * 12; maxOrdRangeYd = rangeYd; }
       nextYd += stepYd;
     }
@@ -232,10 +251,15 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
   const dragTable = (params.dragModel ?? 'G1') === 'G7' ? G7_TABLE : G1_TABLE;
 
   const twist  = params.twistRateInchesPerTurn;
+  const lat = params.latitudeDeg;
+  const az  = params.azimuthDeg;
   const extras: PointExtras = {
     stabilityFactor: twist == null
       ? null
       : stabilityFactor(bullet.bulletDiameterMm, bullet.bulletWeightGrams, twist),
+    coriolisK: lat == null || az == null
+      ? null
+      : EARTH_OMEGA_RADS * Math.sin(lat * Math.PI / 180) * bullet.muzzleVelocityMps,
   };
 
   const sightHtFt = (params.sightHeightMm ?? 38.1) / 25.4 / 12;

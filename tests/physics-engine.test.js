@@ -827,3 +827,218 @@ describe('FEAT-1 test 15: integrateTrajectoryFps without extras gives spinDriftC
     points.forEach(p => expect(p.spinDriftCm).toBe(0));
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEAT-2: Coriolis deflection
+// ─────────────────────────────────────────────────────────────────────────────
+
+const COND_A_CORIOLIS = {
+  zeroRangeMeters: 100, maxRangeMeters: 1000, stepMeters: 25,
+  windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+};
+
+// Test 2: Neither/only/null — coriolisDeflectionCm key absent
+describe('FEAT-2 test 2: coriolisDeflectionCm absent when lat/az not both set', () => {
+  for (const [desc, params] of [
+    ['neither set',      COND_A_CORIOLIS],
+    ['latitudeDeg only', { ...COND_A_CORIOLIS, latitudeDeg: 45 }],
+    ['azimuthDeg only',  { ...COND_A_CORIOLIS, azimuthDeg: 90 }],
+    ['both null',        { ...COND_A_CORIOLIS, latitudeDeg: null, azimuthDeg: null }],
+  ]) {
+    test(`${desc} → 'coriolisDeflectionCm' in p === false`, () => {
+      const result = simulate(B308, params);
+      result.points.forEach(p => expect('coriolisDeflectionCm' in p).toBe(false));
+    });
+  }
+});
+
+// Test 3: .308 condA G1, lat 45, az 90 — numeric checks
+describe('FEAT-2 test 3: lat 45 az 90 hand-checked values', () => {
+  const params = { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 90 };
+
+  test('point at ~500m: coriolisDeflectionCm = 1.6 ± 0.1', () => {
+    const result = simulate(B308, params);
+    const p500 = result.points.find(p => p.rangeMeters >= 490 && p.rangeMeters <= 510);
+    expect(p500).toBeDefined();
+    expect(p500.coriolisDeflectionCm).toBeGreaterThanOrEqual(1.5);
+    expect(p500.coriolisDeflectionCm).toBeLessThanOrEqual(1.7);
+  });
+
+  test('point at ~1000m: coriolisDeflectionCm = 6.4 ± 0.1', () => {
+    const result = simulate(B308, params);
+    const p1000 = result.points.find(p => p.rangeMeters >= 990 && p.rangeMeters <= 1010);
+    expect(p1000).toBeDefined();
+    expect(p1000.coriolisDeflectionCm).toBeGreaterThanOrEqual(6.3);
+    expect(p1000.coriolisDeflectionCm).toBeLessThanOrEqual(6.5);
+  });
+
+  test('points[0].coriolisDeflectionCm === 0', () => {
+    const result = simulate(B308, params);
+    expect(result.points[0].coriolisDeflectionCm).toBe(0);
+  });
+});
+
+// Test 4: .308 condA G1, lat -33, az 0 — southern hemisphere
+describe('FEAT-2 test 4: lat -33 az 0 southern hemisphere', () => {
+  const params = { ...COND_A_CORIOLIS, latitudeDeg: -33, azimuthDeg: 0 };
+
+  test('point at ~1000m: coriolisDeflectionCm = -4.9 ± 0.1', () => {
+    const result = simulate(B308, params);
+    const p1000 = result.points.find(p => p.rangeMeters >= 990 && p.rangeMeters <= 1010);
+    expect(p1000).toBeDefined();
+    expect(p1000.coriolisDeflectionCm).toBeGreaterThanOrEqual(-5.0);
+    expect(p1000.coriolisDeflectionCm).toBeLessThanOrEqual(-4.8);
+  });
+
+  test('every value <= 0', () => {
+    const result = simulate(B308, params);
+    result.points.forEach(p => expect(p.coriolisDeflectionCm).toBeLessThanOrEqual(0));
+  });
+
+  test('points[0].coriolisDeflectionCm is +0 not -0', () => {
+    const result = simulate(B308, params);
+    expect(Object.is(result.points[0].coriolisDeflectionCm, 0)).toBe(true);
+  });
+});
+
+// Test 5: Latitude 0 — all exactly 0 (not -0)
+describe('FEAT-2 test 5: latitude 0 gives 0 for all points', () => {
+  test('every point coriolisDeflectionCm is +0', () => {
+    const result = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 0, azimuthDeg: 0 });
+    result.points.forEach(p => expect(Object.is(p.coriolisDeflectionCm, 0)).toBe(true));
+  });
+});
+
+// Test 6: Azimuth independence
+describe('FEAT-2 test 6: azimuth does not affect coriolisDeflectionCm', () => {
+  test('lat 45 with az 0, 90, 270, 360 gives toEqual points', () => {
+    const r0   = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 0 });
+    const r90  = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 90 });
+    const r270 = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 270 });
+    const r360 = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 360 });
+    expect(r0.points).toEqual(r90.points);
+    expect(r0.points).toEqual(r270.points);
+    expect(r0.points).toEqual(r360.points);
+  });
+});
+
+// Test 7: Hemisphere symmetry
+describe('FEAT-2 test 7: hemisphere symmetry', () => {
+  test('lat 30 and lat -30 Coriolis values sum to 0 within ±0.1', () => {
+    const rN = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 30, azimuthDeg: 0 });
+    const rS = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: -30, azimuthDeg: 0 });
+    rN.points.forEach((pN, i) => {
+      const pS = rS.points[i];
+      expect(Math.abs(pN.coriolisDeflectionCm + pS.coriolisDeflectionCm)).toBeLessThanOrEqual(0.1);
+    });
+  });
+});
+
+// Test 8: Reference recomputation (lat 45)
+describe('FEAT-2 test 8: reference recomputation lat 45', () => {
+  test('all points match reference formula within 0.1 cm', () => {
+    const mv = B308.muzzleVelocityMps;
+    const params = { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 0 };
+    const result = simulate(B308, params);
+    const OMEGA = 7.2921e-5;
+    for (const p of result.points) {
+      const ref = Math.round(OMEGA * Math.sin(Math.PI / 4) * mv * p.timeOfFlightSec * p.timeOfFlightSec * 100 * 10) / 10;
+      expect(Math.abs(p.coriolisDeflectionCm - ref)).toBeLessThanOrEqual(0.1);
+    }
+  });
+});
+
+// Test 9: Coriolis does not affect other fields
+describe('FEAT-2 test 9: Coriolis does not affect other fields', () => {
+  test('after removing coriolisDeflectionCm, points are equal', () => {
+    const noLat = simulate(B308, COND_A_CORIOLIS);
+    const withLat = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 90 });
+    const strip = pts => pts.map(({ coriolisDeflectionCm: _, ...rest }) => rest);
+    expect(strip(withLat.points)).toEqual(strip(noLat.points));
+    expect(withLat.maxOrdinateCm).toEqual(noLat.maxOrdinateCm);
+    expect(withLat.maxOrdinateRangeMeters).toEqual(noLat.maxOrdinateRangeMeters);
+    expect(withLat.supersonicLimitMeters).toEqual(noLat.supersonicLimitMeters);
+  });
+});
+
+// Test 10: Combined with spin drift
+describe('FEAT-2 test 10: combined spin drift + Coriolis', () => {
+  test('both fields present; spinDriftCm equals twist-only run; coriolisDeflectionCm equals Coriolis-only run', () => {
+    const twistOnly    = simulate(B308, { ...COND_A_CORIOLIS, twistRateInchesPerTurn: 10 });
+    const coriolisOnly = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 90 });
+    const combined     = simulate(B308, { ...COND_A_CORIOLIS, twistRateInchesPerTurn: 10, latitudeDeg: 45, azimuthDeg: 90 });
+
+    combined.points.forEach((p, i) => {
+      expect('spinDriftCm' in p).toBe(true);
+      expect('coriolisDeflectionCm' in p).toBe(true);
+      expect(p.spinDriftCm).toEqual(twistOnly.points[i].spinDriftCm);
+      expect(p.coriolisDeflectionCm).toEqual(coriolisOnly.points[i].coriolisDeflectionCm);
+    });
+  });
+});
+
+// Test 11: Validation — invalid latitudeDeg
+describe('FEAT-2 test 11: invalid latitudeDeg validation', () => {
+  const c = 'a finite number between -90 and 90';
+  for (const bad of [-90.01, 90.01, NaN, Infinity]) {
+    test(`rejects latitudeDeg = ${bad} with azimuth set`, () => {
+      expectValidationError(B308, { ...COND_A_CORIOLIS, latitudeDeg: bad, azimuthDeg: 0 }, 'latitudeDeg', c);
+    });
+    test(`rejects latitudeDeg = ${bad} without azimuth set`, () => {
+      expectValidationError(B308, { ...COND_A_CORIOLIS, latitudeDeg: bad }, 'latitudeDeg', c);
+    });
+  }
+});
+
+// Test 12: Validation — invalid azimuthDeg
+describe('FEAT-2 test 12: invalid azimuthDeg validation', () => {
+  const c = 'a finite number between 0 and 360';
+  for (const bad of [-0.01, 360.01, NaN]) {
+    test(`rejects azimuthDeg = ${bad} with latitude set`, () => {
+      expectValidationError(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: bad }, 'azimuthDeg', c);
+    });
+    test(`rejects azimuthDeg = ${bad} without latitude set`, () => {
+      expectValidationError(B308, { ...COND_A_CORIOLIS, azimuthDeg: bad }, 'azimuthDeg', c);
+    });
+  }
+});
+
+// Test 13: Validation boundaries — accepted
+describe('FEAT-2 test 13: validation boundary values accepted', () => {
+  test('accepts latitudeDeg = -90', () => {
+    expect(() => simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: -90, azimuthDeg: 0 })).not.toThrow();
+  });
+  test('accepts latitudeDeg = 90', () => {
+    expect(() => simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 90, azimuthDeg: 0 })).not.toThrow();
+  });
+  test('accepts azimuthDeg = 0', () => {
+    expect(() => simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 0 })).not.toThrow();
+  });
+  test('accepts azimuthDeg = 360', () => {
+    expect(() => simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 360 })).not.toThrow();
+  });
+});
+
+// Test 14: integrateTrajectoryFps with coriolisK: 0 and without
+describe('FEAT-2 test 14: integrateTrajectoryFps with coriolisK', () => {
+  const mvFps      = 807 * 3.28084;
+  const bc         = 0.475;
+  const rho        = 1.0;
+  const wLbs       = 10.89 / 453.592;
+  const maxRangeYd = 500 / 0.9144;
+  const stepYd     = 100 / 0.9144;
+  const angle      = 0.002;
+
+  test('extras = { coriolisK: 0 } → key present and value 0 on all points', () => {
+    const { points } = _integrateWithExtras(mvFps, angle, bc, rho, wLbs, 0, maxRangeYd, stepYd, 1, undefined, { coriolisK: 0 });
+    points.forEach(p => {
+      expect('coriolisDeflectionCm' in p).toBe(true);
+      expect(p.coriolisDeflectionCm).toBe(0);
+    });
+  });
+
+  test('extras = {} → coriolisDeflectionCm key absent on all points', () => {
+    const { points } = _integrateWithExtras(mvFps, angle, bc, rho, wLbs, 0, maxRangeYd, stepYd, 1, undefined, {});
+    points.forEach(p => expect('coriolisDeflectionCm' in p).toBe(false));
+  });
+});

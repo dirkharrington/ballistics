@@ -41,8 +41,8 @@ export interface TrajectoryParams {
   readonly shootingAngleDegrees?: number | null;   // [-45, 45]; default 0
   readonly dragModel?: DragModel | null;           // default 'G1'
   readonly twistRateInchesPerTurn?: number | null; // [1, 100]; absent = spin drift disabled (FEAT-1)
-  readonly latitudeDeg?: number | null;            // RESERVED, IGNORED (WA-13; Q2)
-  readonly azimuthDeg?: number | null;             // RESERVED, IGNORED (WA-13; Q2)
+  readonly latitudeDeg?: number | null;  // [-90, 90], north positive. Coriolis needs BOTH latitudeDeg and azimuthDeg (FEAT-2)
+  readonly azimuthDeg?: number | null;   // [0, 360], clockwise from north. Enable flag only; not in the formula (FEAT-2)
   readonly customDragTable?: readonly DragPoint[] | null; // RESERVED, IGNORED (WA-12; Q2)
   readonly bulletIds?: readonly string[];          // passthrough from UI request objects; IGNORED
 }
@@ -56,6 +56,7 @@ export interface TrajectoryPoint {
   windDriftCm: number;
   timeOfFlightSec: number;
   spinDriftCm: number;          // FEAT-1. Gyroscopic spin drift, cm, >= 0, positive = right (right-hand twist). 0 when twist rate is absent.
+  coriolisDeflectionCm?: number; // FEAT-2. cm, positive = right. Key is ABSENT unless both latitudeDeg and azimuthDeg are set.
 }
 
 /** Return value of simulate(). */
