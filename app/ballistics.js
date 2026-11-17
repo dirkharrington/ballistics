@@ -609,6 +609,7 @@ async function runCustom() {
     throw err;
   }
   lastResults = [result];
+  lastReq = req;
   renderResults([result], req);
 }
 

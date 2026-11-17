@@ -3175,6 +3175,23 @@ describe('runCustom with customDragTable loaded', () => {
     // If customDragTable was passed, lastResults should contain a result
     expect(mod._getState().lastResults).toHaveLength(1);
   });
+
+  test('sets lastReq so MODEL pill remains stable after Clear', async () => {
+    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
+    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+
+    mod.init();
+
+    document.getElementById('customWeight').value = '9.0';
+    document.getElementById('customMV').value     = '850';
+    document.getElementById('customBC').value     = '0.45';
+    document.getElementById('customDia').value    = '7.82';
+
+    await mod.runCustom();
+    const { lastReq } = mod._getState();
+    expect(lastReq).not.toBeNull();
+    expect(lastReq.customDragTable).toHaveLength(3);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
