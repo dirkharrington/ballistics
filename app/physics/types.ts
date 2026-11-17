@@ -22,7 +22,7 @@ export interface Bullet {
   readonly bulletWeightGrams: number;    // engine input; > 0
   readonly muzzleVelocityMps: number;    // engine input; > 0
   readonly ballisticCoefficient: number; // engine input; > 0 (G1- or G7-referenced, matching dragModel)
-  readonly bulletDiameterMm: number;     // not read by the engine
+  readonly bulletDiameterMm: number;     // engine input when twistRateInchesPerTurn is set; [1, 30]
   readonly muzzleEnergyJoules: number;   // not read by the engine
   readonly description?: string;         // catalog only; absent on custom / bc-solve bullets
   readonly hexColor?: string;            // catalog only; '#RRGGBB'
@@ -40,7 +40,7 @@ export interface TrajectoryParams {
   readonly sightHeightMm?: number | null;          // <= 150; default 38.1
   readonly shootingAngleDegrees?: number | null;   // [-45, 45]; default 0
   readonly dragModel?: DragModel | null;           // default 'G1'
-  readonly twistRateInchesPerTurn?: number | null; // accepted, IGNORED (spin drift not in engine; Q1)
+  readonly twistRateInchesPerTurn?: number | null; // [1, 100]; absent = spin drift disabled (FEAT-1)
   readonly latitudeDeg?: number | null;            // RESERVED, IGNORED (WA-13; Q2)
   readonly azimuthDeg?: number | null;             // RESERVED, IGNORED (WA-13; Q2)
   readonly customDragTable?: readonly DragPoint[] | null; // RESERVED, IGNORED (WA-12; Q2)
@@ -55,6 +55,7 @@ export interface TrajectoryPoint {
   energyJoules: number;
   windDriftCm: number;
   timeOfFlightSec: number;
+  spinDriftCm: number;          // FEAT-1. Gyroscopic spin drift, cm, >= 0, positive = right (right-hand twist). 0 when twist rate is absent.
 }
 
 /** Return value of simulate(). */
