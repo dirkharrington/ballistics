@@ -90,6 +90,22 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
+    // Browser floor is already set by module workers + module SW; lowering gains no browsers.
+    // Fallback to 'es2022' if a target browser breaks.
+    target: 'esnext',
+    reportCompressedSize: false,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            // Narrow test: only chart.js and @kurkle — avoids pulling Vite helpers into vendor,
+            // which would make Chart.js load eagerly and undo the PERF-3 lazy-import.
+            { name: 'vendor',  test: /[\\/]node_modules[\\/](chart\.js|@kurkle)[\\/]/, priority: 20 },
+            { name: 'physics', test: /[\\/]app[\\/]physics[\\/]/, priority: 10 },
+          ],
+        },
+      },
+    },
   },
   worker: {
     plugins: () => [bulletCatalogPlugin(), physicsTablesPlugin()],

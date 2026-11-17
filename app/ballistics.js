@@ -3,13 +3,25 @@ import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
-import { TrajectoryInputError } from './physics/engine.ts';
+import { TrajectoryInputError } from './physics/errors.ts';
 import { simulateAsync } from './physics/engine-async.ts';
+import {
+  loadCustomBullets, saveCustomBullets, mergeCatalog, isCustomBulletId,
+  renderCustomBulletGroup, syncCustomDeleteGuards, upsertCustomBullet,
+  removeCustomBullet, validateCustomBulletInput, bulletForDragModel,
+  CUSTOM_BULLET_PALETTE,
+} from './custom-bullets.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 // Derived from bullets.yaml via virtual:bullet-catalog at build time
 const BULLET_COLORS = Object.fromEntries(BULLET_CATALOG.map(b => [b.id, b.hexColor]));
+
+// ── Colour helper ─────────────────────────────────────────────────────────────
+/** Returns the display colour for any bullet (custom or built-in). */
+export function colorFor(bullet) {
+  return bullet.hexColor || BULLET_COLORS[bullet.id] || '#4ADE80';
+}
 
 // Five-step sweep color ramp (independent of bullet catalog colors)
 const SWEEP_COLORS = ['#00d4ff', '#4ADE80', '#f59e0b', '#f472b6', '#a78bfa'];
@@ -55,6 +67,28 @@ let bullets = [];
 let selectedIds = new Set();
 let lastResults = [];
 let charts = {};
+
+// Memoised chart.js import — resolved once, reused on every renderResults /
+// renderSweepCharts call, so Chart.register() fires at most once per page load.
+let _chartModPromise = null;
+function _loadChart() {
+  if (!_chartModPromise) {
+    _chartModPromise = import('chart.js').then(mod => {
+      mod.Chart.register(
+        mod.LineController, mod.LineElement, mod.PointElement,
+        mod.LinearScale, mod.CategoryScale, mod.Tooltip, mod.Legend,
+      );
+      return mod;
+    });
+  }
+  return _chartModPromise;
+}
+
+// UX-1: Custom bullet catalog state
+let customRecords       = [];    // CustomBulletRecordV1[] — mirror of storage
+let customStorageStatus = 'ok';  // 'ok' | 'empty' | 'corrupt' | 'unavailable'
+let editingCustomId     = null;  // string | null
+let pendingDeleteId     = null;  // string | null
 // Crosshair state (task 5)
 let crosshairIndex  = null;  // data-point index currently under the cursor
 let crosshairPinned = false; // true after user clicks a range to lock the readout
@@ -78,7 +112,7 @@ function _updateDragTableStatus(fileName, rowCount) {
   if (nameEl)    nameEl.textContent = fileName
     ? `${fileName} (${rowCount} rows)`
     : (_customDragTable ? `Loaded (${_customDragTable.length} rows)` : '');
-  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Stored for future use — drag model override requires server update.';
+  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Uploaded file is used locally in your browser — no data is sent to any server.';
 }
 
 function _clearCustomDragTable() {
@@ -92,7 +126,7 @@ function _clearCustomDragTable() {
   /* istanbul ignore else -- #dragTableFile is always present in the app shell */
   if (fileInput)  fileInput.value = '';
   /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Stored for future use — drag model override requires server update.';
+  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Uploaded file is used locally in your browser — no data is sent to any server.';
 }
 
 // ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
@@ -106,7 +140,7 @@ async function computeClientSide(req) {
   const promises = req.bulletIds.map(id => {
     const bullet = bullets.find(b => b.id === id);
     if (!bullet) return null;
-    return simulateAsync(bullet, req);
+    return simulateAsync(bulletForDragModel(bullet, req.dragModel), req);
   });
   const results = await Promise.all(promises.filter(Boolean));
   return results;
@@ -115,9 +149,12 @@ async function computeClientSide(req) {
 // ── Bullet list UI ────────────────────────────────────────────────────────────
 function renderBulletList() {
   const list = document.getElementById('bulletList');
-  list.innerHTML = bullets.map(b => `
+  const builtIns = bullets.filter(b => !isCustomBulletId(b.id));
+  const customs  = bullets.filter(b =>  isCustomBulletId(b.id));
+
+  list.innerHTML = builtIns.map(b => `
     <div class="bullet-card" id="card-${escapeHtml(b.id)}"
-         style="--bullet-color:${BULLET_COLORS[b.id] || '#4ADE80'}">
+         style="--bullet-color:${colorFor(b)}">
       <div class="bullet-name">${escapeHtml(b.name)}</div>
       <div class="bullet-specs">
         BC: ${escapeHtml(String(b.ballisticCoefficient))} &nbsp;|&nbsp; MV: ${escapeHtml(String(b.muzzleVelocityMps))} m/s
@@ -125,11 +162,23 @@ function renderBulletList() {
       <div class="check"></div>
     </div>
   `).join('');
-  bullets.forEach(b => {
+  builtIns.forEach(b => {
     const card = document.getElementById('card-' + b.id);
     /* istanbul ignore else -- card is always present after innerHTML is set */
     if (card) card.addEventListener('click', () => toggleBullet(b.id));
   });
+
+  // Append custom group (always rendered, even with 0 customs)
+  renderCustomBulletGroup(list, customs, {
+    selectedIds,
+    storageStatus: customStorageStatus,
+    onToggle: toggleBullet,
+    onEdit:   openCustomBulletEdit,
+    onDelete: requestCustomBulletDelete,
+  });
+  pendingDeleteId = null;
+
+  syncSelectAllCheckbox();
 }
 
 function toggleBullet(id) {
@@ -146,6 +195,30 @@ function updateBulletCards() {
     const card = document.getElementById('card-' + b.id);
     if (card) card.classList.toggle('active', selectedIds.has(b.id));
   });
+  syncSelectAllCheckbox();
+  syncRunButton();
+  // UX-1: sync delete guards and reset any pending delete confirmation
+  syncCustomDeleteGuards(document.getElementById('bulletList'), selectedIds);
+  pendingDeleteId = null;
+}
+
+function syncSelectAllCheckbox() {
+  const cb = document.getElementById('selectAllBullets');
+  if (!cb) return;
+  if (selectedIds.size === 0) {
+    cb.checked = false;
+    cb.indeterminate = false;
+  } else if (selectedIds.size === bullets.length) {
+    cb.checked = true;
+    cb.indeterminate = false;
+  } else {
+    cb.indeterminate = true;
+  }
+}
+
+function syncRunButton() {
+  const btn = document.getElementById('runBtn');
+  if (btn) btn.disabled = selectedIds.size === 0;
 }
 
 // ── Error handling helpers ────────────────────────────────────────────────────
@@ -166,7 +239,7 @@ function _setSimulationError(message) {
 
 // ── Simulation ────────────────────────────────────────────────────────────────
 async function runSimulation() {
-  if (selectedIds.size === 0) { alert('Select at least one round.'); return; }
+  if (selectedIds.size === 0) { return; }
   _setSimulationError(null);
 
   const latRaw = document.getElementById('latitudeDeg')?.value;
@@ -202,6 +275,9 @@ async function runSimulation() {
       renderResults(results, req);
       lastResults = results;
       updateSweepButtonVisibility();
+      const exportBtn = document.getElementById('exportCsvBtn');
+      /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
+      if (exportBtn) exportBtn.style.display = '';
       btn.classList.remove('loading');
       btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
     });
@@ -224,6 +300,22 @@ function _downloadBlob(blob, filename) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── Trajectory CSV export (UX-2) ─────────────────────────────────────────────
+// Columns: Distance (m), Velocity (m/s), Energy (J), Drop (m), Bullet
+// Supports compare mode — all selected bullets in one file, distinguished by
+// the Bullet column.  Filename includes a millisecond timestamp so each
+// download is unique.  Bullet names are RFC 4180-escaped via csvCell().
+function exportTrajectoryCSV() {
+  if (!lastResults.length) return;
+  const rows = ['Distance (m),Velocity (m/s),Energy (J),Drop (m),Bullet'];
+  lastResults.forEach(r => {
+    r.points.forEach(p => {
+      rows.push(`${p.rangeMeters},${p.velocityMps},${p.energyJoules},${p.dropCm / 100},${csvCell(r.bullet.name)}`);
+    });
+  });
+  _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), `trajectory-${Date.now()}.csv`);
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────────
@@ -253,7 +345,7 @@ function exportMarkdown() {
   if (!lastResults.length) return;
   const lines = [];
   lastResults.forEach(r => {
-    lines.push(`## ${r.bullet.name}\n`);
+    lines.push(`## ${escapeHtml(r.bullet.name)}\n`);
     lines.push('| Range (m) | Drop (cm) | Velocity (m/s) | Energy (J) | Wind Drift (cm) | MOA | MRAD |');
     lines.push('|----------:|----------:|---------------:|-----------:|----------------:|----:|-----:|');
     r.points.forEach(p => {
@@ -454,6 +546,20 @@ const crosshairPlugin = {
   }
 };
 
+// ── Touch forwarder — translates touchmove to mousemove on chart canvases ─────
+// touch-action: none in CSS stops the browser from scrolling the page when
+// a touch starts on a chart canvas; this listener is therefore { passive: true }
+// and does NOT call preventDefault().
+export function _attachTouchForwarder(canvas) {
+  canvas.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    canvas.dispatchEvent(new MouseEvent('mousemove', {
+      clientX: t.clientX, clientY: t.clientY,
+      bubbles: true, cancelable: true,
+    }));
+  }, { passive: true });
+}
+
 // ── Range readout — populate the panel below the charts ──────────────────────
 function updateReadout(results, dataIndex) {
   const panel = document.getElementById('rangeReadout');
@@ -473,7 +579,7 @@ function updateReadout(results, dataIndex) {
     tbody.innerHTML = results.map(r => {
       const p = r.points[dataIndex];
       if (!p) return '';
-      const color = BULLET_COLORS[r.bullet.id] || '#4ADE80';
+      const color = colorFor(r.bullet);
       return `<tr>
         <td><span class="bullet-dot" style="background:${color}"></span>${escapeHtml(r.bullet.name)}</td>
         <td>${sign(p.dropCm)}${p.dropCm} cm</td>
@@ -506,7 +612,7 @@ function renderStatCards(results, container) {
   container.insertAdjacentHTML('beforeend', `
     <div class="stats-grid">
       ${results.map(r => {
-        const color = BULLET_COLORS[r.bullet.id] || '#4ADE80';
+        const color = colorFor(r.bullet);
         const daLine = r.densityAltitudeMeters !== undefined
           ? `<br><span style="color:var(--text)">${Number(r.densityAltitudeMeters)}</span> m density alt`
           : '';
@@ -679,8 +785,7 @@ async function renderResults(rawResults, req) {
     { id: 'windChart',     title: 'WIND DRIFT',           subtitle: windChartSubtitle(req), yLabel: 'Drift (cm)',     key: 'windDriftCm',  annotations: sonicAnn }
   ];
 
-  const { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } = await import('chart.js');
-  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+  const { Chart } = await _loadChart();
 
   chartDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
@@ -700,7 +805,7 @@ async function renderResults(rawResults, req) {
     const datasets = results.map(r => ({
       label:            r.bullet.name,
       data:             r.points.map(p => ({ x: p.rangeMeters, y: p[def.key] })),
-      borderColor:      BULLET_COLORS[r.bullet.id] || '#4ADE80',
+      borderColor:      colorFor(r.bullet),
       backgroundColor:  'transparent',
       borderWidth:      2,
       pointRadius:      0,
@@ -716,7 +821,7 @@ async function renderResults(rawResults, req) {
           datasets.push({
             label:            r.bullet.name + ' (spin drift)',
             data:             r.points.map(p => ({ x: p.rangeMeters, y: p.spinDriftCm ?? 0 })),
-            borderColor:      BULLET_COLORS[r.bullet.id] || '#4ADE80',
+            borderColor:      colorFor(r.bullet),
             backgroundColor:  'transparent',
             borderWidth:      1.5,
             borderDash:       [5, 5],
@@ -733,7 +838,7 @@ async function renderResults(rawResults, req) {
           datasets.push({
             label:            r.bullet.name + ' (coriolis)',
             data:             r.points.map(p => ({ x: p.rangeMeters, y: p.coriolisDeflectionCm ?? 0 })),
-            borderColor:      BULLET_COLORS[r.bullet.id] || '#4ADE80',
+            borderColor:      colorFor(r.bullet),
             backgroundColor:  'transparent',
             borderWidth:      1.5,
             borderDash:       [2, 4],
@@ -750,19 +855,12 @@ async function renderResults(rawResults, req) {
 
     // Item 4: forward touchmove as mousemove so the crosshair readout works
     // on both iOS (unreliable synthetic mouse events) and Android Chrome.
-    // passive:false lets us call preventDefault() to suppress page scroll
-    // while the user is scrubbing the chart.
+    // Page scroll is suppressed by touch-action: none on the canvas (CSS),
+    // so the listener is passive.
     const canvas = document.getElementById(def.id);
     /* istanbul ignore else -- canvas is always present after chart creation */
     if (canvas) {
-      canvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        canvas.dispatchEvent(new MouseEvent('mousemove', {
-          clientX: t.clientX, clientY: t.clientY,
-          bubbles: true, cancelable: true,
-        }));
-      }, { passive: false });
+      _attachTouchForwarder(canvas);
     }
   });
 
@@ -785,7 +883,7 @@ async function renderResults(rawResults, req) {
     const moaDatasets = results.map(r => ({
       label:            r.bullet.name + ' MOA',
       data:             r.points.map(p => { const a = computeAdjustments(p.dropCm, p.rangeMeters); return { x: p.rangeMeters, y: a.moa }; }),
-      borderColor:      BULLET_COLORS[r.bullet.id] || '#4ADE80',
+      borderColor:      colorFor(r.bullet),
       backgroundColor:  'transparent',
       borderWidth:      2,
       pointRadius:      0,
@@ -796,7 +894,7 @@ async function renderResults(rawResults, req) {
     const mradDatasets = results.map(r => ({
       label:            r.bullet.name + ' MRAD',
       data:             r.points.map(p => { const a = computeAdjustments(p.dropCm, p.rangeMeters); return { x: p.rangeMeters, y: a.mrad }; }),
-      borderColor:      BULLET_COLORS[r.bullet.id] || '#4ADE80',
+      borderColor:      colorFor(r.bullet),
       backgroundColor:  'transparent',
       borderWidth:      1.5,
       borderDash:       [4, 4],
@@ -853,11 +951,7 @@ async function renderResults(rawResults, req) {
     const adjCanvas = document.getElementById('adjustChart');
     /* istanbul ignore else */
     if (adjCanvas) {
-      adjCanvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        adjCanvas.dispatchEvent(new MouseEvent('mousemove', { clientX: t.clientX, clientY: t.clientY, bubbles: true, cancelable: true }));
-      }, { passive: false });
+      _attachTouchForwarder(adjCanvas);
     }
   }
 
@@ -912,7 +1006,7 @@ function renderTable(results) {
   }
 
   const html = rows.map(({ r, p, adj }) => {
-    const color = BULLET_COLORS[r.bullet.id] || '#4ADE80';
+    const color = colorFor(r.bullet);
     return `
         <tr>
           <td><span class="bullet-tag" style="background:${color}"></span>${escapeHtml(r.bullet.name)}</td>
@@ -1013,7 +1107,7 @@ async function runSweep() {
 
   let results;
   try {
-    results = await Promise.all(requests.map(r => simulateAsync(bullet, r)));
+    results = await Promise.all(requests.map(r => simulateAsync(bulletForDragModel(bullet, r.dragModel), r)));
   } catch (err) {
     if (btn) btn.querySelector('span').textContent = 'SWEEP';
     /* istanbul ignore else -- simulate only throws TrajectoryInputError */
@@ -1059,8 +1153,7 @@ async function renderSweepCharts(sweepResultsList, sweepParam) {
     { id: 'sweepVelChart',  title: 'SWEEP — VELOCITY',    yLabel: 'Velocity (m/s)', key: 'velocityMps' },
   ];
 
-  const { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } = await import('chart.js');
-  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+  const { Chart } = await _loadChart();
 
   sweepDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
@@ -1186,8 +1279,20 @@ function init() {
   if (fromUrl.params.latitudeDeg != null) setVal('latitudeDeg', fromUrl.params.latitudeDeg);
   if (fromUrl.params.azimuthDeg  != null) setVal('azimuthDeg',  fromUrl.params.azimuthDeg);
 
-  bullets = getMockBullets();
+  // UX-1: Load and merge custom bullets
+  {
+    const { records, status } = loadCustomBullets();
+    customRecords       = records;
+    customStorageStatus = status;
+    if (status === 'corrupt') {
+      console.warn('Custom bullets: stored data was invalid and has been ignored');
+    }
+  }
+  bullets = mergeCatalog(getMockBullets(), customRecords);
   renderBulletList();
+
+  // Update custom form panel availability
+  _syncCustomPanelAvailability();
 
   // Restore bullet selection: URL params take precedence over saved prefs
   {
@@ -1204,11 +1309,15 @@ function init() {
       if (merged.selectedIds !== null) {
         selectedIds = new Set(merged.selectedIds.filter(id => validIds.has(id)));
       } else {
-        bullets.forEach(b => selectedIds.add(b.id));
+        // First visit: select only built-in bullets[0] (not custom)
+        const firstBuiltIn = getMockBullets()[0];
+        /* istanbul ignore next -- getMockBullets() always returns ≥1 bullet in tests */
+        if (firstBuiltIn) selectedIds.add(firstBuiltIn.id);
       }
     }
   }
   updateBulletCards();
+  syncRunButton();
 
   // Persist parameter changes automatically and sync URL
   const paramInputIds = ['zeroRange','maxRange','windSpeed','windDir','altitude','temperature','step','sightHeight','shootingAngle','dragModel'];
@@ -1218,6 +1327,20 @@ function init() {
 
   // Wire up static event listeners (replaces window.* globals and onclick attrs)
   document.getElementById('runBtn')?.addEventListener('click', () => { closeSidebar(); runSimulation(); });
+
+  // UX-3: Select-all / deselect-all checkbox
+  document.getElementById('selectAllBullets')?.addEventListener('change', e => {
+    if (e.target.checked) {
+      bullets.forEach(b => selectedIds.add(b.id));
+    } else {
+      selectedIds.clear();
+    }
+    updateBulletCards();
+    savePrefs();
+    syncUrl();
+    updateSweepButtonVisibility();
+  });
+  document.getElementById('exportCsvBtn')?.addEventListener('click', exportTrajectoryCSV);
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
   document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
   document.querySelector('.export-md-btn')?.addEventListener('click', exportMarkdown);
@@ -1339,7 +1462,7 @@ function init() {
         try { localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table)); } catch (_) {}
         _updateDragTableStatus(file.name, table.length);
         /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-        if (helpEl) helpEl.textContent = 'Loaded — requires server update to apply; results currently use the selected drag model.';
+        if (helpEl) helpEl.textContent = 'Mach,CD columns. Uploaded file is used locally in your browser — no data is sent to any server.';
       } catch (err) {
         _customDragTable = null;
         try { localStorage.removeItem(CUSTOM_DRAG_TABLE_KEY); } catch (_) {}
@@ -1356,6 +1479,14 @@ function init() {
 
   // WA-12: Wire clear button
   document.getElementById('dragTableClearBtn')?.addEventListener('click', _clearCustomDragTable, { signal });
+
+  // UX-1: Wire custom bullet form
+  document.getElementById('addCustomBulletBtn')?.addEventListener('click', openCustomBulletAdd, { signal });
+  document.getElementById('customBulletCancelBtn')?.addEventListener('click', closeCustomBulletForm, { signal });
+  document.getElementById('customBulletForm')?.addEventListener('submit', e => {
+    e.preventDefault();
+    _handleCustomBulletSubmit();
+  }, { signal });
 
   // Pin button toggles crosshair lock (chart onClick also toggles)
   document.getElementById('readoutPin')?.addEventListener('click', () => {
@@ -1469,20 +1600,299 @@ function loadPrefs() {
   }
 }
 
+// ── Custom bullet panel availability sync ─────────────────────────────────────
+function _syncCustomPanelAvailability() {
+  const addBtn = document.getElementById('addCustomBulletBtn');
+  /* istanbul ignore else -- #addCustomBulletBtn is always present in the app shell */
+  if (addBtn) addBtn.disabled = customStorageStatus === 'unavailable';
+}
+
+// ── Custom bullet form handlers ───────────────────────────────────────────────
+
+/** Open form in add mode. */
+export function openCustomBulletAdd() {
+  pendingDeleteId = null;
+  editingCustomId = null;
+  const form = document.getElementById('customBulletForm');
+  const title = document.getElementById('customBulletFormTitle');
+  /* istanbul ignore else -- #customBulletForm is always present in the app shell */
+  if (form) {
+    form.removeAttribute('hidden');
+    // Reset fields
+    ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7',
+     'cbBulletDiameterInches','cbMuzzleVelocityFps'].forEach(id => {
+      const el = document.getElementById(id);
+      /* istanbul ignore else -- field inputs are always present in the app shell */
+      if (el) { el.value = ''; el.removeAttribute('aria-invalid'); }
+    });
+    // Clear errors
+    ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7',
+     'cbBulletDiameterInches','cbMuzzleVelocityFps'].forEach(id => {
+      const errEl = document.getElementById(id + '-error');
+      /* istanbul ignore else -- error elements are always present in the app shell */
+      if (errEl) errEl.textContent = '';
+    });
+    const formErr = document.getElementById('customBulletFormError');
+    /* istanbul ignore else -- #customBulletFormError is always present in the app shell */
+    if (formErr) formErr.textContent = '';
+  }
+  /* istanbul ignore else -- #customBulletFormTitle is always present in the app shell */
+  if (title) title.textContent = 'Add custom bullet';
+  const addBtn = document.getElementById('addCustomBulletBtn');
+  /* istanbul ignore else -- #addCustomBulletBtn is always present in the app shell */
+  if (addBtn) addBtn.setAttribute('aria-expanded', 'true');
+  document.getElementById('cbName')?.focus();
+}
+
+/** Open form in edit mode, pre-populated from the record. */
+export function openCustomBulletEdit(id) {
+  const record = customRecords.find(r => r.id === id);
+  if (!record) return;
+  pendingDeleteId = null;
+  editingCustomId = id;
+  const form  = document.getElementById('customBulletForm');
+  const title = document.getElementById('customBulletFormTitle');
+  /* istanbul ignore else -- #customBulletForm is always present in the app shell */
+  if (form) {
+    form.removeAttribute('hidden');
+    const set = (fieldId, val) => {
+      const el = document.getElementById(fieldId);
+      /* istanbul ignore else -- field inputs are always present in the app shell */
+      if (el) { el.value = val; el.removeAttribute('aria-invalid'); }
+    };
+    set('cbName',                 record.name);
+    set('cbShortName',            record.shortName);
+    set('cbBulletWeightGrains',   String(record.bulletWeightGrains));
+    set('cbBcG1',                 String(record.ballisticCoefficientG1));
+    set('cbBcG7',                 record.ballisticCoefficientG7 != null ? String(record.ballisticCoefficientG7) : '');
+    set('cbBulletDiameterInches', String(record.bulletDiameterInches));
+    set('cbMuzzleVelocityFps',    String(record.muzzleVelocityFps));
+    // Clear errors
+    ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7',
+     'cbBulletDiameterInches','cbMuzzleVelocityFps'].forEach(fid => {
+      const errEl = document.getElementById(fid + '-error');
+      /* istanbul ignore else -- error elements are always present in the app shell */
+      if (errEl) errEl.textContent = '';
+    });
+    const formErr = document.getElementById('customBulletFormError');
+    /* istanbul ignore else -- #customBulletFormError is always present in the app shell */
+    if (formErr) formErr.textContent = '';
+  }
+  /* istanbul ignore else -- #customBulletFormTitle is always present in the app shell */
+  if (title) title.textContent = 'Edit custom bullet';
+  const addBtn = document.getElementById('addCustomBulletBtn');
+  /* istanbul ignore else -- #addCustomBulletBtn is always present in the app shell */
+  if (addBtn) addBtn.setAttribute('aria-expanded', 'true');
+  document.getElementById('cbName')?.focus();
+}
+
+/** Close the custom bullet form and reset state. */
+export function closeCustomBulletForm() {
+  editingCustomId = null;
+  const form   = document.getElementById('customBulletForm');
+  const addBtn = document.getElementById('addCustomBulletBtn');
+  /* istanbul ignore else -- #customBulletForm is always present in the app shell */
+  if (form)   form.setAttribute('hidden', '');
+  /* istanbul ignore else -- #addCustomBulletBtn is always present in the app shell */
+  if (addBtn) {
+    addBtn.setAttribute('aria-expanded', 'false');
+    addBtn.focus();
+  }
+  // Clear fields and errors
+  ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7',
+   'cbBulletDiameterInches','cbMuzzleVelocityFps'].forEach(id => {
+    const el = document.getElementById(id);
+    /* istanbul ignore else -- field inputs are always present in the app shell */
+    if (el) { el.value = ''; el.removeAttribute('aria-invalid'); }
+    const errEl = document.getElementById(id + '-error');
+    /* istanbul ignore else -- error elements are always present in the app shell */
+    if (errEl) errEl.textContent = '';
+  });
+  const formErr = document.getElementById('customBulletFormError');
+  /* istanbul ignore else -- #customBulletFormError is always present in the app shell */
+  if (formErr) formErr.textContent = '';
+}
+
+/** Handle delete requests on a custom bullet. */
+export function requestCustomBulletDelete(id) {
+  if (selectedIds.has(id)) {
+    showToast('Deselect this bullet before deleting it.');
+    return;
+  }
+
+  if (pendingDeleteId !== id) {
+    // First click: enter pending-delete state
+    pendingDeleteId = id;
+    const listEl = document.getElementById('bulletList');
+    /* istanbul ignore else -- #bulletList is always present in the app shell */
+    if (listEl) {
+      const card = document.getElementById('card-' + id);
+      /* istanbul ignore else -- card is always present when the custom bullet exists */
+      if (card) {
+        const delBtn = card.querySelector('.bullet-delete-btn');
+        /* istanbul ignore else -- .bullet-delete-btn is always present on custom cards */
+        if (delBtn) {
+          delBtn.classList.add('confirming');
+          delBtn.textContent = 'Confirm';
+          /* istanbul ignore next -- .bullet-name absent path is unreachable in app */
+          const name = card.querySelector('.bullet-name')?.textContent ?? '';
+          delBtn.setAttribute('aria-label', 'Confirm delete ' + name);
+        }
+      }
+    }
+    return;
+  }
+
+  // Second click on the same id: perform delete
+  const next   = removeCustomBullet(customRecords, id);
+  const result = saveCustomBullets(next);
+  if (!result.ok) {
+    showToast("Couldn't delete: browser storage unavailable.");
+    return;
+  }
+
+  customRecords  = next;
+  bullets        = mergeCatalog(getMockBullets(), customRecords);
+  pendingDeleteId = null;
+
+  // Close form if editing this bullet
+  if (editingCustomId === id) closeCustomBulletForm();
+
+  renderBulletList();
+  updateBulletCards();
+  showToast('Custom bullet deleted');
+}
+
+/** Handle form submit. */
+function _handleCustomBulletSubmit() {
+  const getVal = id => /* istanbul ignore next */ document.getElementById(id)?.value ?? '';
+  const raw = {
+    name:                   getVal('cbName'),
+    shortName:              getVal('cbShortName'),
+    bulletWeightGrains:     getVal('cbBulletWeightGrains'),
+    ballisticCoefficientG1: getVal('cbBcG1'),
+    ballisticCoefficientG7: getVal('cbBcG7'),
+    bulletDiameterInches:   getVal('cbBulletDiameterInches'),
+    muzzleVelocityFps:      getVal('cbMuzzleVelocityFps'),
+  };
+
+  const result = validateCustomBulletInput(raw, {
+    records:      customRecords,
+    builtInNames: getMockBullets().map(b => b.name),
+    editingId:    editingCustomId,
+  });
+
+  // Show field-level errors
+  const fieldOrder = ['name','shortName','bulletWeightGrains','ballisticCoefficientG1',
+                      'ballisticCoefficientG7','bulletDiameterInches','muzzleVelocityFps'];
+  const inputIdMap = {
+    name:                   'cbName',
+    shortName:              'cbShortName',
+    bulletWeightGrains:     'cbBulletWeightGrains',
+    ballisticCoefficientG1: 'cbBcG1',
+    ballisticCoefficientG7: 'cbBcG7',
+    bulletDiameterInches:   'cbBulletDiameterInches',
+    muzzleVelocityFps:      'cbMuzzleVelocityFps',
+  };
+
+  if (!result.ok) {
+    // Clear all field errors first
+    Object.values(inputIdMap).forEach(inputId => {
+      const el = document.getElementById(inputId);
+      /* istanbul ignore else -- field inputs are always present in the app shell */
+      if (el) el.removeAttribute('aria-invalid');
+      const errEl = document.getElementById(inputId + '-error');
+      /* istanbul ignore else -- error elements are always present in the app shell */
+      if (errEl) errEl.textContent = '';
+    });
+    const formErrEl = document.getElementById('customBulletFormError');
+    /* istanbul ignore else -- #customBulletFormError is always present in the app shell */
+    if (formErrEl) formErrEl.textContent = '';
+
+    let firstFieldId = null;
+    result.errors.forEach(({ field, message }) => {
+      if (field === 'form') {
+        const formErrEl2 = document.getElementById('customBulletFormError');
+        /* istanbul ignore else -- #customBulletFormError is always present in the app shell */
+        if (formErrEl2) formErrEl2.textContent = message;
+        return;
+      }
+      const inputId = inputIdMap[field];
+      /* istanbul ignore else -- field names always map to known input ids */
+      if (inputId) {
+        const el = document.getElementById(inputId);
+        /* istanbul ignore else -- field inputs are always present in the app shell */
+        if (el) el.setAttribute('aria-invalid', 'true');
+        const errEl = document.getElementById(inputId + '-error');
+        /* istanbul ignore else -- error elements are always present in the app shell */
+        if (errEl) errEl.textContent = message;
+        /* istanbul ignore else -- subsequent errors after firstFieldId is set skip this block */
+        if (!firstFieldId) {
+          // Find first in field order
+          const idx = fieldOrder.indexOf(field);
+          /* istanbul ignore else -- field names are always in fieldOrder */
+          if (idx !== -1) firstFieldId = { field, idx, inputId };
+        }
+      }
+    });
+    // Focus first failing field in order
+    if (!firstFieldId) {
+      // Find smallest index among error fields
+      let minIdx = Infinity;
+      result.errors.forEach(({ field }) => {
+        const idx = fieldOrder.indexOf(field);
+        /* istanbul ignore next -- fallback path reached only when no known-field errors exist */
+        if (idx !== -1 && idx < minIdx) { minIdx = idx; firstFieldId = inputIdMap[field]; }
+      });
+    } else {
+      firstFieldId = firstFieldId.inputId;
+    }
+    if (firstFieldId) document.getElementById(firstFieldId)?.focus();
+    return;
+  }
+
+  const isEditing    = editingCustomId != null;
+  const next         = upsertCustomBullet(customRecords, result.value, editingCustomId);
+  const saveResult   = saveCustomBullets(next);
+  if (!saveResult.ok) {
+    const formErrEl = document.getElementById('customBulletFormError');
+    /* istanbul ignore else -- #customBulletFormError is always present in the app shell */
+    if (formErrEl) formErrEl.textContent = "Couldn't save: browser storage is full or unavailable.";
+    return;
+  }
+
+  customRecords  = next;
+  bullets        = mergeCatalog(getMockBullets(), customRecords);
+  closeCustomBulletForm();
+  renderBulletList();
+  updateBulletCards();
+  showToast(isEditing ? 'Custom bullet updated' : 'Custom bullet added');
+}
+
 // ── State helpers (for test access) ──────────────────────────────────────────
-function _getState()     { return { bullets, selectedIds, lastResults, lastReq, charts, crosshairIndex, crosshairPinned }; }
+function _getState()     {
+  return {
+    bullets, selectedIds, lastResults, lastReq, charts, crosshairIndex, crosshairPinned,
+    customRecords, customStorageStatus, editingCustomId, pendingDeleteId,
+  };
+}
 function _resetState()   {
   bullets = []; selectedIds = new Set(); lastResults = []; charts = {};
   crosshairIndex = null; crosshairPinned = false;
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
   sweepMode = false; sweepResults = null; lastReq = null;
   _customDragTable = null;
+  customRecords = []; customStorageStatus = 'ok';
+  editingCustomId = null; pendingDeleteId = null;
+  _chartModPromise = null;
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
 }
-function _setBullets(b)      { bullets = b; }
-function _setSelectedIds(s)  { selectedIds = s; }
-function _setCharts(c)       { charts = c; }
-function _setLastResults(r)  { lastResults = r; }
+function _setBullets(b)              { bullets = b; }
+function _setSelectedIds(s)          { selectedIds = s; }
+function _setCharts(c)               { charts = c; }
+function _setLastResults(r)          { lastResults = r; }
+function _setCustomRecords(r)        { customRecords = r; }
+function _setCustomStorageStatus(s)  { customStorageStatus = s; }
 
 // Auto-initialize in browser (modules are deferred, so DOM is ready).
 // Guard prevents spurious calls when imported by tests before buildDOM().
@@ -1492,10 +1902,11 @@ if (document.getElementById('bulletList')) {
 
 export {
   getMockBullets, computeClientSide,
-  renderBulletList, toggleBullet, updateBulletCards, runSimulation,
+  renderBulletList, toggleBullet, updateBulletCards, syncSelectAllCheckbox, syncRunButton, runSimulation,
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
+  exportTrajectoryCSV,
   exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, showToast,
   _downloadBlob,
   BULLET_COLORS, SWEEP_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
@@ -1506,6 +1917,8 @@ export {
   updateSweepButtonVisibility, buildSweepRequests, runSweep, clearSweep, renderSweepCharts,
   SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
-  _setSimulationError,
+  _setSimulationError, _loadChart,
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
+  // UX-1 test helpers (openCustomBulletAdd/Edit/close/requestDelete are exported at declaration)
+  _setCustomRecords, _setCustomStorageStatus,
 };

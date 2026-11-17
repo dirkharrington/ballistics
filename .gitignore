@@ -2,5 +2,6 @@ dist/
 target/
 node_modules/
 coverage/
+.jest-cache/
 .claude/
 .DS_Store

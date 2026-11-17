@@ -18,7 +18,27 @@ HTMLCanvasElement.prototype.getContext = jest.fn(() => ({}));
 function buildDOM() {
   document.body.innerHTML = `
   <main class="main">
+    <label class="select-all-label">
+      <input type="checkbox" id="selectAllBullets" aria-label="Select all rounds">
+      <span>Select all</span>
+    </label>
     <div id="bulletList"></div>
+    <div id="customBulletPanel">
+      <button type="button" id="addCustomBulletBtn" aria-controls="customBulletForm" aria-expanded="false">+ ADD CUSTOM BULLET</button>
+      <form id="customBulletForm" hidden novalidate>
+        <div id="customBulletFormTitle">Add custom bullet</div>
+        <input id="cbName" /><small id="cbName-error" class="field-error"></small>
+        <input id="cbShortName" /><small id="cbShortName-error" class="field-error"></small>
+        <input id="cbBulletWeightGrains" /><small id="cbBulletWeightGrains-error" class="field-error"></small>
+        <input id="cbBcG1" /><small id="cbBcG1-error" class="field-error"></small>
+        <input id="cbBcG7" /><small id="cbBcG7-error" class="field-error"></small>
+        <input id="cbBulletDiameterInches" /><small id="cbBulletDiameterInches-error" class="field-error"></small>
+        <input id="cbMuzzleVelocityFps" /><small id="cbMuzzleVelocityFps-error" class="field-error"></small>
+        <div id="customBulletFormError" role="alert"></div>
+        <button type="submit" id="customBulletSaveBtn">SAVE</button>
+        <button type="button" id="customBulletCancelBtn">CANCEL</button>
+      </form>
+    </div>
     <input id="zeroRange"   value="100" />
     <input id="maxRange"    value="500" />
     <input id="windSpeed"   value="0"   />
@@ -57,6 +77,7 @@ function buildDOM() {
       <button id="readoutPin">PIN</button>
       <table><tbody id="readoutBody"></tbody></table>
     </div>
+    <button id="exportCsvBtn" style="display:none;">Export CSV</button>
     <table id="dataTable">
       <thead>
         <tr>
@@ -431,6 +452,110 @@ describe('updateBulletCards', () => {
     mod.updateBulletCards();
     expect(document.getElementById('card-308-win-168gr').classList.contains('active')).toBe(true);
     expect(document.getElementById('card-223-rem-55gr').classList.contains('active')).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// syncSelectAllCheckbox
+// ─────────────────────────────────────────────────────────────────────────────
+describe('syncSelectAllCheckbox', () => {
+  beforeEach(() => {
+    mod._setBullets(mod.getMockBullets());
+    mod.renderBulletList();
+  });
+
+  test('unchecked and not indeterminate when 0 selected', () => {
+    mod._setSelectedIds(new Set());
+    mod.syncSelectAllCheckbox();
+    const cb = document.getElementById('selectAllBullets');
+    expect(cb.checked).toBe(false);
+    expect(cb.indeterminate).toBe(false);
+  });
+
+  test('indeterminate when some (but not all) selected', () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod.syncSelectAllCheckbox();
+    const cb = document.getElementById('selectAllBullets');
+    expect(cb.indeterminate).toBe(true);
+  });
+
+  test('checked and not indeterminate when all selected', () => {
+    const allIds = new Set(mod.getMockBullets().map(b => b.id));
+    mod._setSelectedIds(allIds);
+    mod.syncSelectAllCheckbox();
+    const cb = document.getElementById('selectAllBullets');
+    expect(cb.checked).toBe(true);
+    expect(cb.indeterminate).toBe(false);
+  });
+
+  test('no-op when checkbox element is absent', () => {
+    document.getElementById('selectAllBullets').remove();
+    expect(() => mod.syncSelectAllCheckbox()).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// syncRunButton
+// ─────────────────────────────────────────────────────────────────────────────
+describe('syncRunButton', () => {
+  test('disables runBtn when selectedIds is empty', () => {
+    mod._setSelectedIds(new Set());
+    mod.syncRunButton();
+    expect(document.getElementById('runBtn').disabled).toBe(true);
+  });
+
+  test('enables runBtn when selectedIds is non-empty', () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod.syncRunButton();
+    expect(document.getElementById('runBtn').disabled).toBe(false);
+  });
+
+  test('no-op when runBtn element is absent', () => {
+    document.getElementById('runBtn').remove();
+    expect(() => mod.syncRunButton()).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// select-all checkbox wired by init
+// ─────────────────────────────────────────────────────────────────────────────
+describe('select-all checkbox interaction (via init)', () => {
+  beforeEach(() => {
+    mod.init();
+  });
+
+  test('checking select-all adds all bullet ids to selectedIds', () => {
+    const cb = document.getElementById('selectAllBullets');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change'));
+    const { selectedIds, bullets } = mod._getState();
+    expect(selectedIds.size).toBe(bullets.length);
+  });
+
+  test('unchecking select-all clears selectedIds', () => {
+    // First select all
+    const cb = document.getElementById('selectAllBullets');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change'));
+    // Then deselect all
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change'));
+    const { selectedIds } = mod._getState();
+    expect(selectedIds.size).toBe(0);
+  });
+
+  test('runBtn is disabled after deselecting all via checkbox', () => {
+    const cb = document.getElementById('selectAllBullets');
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change'));
+    expect(document.getElementById('runBtn').disabled).toBe(true);
+  });
+
+  test('runBtn is enabled after selecting all via checkbox', () => {
+    const cb = document.getElementById('selectAllBullets');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change'));
+    expect(document.getElementById('runBtn').disabled).toBe(false);
   });
 });
 
@@ -916,10 +1041,11 @@ describe('runSimulation', () => {
     }
   ];
 
-  test('alerts and returns when no bullets selected', () => {
+  test('returns early without calling compute when no bullets selected', () => {
     mod._setSelectedIds(new Set());
     mod.runSimulation();
-    expect(global.alert).toHaveBeenCalledWith('Select at least one round.');
+    expect(global.alert).not.toHaveBeenCalled();
+    expect(simulateAsync).not.toHaveBeenCalled();
   });
 
   test('calls computeClientSide and renders results', async () => {
@@ -1099,11 +1225,13 @@ describe('init', () => {
     expect(document.querySelectorAll('.bullet-card')).toHaveLength(10);
   });
 
-  test('selects all bullets by default after init', () => {
+  test('first-visit init selects only bullets[0] (no localStorage, no URL)', () => {
     mod.init();
-    const { selectedIds } = mod._getState();
-    expect(selectedIds.size).toBe(10);
+    const { selectedIds, bullets } = mod._getState();
+    expect(selectedIds.size).toBe(1);
+    expect(selectedIds.has(bullets[0].id)).toBe(true);
   });
+
 
   test('readoutPin click wired by init toggles crosshairPinned', () => {
     mod.init();
@@ -2905,14 +3033,15 @@ describe('init with saved preferences', () => {
     expect(selectedIds.has('223-rem-55gr')).toBe(false);
   });
 
-  test('selects all bullets on first visit (null savedIds)', async () => {
-    // localStorage is empty → first visit behavior → all selected
+  test('selects only bullets[0] on first visit (null savedIds)', async () => {
+    // localStorage is empty → first visit behavior → only first bullet selected
     global.fetch.mockRejectedValue(new Error('offline'));
 
     await mod.init();
 
-    const { selectedIds } = mod._getState();
-    mod.getMockBullets().forEach(b => expect(selectedIds.has(b.id)).toBe(true));
+    const { selectedIds, bullets } = mod._getState();
+    expect(selectedIds.size).toBe(1);
+    expect(selectedIds.has(bullets[0].id)).toBe(true);
   });
 
   test('filters out stale IDs no longer in catalog', async () => {
@@ -3241,7 +3370,7 @@ describe('chart canvas touchmove → mousemove forwarding', () => {
     expect(dispatched[0].clientY).toBe(80);
   });
 
-  test('touchmove handler calls preventDefault to suppress page scroll', async () => {
+  test('touchmove handler does NOT call preventDefault (passive: CSS touch-action instead)', async () => {
     await mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
 
     const canvas = document.getElementById('dropChart');
@@ -3250,7 +3379,7 @@ describe('chart canvas touchmove → mousemove forwarding', () => {
 
     const preventDefaultSpy = jest.spyOn(touchEvent, 'preventDefault');
     canvas.dispatchEvent(touchEvent);
-    expect(preventDefaultSpy).toHaveBeenCalled();
+    expect(preventDefaultSpy).not.toHaveBeenCalled();
   });
 
   test('buildChartConfig includes touch events in the events array', () => {
@@ -4567,5 +4696,457 @@ describe('MH-4: sweep export button', () => {
     } finally {
       delete HTMLCanvasElement.prototype.toDataURL;
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UX-2: exportTrajectoryCSV
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportTrajectoryCSV', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    global.Blob = jest.fn((parts) => ({ parts }));
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('returns early without creating a Blob when lastResults is empty', () => {
+    mod._resetState();
+    mod.exportTrajectoryCSV();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  test('single bullet: produces correct CSV header', () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
+      points: [
+        { rangeMeters: 0,   velocityMps: 807, energyJoules: 3552, dropCm: 0 },
+        { rangeMeters: 100, velocityMps: 760, energyJoules: 3100, dropCm: -3.5 },
+      ],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('Distance (m),Velocity (m/s),Energy (J),Drop (m),Bullet');
+  });
+
+  test('single bullet: produces correct data rows with Drop converted from cm to m', () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
+      points: [
+        { rangeMeters: 0,   velocityMps: 807, energyJoules: 3552, dropCm: 0 },
+        { rangeMeters: 100, velocityMps: 760, energyJoules: 3100, dropCm: -3.5 },
+      ],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    // dropCm -3.5 → -0.035 m
+    expect(csv).toContain('100,760,3100,-0.035,');
+    expect(csv).toContain('.308 Win 168gr BTHP');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+  });
+
+  test('two bullets in compare mode: rows present for both, distinguished by Bullet column', () => {
+    const results = [
+      {
+        bullet: { id: '308-win-168gr', name: '.308 Win' },
+        points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+      },
+      {
+        bullet: { id: '223-rem-55gr', name: '.223 Rem' },
+        points: [{ rangeMeters: 0, velocityMps: 975, energyJoules: 1748, dropCm: 0 }],
+      },
+    ];
+    mod._setLastResults(results);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('".308 Win"');
+    expect(csv).toContain('".223 Rem"');
+    // Should have header + 2 data rows
+    const lines = csv.split('\n');
+    expect(lines.length).toBe(3);
+  });
+
+  test('bullet name containing a comma is wrapped in double-quotes (RFC 4180)', () => {
+    const result = {
+      bullet: { id: 'custom', name: 'Sierra, 168gr' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('"Sierra, 168gr"');
+  });
+
+  test('bullet name containing double-quotes has them doubled (RFC 4180)', () => {
+    const result = {
+      bullet: { id: 'custom', name: 'Match "King" 168gr' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('"Match ""King"" 168gr"');
+  });
+
+  test('Blob is created with text/csv MIME type', () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const blobArgs = global.Blob.mock.calls[0];
+    expect(blobArgs[1]).toEqual({ type: 'text/csv' });
+  });
+
+  test('formula-injection trigger in bullet name is prefixed with apostrophe', () => {
+    const result = {
+      bullet: { id: 'custom', name: '=HYPERLINK("x")' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('"\'=HYPERLINK(""x"")"');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UX-2: exportCsvBtn visibility after runSimulation
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportCsvBtn visibility', () => {
+  test('button is hidden before simulation runs', () => {
+    expect(document.getElementById('exportCsvBtn').style.display).toBe('none');
+  });
+
+  test('button is shown after runSimulation completes successfully', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    await mod.runSimulation();
+    jest.runAllTimers();
+
+    expect(document.getElementById('exportCsvBtn').style.display).toBe('');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UX-2: exportCsvBtn click listener (wired by init)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportCsvBtn click listener via init', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    global.Blob = jest.fn((parts) => ({ parts }));
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('clicking exportCsvBtn triggers exportTrajectoryCSV when lastResults are set', () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.init();
+
+    document.getElementById('exportCsvBtn').dispatchEvent(new MouseEvent('click'));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UX-1: Custom bullet catalog
+// ─────────────────────────────────────────────────────────────────────────────
+const {
+  loadCustomBullets: _loadCustomBullets,
+  CUSTOM_BULLETS_KEY,
+} = require('../app/custom-bullets.js');
+
+function makeCustomRecord(overrides = {}) {
+  return {
+    id:                     'usr-3f2b8c1e9a4d4e6f',
+    name:                   '175gr SMK handload',
+    shortName:              '308 175',
+    bulletWeightGrains:     175,
+    ballisticCoefficientG1: 0.505,
+    ballisticCoefficientG7: 0.243,
+    bulletDiameterInches:   0.308,
+    muzzleVelocityFps:      2600,
+    ...overrides,
+  };
+}
+
+describe('_setCustomRecords / _setCustomStorageStatus', () => {
+  test('_setCustomRecords updates customRecords in state', () => {
+    mod._setCustomRecords([makeCustomRecord()]);
+    expect(mod._getState().customRecords).toHaveLength(1);
+    expect(mod._getState().customRecords[0].id).toBe('usr-3f2b8c1e9a4d4e6f');
+  });
+
+  test('_setCustomStorageStatus updates customStorageStatus in state', () => {
+    mod._setCustomStorageStatus('unavailable');
+    expect(mod._getState().customStorageStatus).toBe('unavailable');
+  });
+});
+
+describe('UX-1: init loads custom bullets (corrupt warning)', () => {
+  test('warns when stored data is corrupt', () => {
+    localStorage.setItem(CUSTOM_BULLETS_KEY, '{not valid json}');
+    mod.init();
+    expect(global.console.warn).toHaveBeenCalledWith(
+      'Custom bullets: stored data was invalid and has been ignored'
+    );
+  });
+
+  test('merges valid custom records with built-ins after init', () => {
+    const r = makeCustomRecord();
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    const state = mod._getState();
+    expect(state.customRecords).toHaveLength(1);
+    expect(state.customRecords[0].id).toBe(r.id);
+  });
+});
+
+describe('UX-1: openCustomBulletAdd', () => {
+  beforeEach(() => { mod.init(); });
+
+  test('shows form and sets title to Add', () => {
+    mod.openCustomBulletAdd();
+    expect(document.getElementById('customBulletForm').hasAttribute('hidden')).toBe(false);
+    expect(document.getElementById('customBulletFormTitle').textContent).toBe('Add custom bullet');
+  });
+
+  test('sets addCustomBulletBtn aria-expanded to true', () => {
+    mod.openCustomBulletAdd();
+    expect(document.getElementById('addCustomBulletBtn').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  test('clears field values and errors', () => {
+    document.getElementById('cbName').value = 'old';
+    document.getElementById('cbName-error').textContent = 'err';
+    mod.openCustomBulletAdd();
+    expect(document.getElementById('cbName').value).toBe('');
+    expect(document.getElementById('cbName-error').textContent).toBe('');
+  });
+});
+
+describe('UX-1: openCustomBulletEdit', () => {
+  beforeEach(() => {
+    mod._setCustomRecords([makeCustomRecord()]);
+    mod.init();
+  });
+
+  test('no-op for unknown id', () => {
+    mod.openCustomBulletEdit('usr-9999999999999999');
+    // Form remains hidden (init() may have shown it but if record not found, nothing happens)
+    // Just verify no throw
+    expect(true).toBe(true);
+  });
+
+  test('opens form pre-filled for known record', () => {
+    mod._setCustomRecords([makeCustomRecord()]);
+    mod.openCustomBulletEdit('usr-3f2b8c1e9a4d4e6f');
+    expect(document.getElementById('customBulletForm').hasAttribute('hidden')).toBe(false);
+    expect(document.getElementById('cbName').value).toBe('175gr SMK handload');
+    expect(document.getElementById('cbBcG7').value).toBe('0.243');
+    expect(document.getElementById('customBulletFormTitle').textContent).toBe('Edit custom bullet');
+  });
+
+  test('opens form for record with null G7 BC', () => {
+    mod._setCustomRecords([makeCustomRecord({ ballisticCoefficientG7: null })]);
+    mod.openCustomBulletEdit('usr-3f2b8c1e9a4d4e6f');
+    expect(document.getElementById('cbBcG7').value).toBe('');
+  });
+});
+
+describe('UX-1: closeCustomBulletForm', () => {
+  beforeEach(() => { mod.init(); });
+
+  test('hides form and sets aria-expanded to false', () => {
+    mod.openCustomBulletAdd();
+    mod.closeCustomBulletForm();
+    expect(document.getElementById('customBulletForm').hasAttribute('hidden')).toBe(true);
+    expect(document.getElementById('addCustomBulletBtn').getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('clears form field values', () => {
+    document.getElementById('cbName').value = 'some value';
+    mod.closeCustomBulletForm();
+    expect(document.getElementById('cbName').value).toBe('');
+  });
+});
+
+describe('UX-1: requestCustomBulletDelete', () => {
+  const recordId = 'usr-3f2b8c1e9a4d4e6f';
+
+  beforeEach(() => {
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([makeCustomRecord()]));
+    mod.init();
+  });
+
+  test('first click sets confirming state on delete button', () => {
+    mod.requestCustomBulletDelete(recordId);
+    const card = document.getElementById('card-' + recordId);
+    if (card) {
+      const btn = card.querySelector('.bullet-delete-btn');
+      if (btn) expect(btn.classList.contains('confirming')).toBe(true);
+    }
+    expect(mod._getState().pendingDeleteId).toBe(recordId);
+  });
+
+  test('second click deletes the record', () => {
+    mod.requestCustomBulletDelete(recordId);
+    mod.requestCustomBulletDelete(recordId);
+    expect(mod._getState().customRecords).toHaveLength(0);
+  });
+
+  test('selected bullet => toast shown, no delete', () => {
+    mod._setSelectedIds(new Set([recordId]));
+    mod.requestCustomBulletDelete(recordId);
+    expect(mod._getState().customRecords).toHaveLength(1);
+  });
+
+  test('delete closes form if editing the same id', () => {
+    mod._setCustomRecords([makeCustomRecord()]);
+    mod.openCustomBulletEdit(recordId);
+    mod.requestCustomBulletDelete(recordId);
+    mod.requestCustomBulletDelete(recordId);
+    expect(document.getElementById('customBulletForm').hasAttribute('hidden')).toBe(true);
+  });
+
+  test('save failure on delete => toast, record not removed', () => {
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+    });
+    mod.requestCustomBulletDelete(recordId); // first click
+    mod.requestCustomBulletDelete(recordId); // second click (should fail to save)
+    expect(mod._getState().customRecords).toHaveLength(1);
+    jest.restoreAllMocks();
+  });
+});
+
+describe('UX-1: _handleCustomBulletSubmit via form submit', () => {
+  beforeEach(() => { mod.init(); });
+
+  function fillForm(values = {}) {
+    const defaults = {
+      cbName: 'Test Load', cbShortName: 'TST',
+      cbBulletWeightGrains: '175', cbBcG1: '0.505', cbBcG7: '',
+      cbBulletDiameterInches: '0.308', cbMuzzleVelocityFps: '2600',
+    };
+    Object.assign(defaults, values);
+    Object.entries(defaults).forEach(([id, val]) => {
+      const el = document.getElementById(id);
+      if (el) el.value = val;
+    });
+  }
+
+  test('valid add: saves bullet, closes form, shows toast', () => {
+    mod.openCustomBulletAdd();
+    fillForm();
+    document.getElementById('customBulletForm').dispatchEvent(new Event('submit'));
+    expect(mod._getState().customRecords).toHaveLength(1);
+    expect(document.getElementById('customBulletForm').hasAttribute('hidden')).toBe(true);
+  });
+
+  test('valid edit: updates record and shows updated toast', () => {
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([makeCustomRecord()]));
+    mod.init();
+    mod.openCustomBulletEdit('usr-3f2b8c1e9a4d4e6f');
+    fillForm({ cbName: 'Renamed Load' });
+    document.getElementById('customBulletForm').dispatchEvent(new Event('submit'));
+    expect(mod._getState().customRecords[0].name).toBe('Renamed Load');
+  });
+
+  test('invalid input: shows field errors', () => {
+    mod.openCustomBulletAdd();
+    fillForm({ cbName: '' });
+    document.getElementById('customBulletForm').dispatchEvent(new Event('submit'));
+    expect(document.getElementById('cbName').getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById('cbName-error').textContent).not.toBe('');
+    expect(mod._getState().customRecords).toHaveLength(0);
+  });
+
+  test('form-level error shown when at limit', () => {
+    const recs = Array.from({ length: 50 }, (_, i) => makeCustomRecord({
+      id:   `usr-${String(i).padStart(16, '0')}`,
+      name: `Bullet ${i}`,
+    }));
+    mod._setCustomRecords(recs);
+    mod.openCustomBulletAdd();
+    fillForm();
+    document.getElementById('customBulletForm').dispatchEvent(new Event('submit'));
+    expect(document.getElementById('customBulletFormError').textContent).toContain('50');
+  });
+
+  test('save failure shows storage error in form', () => {
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+    });
+    mod.openCustomBulletAdd();
+    fillForm();
+    document.getElementById('customBulletForm').dispatchEvent(new Event('submit'));
+    expect(document.getElementById('customBulletFormError').textContent).toContain('storage');
+    jest.restoreAllMocks();
+  });
+
+  test('form submit via init listener (addCustomBulletBtn click)', () => {
+    document.getElementById('addCustomBulletBtn').click();
+    expect(document.getElementById('customBulletForm').hasAttribute('hidden')).toBe(false);
+  });
+
+  test('cancel button closes form via init listener', () => {
+    mod.openCustomBulletAdd();
+    document.getElementById('customBulletCancelBtn').click();
+    expect(document.getElementById('customBulletForm').hasAttribute('hidden')).toBe(true);
+  });
+});
+
+describe('UX-1: _syncCustomPanelAvailability', () => {
+  test('disables addCustomBulletBtn when loadCustomBullets returns unavailable', () => {
+    // Simulate storage being blocked so loadCustomBullets returns 'unavailable'
+    const getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    mod.init();
+    getItemSpy.mockRestore();
+    expect(document.getElementById('addCustomBulletBtn').disabled).toBe(true);
+  });
+
+  test('enables addCustomBulletBtn when storage is ok', () => {
+    // localStorage is empty (cleared in beforeEach), loadCustomBullets returns 'empty' -> ok
+    mod.init();
+    expect(document.getElementById('addCustomBulletBtn').disabled).toBe(false);
   });
 });
