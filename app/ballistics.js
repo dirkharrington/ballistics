@@ -3,7 +3,7 @@ import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
-import { TrajectoryInputError } from './physics/engine.ts';
+import { TrajectoryInputError } from './physics/errors.ts';
 import { simulateAsync } from './physics/engine-async.ts';
 import {
   loadCustomBullets, saveCustomBullets, mergeCatalog, isCustomBulletId,
