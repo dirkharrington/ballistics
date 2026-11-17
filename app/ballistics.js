@@ -68,6 +68,22 @@ let selectedIds = new Set();
 let lastResults = [];
 let charts = {};
 
+// Memoised chart.js import — resolved once, reused on every renderResults /
+// renderSweepCharts call, so Chart.register() fires at most once per page load.
+let _chartModPromise = null;
+function _loadChart() {
+  if (!_chartModPromise) {
+    _chartModPromise = import('chart.js').then(mod => {
+      mod.Chart.register(
+        mod.LineController, mod.LineElement, mod.PointElement,
+        mod.LinearScale, mod.CategoryScale, mod.Tooltip, mod.Legend,
+      );
+      return mod;
+    });
+  }
+  return _chartModPromise;
+}
+
 // UX-1: Custom bullet catalog state
 let customRecords       = [];    // CustomBulletRecordV1[] — mirror of storage
 let customStorageStatus = 'ok';  // 'ok' | 'empty' | 'corrupt' | 'unavailable'
@@ -755,8 +771,7 @@ async function renderResults(rawResults, req) {
     { id: 'windChart',     title: 'WIND DRIFT',           subtitle: windChartSubtitle(req), yLabel: 'Drift (cm)',     key: 'windDriftCm',  annotations: sonicAnn }
   ];
 
-  const { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } = await import('chart.js');
-  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+  const { Chart } = await _loadChart();
 
   chartDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
@@ -1135,8 +1150,7 @@ async function renderSweepCharts(sweepResultsList, sweepParam) {
     { id: 'sweepVelChart',  title: 'SWEEP — VELOCITY',    yLabel: 'Velocity (m/s)', key: 'velocityMps' },
   ];
 
-  const { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } = await import('chart.js');
-  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+  const { Chart } = await _loadChart();
 
   sweepDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
@@ -1867,6 +1881,7 @@ function _resetState()   {
   _customDragTable = null;
   customRecords = []; customStorageStatus = 'ok';
   editingCustomId = null; pendingDeleteId = null;
+  _chartModPromise = null;
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
 }
 function _setBullets(b)              { bullets = b; }
@@ -1899,7 +1914,7 @@ export {
   updateSweepButtonVisibility, buildSweepRequests, runSweep, clearSweep, renderSweepCharts,
   SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
-  _setSimulationError,
+  _setSimulationError, _loadChart,
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
   // UX-1 test helpers (openCustomBulletAdd/Edit/close/requestDelete are exported at declaration)
   _setCustomRecords, _setCustomStorageStatus,
