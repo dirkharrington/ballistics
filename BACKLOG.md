@@ -1081,7 +1081,7 @@ The repo has no `.vscode/` directory. Developers opening the project in VS Code 
 
 ---
 
-### UX-8 · Chart.js tooltip with many bullets · FE · Size S
+### ~~UX-8 · Chart.js tooltip with many bullets · FE · Size S~~ ✅ Done
 
 When 6 or more bullets are selected and the user hovers over the trajectory charts, the tooltip renders one item per dataset per chart — easily 10–15 lines for a full bullet selection — overflowing the viewport and obscuring the chart data the user is trying to read. The issue is that `interaction: { mode: 'index' }` shows all series at the hovered x-position simultaneously.
 
