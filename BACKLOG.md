@@ -222,7 +222,7 @@ bullet catalog section (update path to `app/data/bullets.yaml`).
 
 ## Milestone 6 — Performance
 
-### PERF-1 · Move `simulate()` to a Web Worker · FE · Size M · **Done — PR #99**
+### ✅ PERF-1 · Move `simulate()` to a Web Worker · FE · Size M · DONE
 
 `simulate()` is synchronous and runs on the main thread. In worst-case usage
 (10 bullets, 2 000 m range, 1 m step) it performs ~20 000 RK4 iterations per
