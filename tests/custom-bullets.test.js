@@ -418,6 +418,10 @@ describe('isValidCustomBulletRecord', () => {
     expect(isValidCustomBulletRecord(makeRecord({ id: 'bad-id' }))).toBe(false);
   });
 
+  test('array id that stringifies to valid pattern => false', () => {
+    expect(isValidCustomBulletRecord(makeRecord({ id: ['usr-0123456789abcdef'] }))).toBe(false);
+  });
+
   test('missing required property => false', () => {
     const r = makeRecord();
     delete r.name;

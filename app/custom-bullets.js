@@ -170,7 +170,7 @@ export function validateCustomBulletInput(raw, ctx) {
 /** Validates a parsed record from storage against the schema. Returns boolean. */
 export function isValidCustomBulletRecord(obj) {
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return false;
-  if (!CUSTOM_BULLET_ID_RE.test(obj.id)) return false;
+  if (typeof obj.id !== 'string' || !CUSTOM_BULLET_ID_RE.test(obj.id)) return false;
 
   // name
   if (typeof obj.name !== 'string') return false;

@@ -329,7 +329,7 @@ function exportMarkdown() {
   if (!lastResults.length) return;
   const lines = [];
   lastResults.forEach(r => {
-    lines.push(`## ${r.bullet.name}\n`);
+    lines.push(`## ${escapeHtml(r.bullet.name)}\n`);
     lines.push('| Range (m) | Drop (cm) | Velocity (m/s) | Energy (J) | Wind Drift (cm) | MOA | MRAD |');
     lines.push('|----------:|----------:|---------------:|-----------:|----------------:|----:|-----:|');
     r.points.forEach(p => {
