@@ -209,12 +209,17 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
   const { points, maxOrdIn, maxOrdRangeYd, supersonicLimYd } =
     integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle, dragTable);
 
+  const isa = 15 - 0.0065 * params.altitudeMeters;   // ISA temperature at altitude (°C/m lapse)
+  const densityAltitudeMeters = Math.round(params.altitudeMeters + 36.2 * (params.temperatureC - isa));
+  // 36.2 = 118.8 ft/°C × 0.3048 m/ft
+
   return {
     bullet,
     request:                params,
     points,
     maxOrdinateCm:          Math.round(maxOrdIn * CM_PER_INCH * 10) / 10,
     maxOrdinateRangeMeters: Math.round(maxOrdRangeYd * M_PER_YARD * 10) / 10,
-    supersonicLimitMeters:  Math.round(supersonicLimYd * M_PER_YARD * 10) / 10
+    supersonicLimitMeters:  Math.round(supersonicLimYd * M_PER_YARD * 10) / 10,
+    densityAltitudeMeters
   };
 }

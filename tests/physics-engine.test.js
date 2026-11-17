@@ -606,6 +606,34 @@ describe('integrateTrajectoryFps', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// UX-5: density altitude in TrajectoryResult
+// ─────────────────────────────────────────────────────────────────────────────
+describe('simulate() — densityAltitudeMeters', () => {
+  test('sea level 15°C (ISA standard) → density altitude = 0 m', () => {
+    const result = simulate(BASE_BULLET, { ...BASE_PARAMS, altitudeMeters: 0, temperatureC: 15 });
+    expect(result.densityAltitudeMeters).toBe(0);
+  });
+
+  test('0 m, 30°C → density altitude = 543 m', () => {
+    // isa = 15 - 0.0065*0 = 15; DA = 0 + 36.2*(30-15) = 36.2*15 = 543
+    const result = simulate(BASE_BULLET, { ...BASE_PARAMS, altitudeMeters: 0, temperatureC: 30 });
+    expect(result.densityAltitudeMeters).toBe(543);
+  });
+
+  test('1500 m, 35°C → density altitude = 2577 m', () => {
+    // isa = 15 - 0.0065*1500 = 5.25; DA = 1500 + 36.2*(35-5.25) = 1500 + 36.2*29.75 = 2577
+    const result = simulate(BASE_BULLET, { ...BASE_PARAMS, altitudeMeters: 1500, temperatureC: 35 });
+    expect(result.densityAltitudeMeters).toBe(2577);
+  });
+
+  test('1000 m, -10°C → density altitude = 330 m (positive, cold dense air)', () => {
+    // isa = 15 - 0.0065*1000 = 8.5; DA = 1000 + 36.2*(-10-8.5) = 1000 + 36.2*(-18.5) = 330
+    const result = simulate(BASE_BULLET, { ...BASE_PARAMS, altitudeMeters: 1000, temperatureC: -10 });
+    expect(result.densityAltitudeMeters).toBe(330);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Golden fixture (§11.3) — bit-identical output lock
 // ─────────────────────────────────────────────────────────────────────────────
 describe('simulate() — golden fixture', () => {
