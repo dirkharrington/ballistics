@@ -90,6 +90,10 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
+    // Browser floor is already set by module workers + module SW; lowering gains no browsers.
+    // Fallback to 'es2022' if a target browser breaks.
+    target: 'esnext',
+    reportCompressedSize: false,
   },
   worker: {
     plugins: () => [bulletCatalogPlugin(), physicsTablesPlugin()],
