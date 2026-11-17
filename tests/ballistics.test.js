@@ -61,6 +61,7 @@ function buildDOM() {
       <button id="readoutPin">PIN</button>
       <table><tbody id="readoutBody"></tbody></table>
     </div>
+    <button id="exportCsvBtn" style="display:none;">Export CSV</button>
     <table id="dataTable">
       <thead>
         <tr>
@@ -4679,5 +4680,190 @@ describe('MH-4: sweep export button', () => {
     } finally {
       delete HTMLCanvasElement.prototype.toDataURL;
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UX-2: exportTrajectoryCSV
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportTrajectoryCSV', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    global.Blob = jest.fn((parts) => ({ parts }));
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('returns early without creating a Blob when lastResults is empty', () => {
+    mod._resetState();
+    mod.exportTrajectoryCSV();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  test('single bullet: produces correct CSV header', () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
+      points: [
+        { rangeMeters: 0,   velocityMps: 807, energyJoules: 3552, dropCm: 0 },
+        { rangeMeters: 100, velocityMps: 760, energyJoules: 3100, dropCm: -3.5 },
+      ],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('Distance (m),Velocity (m/s),Energy (J),Drop (m),Bullet');
+  });
+
+  test('single bullet: produces correct data rows with Drop converted from cm to m', () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
+      points: [
+        { rangeMeters: 0,   velocityMps: 807, energyJoules: 3552, dropCm: 0 },
+        { rangeMeters: 100, velocityMps: 760, energyJoules: 3100, dropCm: -3.5 },
+      ],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    // dropCm -3.5 → -0.035 m
+    expect(csv).toContain('100,760,3100,-0.035,');
+    expect(csv).toContain('.308 Win 168gr BTHP');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+  });
+
+  test('two bullets in compare mode: rows present for both, distinguished by Bullet column', () => {
+    const results = [
+      {
+        bullet: { id: '308-win-168gr', name: '.308 Win' },
+        points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+      },
+      {
+        bullet: { id: '223-rem-55gr', name: '.223 Rem' },
+        points: [{ rangeMeters: 0, velocityMps: 975, energyJoules: 1748, dropCm: 0 }],
+      },
+    ];
+    mod._setLastResults(results);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('".308 Win"');
+    expect(csv).toContain('".223 Rem"');
+    // Should have header + 2 data rows
+    const lines = csv.split('\n');
+    expect(lines.length).toBe(3);
+  });
+
+  test('bullet name containing a comma is wrapped in double-quotes (RFC 4180)', () => {
+    const result = {
+      bullet: { id: 'custom', name: 'Sierra, 168gr' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('"Sierra, 168gr"');
+  });
+
+  test('bullet name containing double-quotes has them doubled (RFC 4180)', () => {
+    const result = {
+      bullet: { id: 'custom', name: 'Match "King" 168gr' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('"Match ""King"" 168gr"');
+  });
+
+  test('Blob is created with text/csv MIME type', () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const blobArgs = global.Blob.mock.calls[0];
+    expect(blobArgs[1]).toEqual({ type: 'text/csv' });
+  });
+
+  test('formula-injection trigger in bullet name is prefixed with apostrophe', () => {
+    const result = {
+      bullet: { id: 'custom', name: '=HYPERLINK("x")' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.exportTrajectoryCSV();
+
+    const csv = global.Blob.mock.calls[0][0][0];
+    expect(csv).toContain('"\'=HYPERLINK(""x"")"');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UX-2: exportCsvBtn visibility after runSimulation
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportCsvBtn visibility', () => {
+  test('button is hidden before simulation runs', () => {
+    expect(document.getElementById('exportCsvBtn').style.display).toBe('none');
+  });
+
+  test('button is shown after runSimulation completes successfully', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    await mod.runSimulation();
+    jest.runAllTimers();
+
+    expect(document.getElementById('exportCsvBtn').style.display).toBe('');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UX-2: exportCsvBtn click listener (wired by init)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('exportCsvBtn click listener via init', () => {
+  let createObjectURL, revokeObjectURL, anchorClick;
+
+  beforeEach(() => {
+    createObjectURL = jest.fn(() => 'blob:mock-url');
+    revokeObjectURL = jest.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    global.Blob = jest.fn((parts) => ({ parts }));
+    anchorClick = jest.fn();
+    HTMLAnchorElement.prototype.click = anchorClick;
+  });
+
+  afterEach(() => {
+    delete HTMLAnchorElement.prototype.click;
+  });
+
+  test('clicking exportCsvBtn triggers exportTrajectoryCSV when lastResults are set', () => {
+    const result = {
+      bullet: { id: '308-win-168gr', name: '.308 Win' },
+      points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
+    };
+    mod._setLastResults([result]);
+    mod.init();
+
+    document.getElementById('exportCsvBtn').dispatchEvent(new MouseEvent('click'));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 });
