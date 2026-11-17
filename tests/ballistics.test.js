@@ -99,6 +99,7 @@ function buildDOM() {
     <div class="tab"        id="tab-data"></div>
     <div class="tab"        id="tab-tools"></div>
     <div id="toolsPanel" class="tools-panel"></div>
+    <button id="themeToggle" aria-label="Switch to light mode">&#x1F319;</button>
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
     <div id="toast"></div>
     <input id="customName"   value="" />
@@ -5148,5 +5149,147 @@ describe('UX-1: _syncCustomPanelAvailability', () => {
     // localStorage is empty (cleared in beforeEach), loadCustomBullets returns 'empty' -> ok
     mod.init();
     expect(document.getElementById('addCustomBulletBtn').disabled).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UX-9: Theme toggle
+// ─────────────────────────────────────────────────────────────────────────────
+describe('UX-9: theme toggle', () => {
+  test('initThemeToggle defaults to dark when no saved theme', () => {
+    localStorage.removeItem('bv_theme');
+    mod.initThemeToggle();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  test('initThemeToggle restores saved light theme', () => {
+    localStorage.setItem('bv_theme', 'light');
+    mod.initThemeToggle();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  test('initThemeToggle restores saved dark theme', () => {
+    localStorage.setItem('bv_theme', 'dark');
+    mod.initThemeToggle();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  test('clicking toggle switches dark -> light and persists to localStorage', () => {
+    localStorage.removeItem('bv_theme');
+    mod.initThemeToggle();
+    document.getElementById('themeToggle').click();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(localStorage.getItem('bv_theme')).toBe('light');
+  });
+
+  test('clicking toggle switches light -> dark and persists to localStorage', () => {
+    localStorage.setItem('bv_theme', 'light');
+    mod.initThemeToggle();
+    document.getElementById('themeToggle').click();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(localStorage.getItem('bv_theme')).toBe('dark');
+  });
+
+  test('updateToggleLabel sets correct aria-label for dark theme', () => {
+    mod.updateToggleLabel('dark');
+    expect(document.getElementById('themeToggle').getAttribute('aria-label')).toBe('Switch to light mode');
+  });
+
+  test('updateToggleLabel sets correct aria-label for light theme', () => {
+    mod.updateToggleLabel('light');
+    expect(document.getElementById('themeToggle').getAttribute('aria-label')).toBe('Switch to dark mode');
+  });
+
+  test('updateToggleLabel sets moon icon for dark theme', () => {
+    mod.updateToggleLabel('dark');
+    expect(document.getElementById('themeToggle').textContent).toBe('\u{1F319}');
+  });
+
+  test('updateToggleLabel sets sun icon for light theme', () => {
+    mod.updateToggleLabel('light');
+    expect(document.getElementById('themeToggle').textContent).toBe('☀️');
+  });
+
+  test('updateToggleLabel does nothing when button is absent', () => {
+    document.getElementById('themeToggle').remove();
+    // Should not throw
+    expect(() => mod.updateToggleLabel('dark')).not.toThrow();
+  });
+
+  test('initThemeToggle does nothing when button is absent', () => {
+    document.getElementById('themeToggle').remove();
+    expect(() => mod.initThemeToggle()).not.toThrow();
+    // docElement should still have data-theme set
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  test('_applyChartTheme updates chart tooltip colours', () => {
+    const fakeChart = {
+      options: { plugins: { tooltip: { backgroundColor: '#000', borderColor: '#000', titleColor: '#000', bodyColor: '#000' } } },
+      update: jest.fn(),
+    };
+    mod._setCharts({ main: fakeChart });
+    mod._applyChartTheme('light');
+    expect(fakeChart.options.plugins.tooltip.backgroundColor).toBe('#ffffff');
+    expect(fakeChart.options.plugins.tooltip.borderColor).toBe('#b0c4d8');
+    expect(fakeChart.options.plugins.tooltip.titleColor).toBe('#0077aa');
+    expect(fakeChart.options.plugins.tooltip.bodyColor).toBe('#1a2a38');
+    expect(fakeChart.update).toHaveBeenCalledWith('none');
+  });
+
+  test('_applyChartTheme dark mode restores dark tooltip colours', () => {
+    const fakeChart = {
+      options: { plugins: { tooltip: { backgroundColor: '#fff', borderColor: '#fff', titleColor: '#fff', bodyColor: '#fff' } } },
+      update: jest.fn(),
+    };
+    mod._setCharts({ main: fakeChart });
+    mod._applyChartTheme('dark');
+    expect(fakeChart.options.plugins.tooltip.backgroundColor).toBe('#141d26');
+    expect(fakeChart.options.plugins.tooltip.borderColor).toBe('#1e3040');
+    expect(fakeChart.options.plugins.tooltip.titleColor).toBe('#00d4ff');
+    expect(fakeChart.options.plugins.tooltip.bodyColor).toBe('#c8dde8');
+  });
+
+  test('_applyChartTheme skips charts without tooltip plugin', () => {
+    const fakeChart = { options: { plugins: {} }, update: jest.fn() };
+    mod._setCharts({ main: fakeChart });
+    expect(() => mod._applyChartTheme('dark')).not.toThrow();
+    expect(fakeChart.update).not.toHaveBeenCalled();
+  });
+
+  test('localStorage failure during toggle is silently swallowed', () => {
+    localStorage.removeItem('bv_theme');
+    mod.initThemeToggle();
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+    });
+    expect(() => document.getElementById('themeToggle').click()).not.toThrow();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    jest.restoreAllMocks();
+  });
+
+  test('localStorage failure during init falls back to dark', () => {
+    jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    mod.initThemeToggle();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    jest.restoreAllMocks();
+  });
+
+  test('init() wires up the theme toggle button', () => {
+    localStorage.removeItem('bv_theme');
+    mod.init();
+    document.getElementById('themeToggle').click();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  test('toggle click when data-theme attribute is absent defaults to dark -> light', () => {
+    // Wire up the toggle without calling initThemeToggle so data-theme is not pre-set
+    mod.initThemeToggle();
+    document.documentElement.removeAttribute('data-theme');
+    document.getElementById('themeToggle').click();
+    // No attribute means current === null, || 'dark' fires, next = 'light'
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 });

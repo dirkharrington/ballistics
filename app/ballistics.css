@@ -108,6 +108,21 @@
   --chart-h-sm: 180px; /* chart-wrap at ≤ 500 px viewport             */
 }
 
+/* ── Light theme overrides ── */
+[data-theme="light"] {
+  --bg:        #f0f4f8;
+  --bg2:       #e2e8f0;
+  --bg3:       #d1dae6;
+  --panel:     #ffffff;
+  --border:    #b0c4d8;
+  --accent:    #0077aa;
+  --accent2:   #cc4400;
+  --dim:       #7090a8;
+  --text:      #1a2a38;
+  --text-dim:  #5a7080;
+  --danger:    #cc0000;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -178,6 +193,22 @@ header {
   gap: 24px;
   align-items: center;
 }
+
+#themeToggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px 6px;
+  transition: border-color 0.15s, background 0.15s;
+}
+#themeToggle:hover  { border-color: var(--accent); background: var(--bg3); }
+#themeToggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 
 @keyframes pulse-border {

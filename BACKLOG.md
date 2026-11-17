@@ -1106,7 +1106,7 @@ When 6 or more bullets are selected and the user hovers over the trajectory char
 
 ---
 
-### UX-9 · Light / dark mode toggle · FE · Size S
+### ~~UX-9 · Light / dark mode toggle · FE · Size S~~ ✅ Done (PR #TBD)
 
 The app ships with a fixed dark theme (deep navy/cyan). Users in bright environments or with accessibility needs that prefer high-contrast light backgrounds have no way to switch. The CSS already uses custom properties (`--bg`, `--text`, `--accent`, etc.) on `:root`, making a light theme a matter of overriding those variables. The toggle state persists in `localStorage` and respects `prefers-color-scheme` on first load.
 

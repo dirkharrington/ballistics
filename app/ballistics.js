@@ -1246,6 +1246,54 @@ async function copyLink() {
   }
 }
 
+// ── Theme toggle (UX-9) ───────────────────────────────────────────────────────
+
+/** Update the toggle button label and icon to reflect the current theme. */
+function updateToggleLabel(theme) {
+  const btn = document.getElementById('themeToggle');
+  if (!btn) return;
+  btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+  btn.textContent = theme === 'dark' ? '\u{1F319}' : '☀️';
+}
+
+/** Update Chart.js tooltip colours to match the active theme. */
+function _applyChartTheme(theme) {
+  const isDark = theme === 'dark';
+  const bg     = isDark ? '#141d26' : '#ffffff';
+  const border = isDark ? '#1e3040' : '#b0c4d8';
+  const title  = isDark ? '#00d4ff' : '#0077aa';
+  const body   = isDark ? '#c8dde8' : '#1a2a38';
+  Object.values(charts).forEach(chart => {
+    if (chart.options?.plugins?.tooltip) {
+      chart.options.plugins.tooltip.backgroundColor = bg;
+      chart.options.plugins.tooltip.borderColor     = border;
+      chart.options.plugins.tooltip.titleColor      = title;
+      chart.options.plugins.tooltip.bodyColor       = body;
+      chart.update('none');
+    }
+  });
+}
+
+/** Wire up the theme toggle button and apply the saved/default theme. */
+function initThemeToggle() {
+  const savedTheme = (() => {
+    try { return localStorage.getItem('bv_theme') || 'dark'; } catch (_) { return 'dark'; }
+  })();
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  updateToggleLabel(savedTheme);
+
+  const btn = document.getElementById('themeToggle');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next    = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('bv_theme', next); } catch (_) { /* private browsing */ }
+    updateToggleLabel(next);
+    _applyChartTheme(next);
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 let _initListenerController = null;
 
@@ -1487,6 +1535,9 @@ function init() {
     e.preventDefault();
     _handleCustomBulletSubmit();
   }, { signal });
+
+  // UX-9: Theme toggle
+  initThemeToggle();
 
   // Pin button toggles crosshair lock (chart onClick also toggles)
   document.getElementById('readoutPin')?.addEventListener('click', () => {
@@ -1921,4 +1972,6 @@ export {
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
   // UX-1 test helpers (openCustomBulletAdd/Edit/close/requestDelete are exported at declaration)
   _setCustomRecords, _setCustomStorageStatus,
+  // UX-9: theme toggle
+  initThemeToggle, updateToggleLabel, _applyChartTheme,
 };
