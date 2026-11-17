@@ -117,7 +117,7 @@ function _updateDragTableStatus(fileName, rowCount) {
   if (nameEl)    nameEl.textContent = fileName
     ? `${fileName} (${rowCount} rows)`
     : (_customDragTable ? `Loaded (${_customDragTable.length} rows)` : '');
-  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Uploaded file is used locally in your browser — no data is sent to any server.';
+  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Overrides the drag model for custom-round runs.';
 }
 
 function _clearCustomDragTable() {
@@ -131,7 +131,7 @@ function _clearCustomDragTable() {
   /* istanbul ignore else -- #dragTableFile is always present in the app shell */
   if (fileInput)  fileInput.value = '';
   /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Uploaded file is used locally in your browser — no data is sent to any server.';
+  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Overrides the drag model for custom-round runs.';
 }
 
 // ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
@@ -931,7 +931,7 @@ async function renderResults(rawResults, req) {
   // Update drag model status pill
   const modelEl = document.getElementById('modelStatus');
   /* istanbul ignore else -- #modelStatus is always present in the app shell */
-  if (modelEl) modelEl.textContent = `MODEL: ${req.dragModel ?? 'G1'}`;
+  if (modelEl) modelEl.textContent = `MODEL: ${req.customDragTable?.length ? 'CUSTOM' : (req.dragModel ?? 'G1')}`;
 
   Object.values(charts).forEach(c => c.destroy());
   charts = {};
@@ -1703,7 +1703,7 @@ function init() {
         try { localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table)); } catch (_) {}
         _updateDragTableStatus(file.name, table.length);
         /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-        if (helpEl) helpEl.textContent = 'Mach,CD columns. Uploaded file is used locally in your browser — no data is sent to any server.';
+        if (helpEl) helpEl.textContent = 'Loaded — custom-round results use this table instead of G1/G7.';
       } catch (err) {
         _customDragTable = null;
         try { localStorage.removeItem(CUSTOM_DRAG_TABLE_KEY); } catch (_) {}

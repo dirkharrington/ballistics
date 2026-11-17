@@ -111,7 +111,7 @@ function buildDOM() {
     <input id="customDia"    value="7.82" />
     <div   id="customError"  style="display:none"></div>
     <input type="file" id="dragTableFile" accept=".csv,text/csv" />
-    <small id="dragTableHelp" style="display:block;">Mach,CD columns. Overrides drag model when loaded.</small>
+    <small id="dragTableHelp" style="display:block;">Mach,CD columns. Overrides the drag model for custom-round runs.</small>
     <div id="dragTableStatus" style="display:none;">
       <span id="dragTableName"></span>
       <button type="button" id="dragTableClearBtn">Clear</button>
@@ -3872,6 +3872,39 @@ describe('G7 drag model — runSimulation and renderResults', () => {
       maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
     }];
     await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G1');
+  });
+
+  test('renderResults shows MODEL: CUSTOM when req.customDragTable has entries', async () => {
+    const results = [{
+      bullet: { id: '308-win-168gr', name: '.308', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
+    }];
+    const customTable = [
+      { mach: 0.3, cd: 0.3 },
+      { mach: 1.0, cd: 0.5 },
+      { mach: 2.5, cd: 0.4 },
+    ];
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1', customDragTable: customTable });
+    expect(document.getElementById('modelStatus').textContent).toBe('MODEL: CUSTOM');
+  });
+
+  test('renderResults shows G1/G7 when req.customDragTable is absent or empty', async () => {
+    const results = [{
+      bullet: { id: '308-win-168gr', name: '.308', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
+    }];
+    // absent
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G7' });
+    expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G7');
+    // empty array
+    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1', customDragTable: [] });
     expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G1');
   });
 
