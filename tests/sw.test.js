@@ -204,6 +204,31 @@ describe('handleInstall', () => {
   });
 });
 
+// ── enableNavigationPreload ───────────────────────────────────────────────────
+describe('enableNavigationPreload', () => {
+  test('returns false when registration is undefined', async () => {
+    const result = await sw.enableNavigationPreload(undefined);
+    expect(result).toBe(false);
+  });
+
+  test('returns false when registration has no navigationPreload', async () => {
+    const result = await sw.enableNavigationPreload({});
+    expect(result).toBe(false);
+  });
+
+  test('calls enable and returns true when navigationPreload is available', async () => {
+    const enableMock = jest.fn().mockResolvedValue(undefined);
+    const result = await sw.enableNavigationPreload({ navigationPreload: { enable: enableMock } });
+    expect(result).toBe(true);
+    expect(enableMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('returns false and does not throw when enable rejects', async () => {
+    const enableMock = jest.fn().mockRejectedValue(new DOMException('Not supported'));
+    await expect(sw.enableNavigationPreload({ navigationPreload: { enable: enableMock } })).resolves.toBe(false);
+  });
+});
+
 // ── handleActivate ────────────────────────────────────────────────────────────
 describe('handleActivate', () => {
   test('deletes stale caches matching the prefix', async () => {
@@ -238,6 +263,18 @@ describe('handleActivate', () => {
     await sw.handleActivate();
 
     expect(enableMock).toHaveBeenCalled();
+    delete global.registration;
+  });
+
+  test('enables NavigationPreload before clients.claim', async () => {
+    global.caches.keys.mockResolvedValueOnce([]);
+    const enableMock = jest.fn().mockResolvedValue(undefined);
+    global.registration = { navigationPreload: { enable: enableMock } };
+
+    await sw.handleActivate();
+
+    expect(enableMock.mock.invocationCallOrder[0])
+      .toBeLessThan(global.clients.claim.mock.invocationCallOrder[0]);
     delete global.registration;
   });
 
@@ -301,6 +338,21 @@ describe('handleFetch', () => {
     sw.handleFetch(event);
     expect(event.respondWith).toHaveBeenCalled();
   });
+
+  test('non-navigate GET with preloadResponse ignores it and uses cache-first', async () => {
+    // preloadResponse must not be consumed for non-navigate requests
+    const preloadResp = new Response('should-not-be-used', { status: 200 });
+    const req = makeRequest('GET', 'http://localhost/app.js');
+    const event = { ...makeEvent(req), preloadResponse: Promise.resolve(preloadResp) };
+    const cachedResp = new Response('cached', { status: 200 });
+    global.caches.match.mockResolvedValueOnce(cachedResp);
+
+    sw.handleFetch(event);
+    expect(event.respondWith).toHaveBeenCalled();
+    const result = await event.respondWith.mock.calls[0][0];
+    expect(result).toBe(cachedResp);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });
 
 // ── networkFirstCacheFallback with preloadResponsePromise (PERF-12) ───────────
@@ -343,6 +395,40 @@ describe('networkFirstCacheFallback with NavigationPreload', () => {
     const result = await sw.networkFirstCacheFallback(req, Promise.resolve(undefined));
 
     expect(result).toBe(fetchResp);
+  });
+
+  test('does not cache a non-ok preload response', async () => {
+    const preloadResp = new Response('Not Found', { status: 404 });
+    preloadResp.clone = jest.fn().mockReturnThis();
+    const mockCache = makeCache();
+    global.caches.open.mockResolvedValue(mockCache);
+
+    const req = makeRequest('GET', 'http://localhost/');
+    const result = await sw.networkFirstCacheFallback(req, Promise.resolve(preloadResp));
+
+    expect(result).toBe(preloadResp);
+    expect(mockCache.put).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('returns cached entry when preload promise rejects and cache exists', async () => {
+    const cachedResp = new Response('cached', { status: 200 });
+    global.caches.match.mockResolvedValueOnce(cachedResp);
+
+    const req = makeRequest('GET', 'http://localhost/');
+    const result = await sw.networkFirstCacheFallback(req, Promise.reject(new TypeError('offline')));
+
+    expect(result).toBe(cachedResp);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('returns 503 when preload promise rejects and no cache entry exists', async () => {
+    global.caches.match.mockResolvedValueOnce(undefined);
+
+    const req = makeRequest('GET', 'http://localhost/');
+    const result = await sw.networkFirstCacheFallback(req, Promise.reject(new TypeError('offline')));
+
+    expect(result.status).toBe(503);
   });
 });
 
