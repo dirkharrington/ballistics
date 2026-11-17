@@ -229,6 +229,34 @@ describe('handleActivate', () => {
     expect(global.caches.delete).not.toHaveBeenCalled();
     expect(global.clients.claim).toHaveBeenCalled();
   });
+
+  test('enables NavigationPreload when registration.navigationPreload is available', async () => {
+    global.caches.keys.mockResolvedValueOnce([]);
+    const enableMock = jest.fn().mockResolvedValue(undefined);
+    global.registration = { navigationPreload: { enable: enableMock } };
+
+    await sw.handleActivate();
+
+    expect(enableMock).toHaveBeenCalled();
+    delete global.registration;
+  });
+
+  test('skips NavigationPreload enable when registration.navigationPreload is absent', async () => {
+    global.caches.keys.mockResolvedValueOnce([]);
+    global.registration = {};
+
+    await sw.handleActivate();
+
+    expect(global.clients.claim).toHaveBeenCalled();
+    delete global.registration;
+  });
+
+  test('skips when registration is undefined', async () => {
+    global.caches.keys.mockResolvedValueOnce([]);
+    // global.registration is not set — self.registration is undefined
+    await sw.handleActivate();
+    expect(global.clients.claim).toHaveBeenCalled();
+  });
 });
 
 // ── handleFetch ───────────────────────────────────────────────────────────────
@@ -248,12 +276,73 @@ describe('handleFetch', () => {
     expect(event.respondWith).toHaveBeenCalled();
   });
 
+  test('navigate mode passes event.preloadResponse to networkFirstCacheFallback', async () => {
+    const preloadBody = 'preloaded html';
+    const preloadResp = new Response(preloadBody, { status: 200 });
+    preloadResp.clone = jest.fn().mockReturnThis();
+    const preloadPromise = Promise.resolve(preloadResp);
+
+    const req = { ...makeRequest('GET', 'http://localhost/index.html'), mode: 'navigate' };
+    const event = { ...makeEvent(req), preloadResponse: preloadPromise };
+    const mockCache = makeCache();
+    global.caches.open.mockResolvedValue(mockCache);
+
+    sw.handleFetch(event);
+    expect(event.respondWith).toHaveBeenCalled();
+    // Resolve the promise passed to respondWith and verify the preloaded response was used
+    const result = await event.respondWith.mock.calls[0][0];
+    expect(result).toBe(preloadResp);
+  });
+
   test('intercepts all other GET requests with cache-first', () => {
     const req = makeRequest('GET', 'http://localhost/index.html');
     const event = makeEvent(req);
     global.caches.match.mockResolvedValueOnce(new Response('', { status: 200 }));
     sw.handleFetch(event);
     expect(event.respondWith).toHaveBeenCalled();
+  });
+});
+
+// ── networkFirstCacheFallback with preloadResponsePromise (PERF-12) ───────────
+describe('networkFirstCacheFallback with NavigationPreload', () => {
+  test('uses preloaded response when promise resolves to a Response', async () => {
+    const preloadResp = new Response('preload', { status: 200 });
+    preloadResp.clone = jest.fn().mockReturnThis();
+    const mockCache = makeCache();
+    global.caches.open.mockResolvedValue(mockCache);
+
+    const req = makeRequest('GET', 'http://localhost/');
+    const result = await sw.networkFirstCacheFallback(req, Promise.resolve(preloadResp));
+
+    expect(result).toBe(preloadResp);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('falls back to fetch when preload promise resolves to null', async () => {
+    const fetchResp = new Response('fetched', { status: 200 });
+    fetchResp.clone = jest.fn().mockReturnThis();
+    global.fetch.mockResolvedValueOnce(fetchResp);
+    const mockCache = makeCache();
+    global.caches.open.mockResolvedValue(mockCache);
+
+    const req = makeRequest('GET', 'http://localhost/');
+    const result = await sw.networkFirstCacheFallback(req, Promise.resolve(null));
+
+    expect(result).toBe(fetchResp);
+    expect(global.fetch).toHaveBeenCalledWith(req);
+  });
+
+  test('falls back to fetch when preload promise resolves to undefined', async () => {
+    const fetchResp = new Response('fetched', { status: 200 });
+    fetchResp.clone = jest.fn().mockReturnThis();
+    global.fetch.mockResolvedValueOnce(fetchResp);
+    const mockCache = makeCache();
+    global.caches.open.mockResolvedValue(mockCache);
+
+    const req = makeRequest('GET', 'http://localhost/');
+    const result = await sw.networkFirstCacheFallback(req, Promise.resolve(undefined));
+
+    expect(result).toBe(fetchResp);
   });
 });
 
