@@ -886,7 +886,7 @@ The Custom Round panel has had a drag table CSV uploader since before Sprint 1. 
 
 ---
 
-### UX-6 · Remove stale "server update" drag table help text · FE · Size XS
+### UX-6 · Remove stale "server update" drag table help text · FE · Size XS ✅ Done (PR #130)
 
 The drag table help text reads "Stored for future use — drag model override requires server update" in three places. The server was removed in Sprint 5 (SPA-3). CLN-1 fixed `app/drag-csv.js` but missed `app/ballistics.js` (two functions) and `app/index.html`. With FEAT-3 shipping this sprint the custom drag table is live; the copy must be accurate before it merges.
 

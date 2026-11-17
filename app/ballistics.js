@@ -112,7 +112,7 @@ function _updateDragTableStatus(fileName, rowCount) {
   if (nameEl)    nameEl.textContent = fileName
     ? `${fileName} (${rowCount} rows)`
     : (_customDragTable ? `Loaded (${_customDragTable.length} rows)` : '');
-  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Stored for future use — drag model override requires server update.';
+  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Uploaded file is used locally in your browser — no data is sent to any server.';
 }
 
 function _clearCustomDragTable() {
@@ -126,7 +126,7 @@ function _clearCustomDragTable() {
   /* istanbul ignore else -- #dragTableFile is always present in the app shell */
   if (fileInput)  fileInput.value = '';
   /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Stored for future use — drag model override requires server update.';
+  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Uploaded file is used locally in your browser — no data is sent to any server.';
 }
 
 // ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
@@ -1462,7 +1462,7 @@ function init() {
         try { localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table)); } catch (_) {}
         _updateDragTableStatus(file.name, table.length);
         /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-        if (helpEl) helpEl.textContent = 'Loaded — requires server update to apply; results currently use the selected drag model.';
+        if (helpEl) helpEl.textContent = 'Mach,CD columns. Uploaded file is used locally in your browser — no data is sent to any server.';
       } catch (err) {
         _customDragTable = null;
         try { localStorage.removeItem(CUSTOM_DRAG_TABLE_KEY); } catch (_) {}
