@@ -1050,7 +1050,7 @@ The physics Web Worker is created lazily on the first `simulateAsync()` call. Wo
 
 ---
 
-### DX-3 · VS Code workspace settings · DX · Size XS
+### ~~DX-3 · VS Code workspace settings · DX · Size XS~~ ✅ Done (PR #131)
 
 The repo has no `.vscode/` directory. Developers opening the project in VS Code get no TypeScript path resolution, no recommended extensions, no task shortcuts, and the editor may index `dist/`, `node_modules/`, and `.claude/worktrees/` unnecessarily. This is a one-time setup cost that affects every contributor from their first checkout.
 
