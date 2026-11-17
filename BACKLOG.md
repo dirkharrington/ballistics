@@ -962,8 +962,9 @@ The stat card template in `renderStatCards` already conditionally renders `r.den
 1. In `app/physics/types.ts`, add `densityAltitudeMeters: number` to `TrajectoryResult`.
 2. In `app/physics/engine.ts` `simulate()`, compute density altitude before the return statement:
    ```ts
-   const isaTempC = 15 - 0.00198 * params.altitudeMeters;
-   const densityAltitudeMeters = Math.round(params.altitudeMeters + 118.8 * (params.temperatureC - isaTempC));
+   const isa = 15 - 0.0065 * params.altitudeMeters;   // ISA temperature at altitude (°C/m lapse)
+   const densityAltitudeMeters = Math.round(params.altitudeMeters + 36.2 * (params.temperatureC - isa));
+   // 36.2 = 118.8 ft/°C × 0.3048 m/ft
    ```
 3. No change to `renderStatCards` needed — the existing `r.densityAltitudeMeters !== undefined` conditional fires automatically.
 

@@ -209,8 +209,9 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
   const { points, maxOrdIn, maxOrdRangeYd, supersonicLimYd } =
     integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle, dragTable);
 
-  const isaTempC = 15 - 0.00198 * params.altitudeMeters;
-  const densityAltitudeMeters = Math.round(params.altitudeMeters + 118.8 * (params.temperatureC - isaTempC));
+  const isa = 15 - 0.0065 * params.altitudeMeters;   // ISA temperature at altitude (°C/m lapse)
+  const densityAltitudeMeters = Math.round(params.altitudeMeters + 36.2 * (params.temperatureC - isa));
+  // 36.2 = 118.8 ft/°C × 0.3048 m/ft
 
   return {
     bullet,
