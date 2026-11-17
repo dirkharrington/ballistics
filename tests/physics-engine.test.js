@@ -644,6 +644,7 @@ describe('simulate() — golden fixture', () => {
       expect(result.maxOrdinateCm).toEqual(expected.maxOrdinateCm);
       expect(result.maxOrdinateRangeMeters).toEqual(expected.maxOrdinateRangeMeters);
       expect(result.supersonicLimitMeters).toEqual(expected.supersonicLimitMeters);
+      expect(result.dragModel).toBe(expected.dragModel ?? (params.dragModel === 'G7' ? 'G7' : 'G1'));
     });
   }
 });
@@ -1068,5 +1069,234 @@ describe('FEAT-2 test 14: integrateTrajectoryFps with coriolisK', () => {
   test('extras = {} → coriolisDeflectionCm key absent on all points', () => {
     const { points } = _integrateWithExtras(mvFps, angle, bc, rho, wLbs, 0, maxRangeYd, stepYd, 1, undefined, {});
     points.forEach(p => expect('coriolisDeflectionCm' in p).toBe(false));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEAT-3: Custom drag table
+// ─────────────────────────────────────────────────────────────────────────────
+
+const { toDragTable } = require('../app/physics/engine.ts');
+
+const FLAT_TABLE    = [{mach:0,cd:0.28},{mach:1,cd:0.28},{mach:3,cd:0.28}];
+const HEAVY_TABLE   = [{mach:0,cd:2.0},{mach:1,cd:2.0},{mach:3,cd:2.0}];
+
+// Test 2: customDragTable omitted / null / [] — identical to no-table run
+describe('FEAT-3 test 2: absent/null/empty customDragTable equals no-table run', () => {
+  test('G1: omitted/null/[] all toEqual', () => {
+    const base   = simulate(B308, COND_A);
+    const noTbl  = simulate(B308, { ...COND_A, customDragTable: undefined });
+    const nullTbl = simulate(B308, { ...COND_A, customDragTable: null });
+    const emptyTbl = simulate(B308, { ...COND_A, customDragTable: [] });
+    expect(noTbl.points).toEqual(base.points);
+    expect(nullTbl.points).toEqual(base.points);
+    expect(emptyTbl.points).toEqual(base.points);
+    expect(base.dragModel).toBe('G1');
+    expect(noTbl.dragModel).toBe('G1');
+    expect(nullTbl.dragModel).toBe('G1');
+    expect(emptyTbl.dragModel).toBe('G1');
+  });
+
+  test('G7: omitted/null/[] all toEqual', () => {
+    const base    = simulate(B308, { ...COND_A, dragModel: 'G7' });
+    const noTbl   = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: undefined });
+    const nullTbl = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: null });
+    const emptyTbl = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: [] });
+    expect(noTbl.points).toEqual(base.points);
+    expect(nullTbl.points).toEqual(base.points);
+    expect(emptyTbl.points).toEqual(base.points);
+    expect(base.dragModel).toBe('G7');
+    expect(noTbl.dragModel).toBe('G7');
+    expect(nullTbl.dragModel).toBe('G7');
+    expect(emptyTbl.dragModel).toBe('G7');
+  });
+});
+
+// Test 3: G1-equivalent table produces similar results, dragModel === 'custom'
+describe('FEAT-3 test 3: G1-equivalent custom table', () => {
+  test('every point within ±0.1 of G1 run; dragModel === custom', () => {
+    const g1Table = G1_TABLE.map(([v, f]) => ({ mach: v / 1125, cd: f }));
+    const g1Run  = simulate(B308, COND_A);
+    const cusRun = simulate(B308, { ...COND_A, customDragTable: g1Table });
+    expect(cusRun.dragModel).toBe('custom');
+    for (let i = 0; i < g1Run.points.length; i++) {
+      const pg1 = g1Run.points[i];
+      const pc  = cusRun.points[i];
+      expect(Math.abs(pc.dropCm        - pg1.dropCm)).toBeLessThanOrEqual(0.1);
+      expect(Math.abs(pc.velocityMps   - pg1.velocityMps)).toBeLessThanOrEqual(0.1);
+      expect(Math.abs(pc.timeOfFlightSec - pg1.timeOfFlightSec)).toBeLessThanOrEqual(0.1);
+    }
+  });
+});
+
+// Test 4: same table with dragModel G1 and G7 both produce dragModel === 'custom' and identical points
+describe('FEAT-3 test 4: dragModel override — custom table takes precedence', () => {
+  test('same table with G1 and G7 produces identical points and dragModel === custom', () => {
+    const rG1 = simulate(B308, { ...COND_A, dragModel: 'G1', customDragTable: FLAT_TABLE });
+    const rG7 = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: FLAT_TABLE });
+    expect(rG1.dragModel).toBe('custom');
+    expect(rG7.dragModel).toBe('custom');
+    expect(rG1.points).toEqual(rG7.points);
+  });
+});
+
+// Test 5: heavy flat table vs plain G1 — more drag, lower velocity, more drop
+describe('FEAT-3 test 5: heavy flat table (cd:2.0) vs G1', () => {
+  test('last point: lower velocity, higher tof, more negative drop than G1', () => {
+    const g1  = simulate(B308, COND_A);
+    const cus = simulate(B308, { ...COND_A, customDragTable: HEAVY_TABLE });
+    const lastG1  = g1.points[g1.points.length - 1];
+    const lastCus = cus.points[cus.points.length - 1];
+    expect(lastCus.velocityMps).toBeLessThan(lastG1.velocityMps);
+    expect(lastCus.timeOfFlightSec).toBeGreaterThan(lastG1.timeOfFlightSec);
+    expect(lastCus.dropCm).toBeLessThan(lastG1.dropCm);
+  });
+});
+
+// Test 6: custom table + twist + lat/az — spinDrift and coriolis are still present
+describe('FEAT-3 test 6: custom table + spin drift + Coriolis', () => {
+  test('spinDriftCm and coriolisDeflectionCm both present and > 0 at last point', () => {
+    const result = simulate(B308, {
+      ...COND_A,
+      customDragTable: FLAT_TABLE,
+      twistRateInchesPerTurn: 10,
+      latitudeDeg: 45,
+      azimuthDeg: 90,
+    });
+    expect('spinDriftCm' in result.points[result.points.length - 1]).toBe(true);
+    expect('coriolisDeflectionCm' in result.points[result.points.length - 1]).toBe(true);
+    result.points.forEach(p => expect(p.spinDriftCm).toBeGreaterThanOrEqual(0));
+    result.points.forEach(p => expect(p.coriolisDeflectionCm).toBeGreaterThanOrEqual(0));
+    const last = result.points[result.points.length - 1];
+    expect(last.spinDriftCm).toBeGreaterThan(0);
+    expect(last.coriolisDeflectionCm).toBeGreaterThan(0);
+  });
+});
+
+// Test 7: toDragTable
+describe('FEAT-3 test 7: toDragTable', () => {
+  test('converts [{mach:0,cd:0.1},{mach:2,cd:0.3}] to [[0,0.1],[2250,0.3]]', () => {
+    const result = toDragTable([{mach:0,cd:0.1},{mach:2,cd:0.3}]);
+    expect(result[0][0]).toBe(0);
+    expect(result[0][1]).toBeCloseTo(0.1);
+    expect(result[1][0]).toBe(2250);
+    expect(result[1][1]).toBeCloseTo(0.3);
+    // Strictly ascending in column 0
+    expect(result[1][0]).toBeGreaterThan(result[0][0]);
+  });
+});
+
+// Test 8: Validation — one test per rule 1–7
+describe('FEAT-3 test 8: customDragTable validation — rule 1 (must be array)', () => {
+  test('string throws customDragTable', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: 'x' }, 'customDragTable', 'an array of { mach, cd } points');
+  });
+  test('object throws customDragTable', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: {} }, 'customDragTable', 'an array of { mach, cd } points');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 2 (3–100 points)', () => {
+  const minTable = [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}];
+  test('2 points throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: minTable.slice(0,2) }, 'customDragTable', 'between 3 and 100 points');
+  });
+  test('101 points throws', () => {
+    const big = Array.from({length:101}, (_, i) => ({mach: i * 0.049, cd: 0.1}));
+    // ensure coverage: big[0].mach=0, big[100].mach=4.9, need mach<=0.5 and >=2.0
+    expectValidationError(B308, { ...COND_A, customDragTable: big }, 'customDragTable', 'between 3 and 100 points');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 3 (mach [0,5])', () => {
+  const base3 = [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}];
+  test('mach -0.1 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:-0.1,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'mach values between 0 and 5');
+  });
+  test('mach 5.1 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:5.1,cd:0.1}] }, 'customDragTable', 'mach values between 0 and 5');
+  });
+  test('mach NaN throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:NaN,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'mach values between 0 and 5');
+  });
+  test('null entry throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1}, null, {mach:3,cd:0.1}] }, 'customDragTable', 'mach values between 0 and 5');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 4 (cd [0.001,2])', () => {
+  test('cd 0 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'cd values between 0.001 and 2');
+  });
+  test('cd 2.1 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:2.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'cd values between 0.001 and 2');
+  });
+  test('missing cd throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'cd values between 0.001 and 2');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 5 (strictly increasing mach)', () => {
+  test('equal mach values throw', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'strictly increasing mach values');
+  });
+  test('decreasing mach throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:2,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'strictly increasing mach values');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 6 (need mach <= 0.5)', () => {
+  test('no point <= 0.5 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0.6,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'at least one point with mach <= 0.5');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 7 (need mach >= 2.0)', () => {
+  test('no point >= 2.0 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:0.5,cd:0.1},{mach:1.9,cd:0.1}] }, 'customDragTable', 'at least one point with mach >= 2.0');
+  });
+});
+
+// Test 9: Validation boundaries — exactly 3 and 100 points, boundary mach/cd, exact coverage
+describe('FEAT-3 test 9: validation boundary values accepted', () => {
+  test('exactly 3 points accepted', () => {
+    expect(() => simulate(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] })).not.toThrow();
+  });
+
+  test('exactly 100 points accepted', () => {
+    // 100 points: mach from 0 to 3.0 in 100 steps, guaranteed mach<=0.5 and mach>=2.0
+    const pts = Array.from({length:100}, (_, i) => ({mach: i * (3.0/99), cd: 0.1}));
+    expect(() => simulate(B308, { ...COND_A, customDragTable: pts })).not.toThrow();
+  });
+
+  test('mach 0 and 5 accepted', () => {
+    const pts = [{mach:0,cd:0.1},{mach:0.5,cd:0.1},{mach:2.0,cd:0.1},{mach:5,cd:0.1}];
+    expect(() => simulate(B308, { ...COND_A, customDragTable: pts })).not.toThrow();
+  });
+
+  test('cd 0.001 and 2 accepted', () => {
+    const pts = [{mach:0,cd:0.001},{mach:0.5,cd:2},{mach:2.0,cd:0.1},{mach:3,cd:0.1}];
+    expect(() => simulate(B308, { ...COND_A, customDragTable: pts })).not.toThrow();
+  });
+
+  test('coverage at exactly mach 0.5 and 2.0 accepted', () => {
+    const pts = [{mach:0,cd:0.1},{mach:0.5,cd:0.1},{mach:2.0,cd:0.1},{mach:3,cd:0.1}];
+    expect(() => simulate(B308, { ...COND_A, customDragTable: pts })).not.toThrow();
+  });
+});
+
+// Test 10: dragModel on results
+describe('FEAT-3 test 10: dragModel field on results', () => {
+  test('no table, params.dragModel G7 → dragModel G7', () => {
+    expect(simulate(B308, { ...COND_A, dragModel: 'G7' }).dragModel).toBe('G7');
+  });
+  test('no table, params.dragModel G1 → dragModel G1', () => {
+    expect(simulate(B308, { ...COND_A, dragModel: 'G1' }).dragModel).toBe('G1');
+  });
+  test('no table, params.dragModel null → dragModel G1', () => {
+    expect(simulate(B308, { ...COND_A, dragModel: null }).dragModel).toBe('G1');
+  });
+  test('no table, params.dragModel absent → dragModel G1', () => {
+    expect(simulate(B308, COND_A).dragModel).toBe('G1');
   });
 });

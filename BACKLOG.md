@@ -857,9 +857,11 @@ The latitude and azimuth inputs were added in Sprint 7 and encoded in URL state.
 
 ---
 
-### FEAT-3 · Wire custom drag CSV to physics engine · FE · Size M
+### FEAT-3 · Wire custom drag CSV to physics engine · FE · Size M ✅ Done (PR #133)
 
 The Custom Round panel has had a drag table CSV uploader since before Sprint 1. The engine marks `customDragTable` as RESERVED and ignores it — every trajectory still uses G1 or G7 regardless of what the user uploads.
+
+**WA-12 FE work (UI copy updates) was delivered by UX-6 (PR #130). Engine work is delivered by FEAT-3 (this PR). `contracts/wa12-custom-drag.md` §2–§4 (Rust/Java) remain on hold.**
 
 **Work items:**
 
