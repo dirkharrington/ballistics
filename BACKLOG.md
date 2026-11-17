@@ -801,10 +801,6 @@ Stack order for physics stories: FEAT-1 → FEAT-2 → FEAT-3 (all three touch `
 
 ---
 
-### Must Have
-
----
-
 ### FEAT-1 · Gyroscopic spin drift in physics engine and data table · FE · Size S
 
 The barrel twist rate input has existed since Sprint 7 and round-trips through URL state, but the engine marks `twistRateInchesPerTurn` as IGNORED. The chart and readout rendering code already checks for `p.spinDriftCm` and will activate automatically; this story implements the Litz simplified formula in the TypeScript engine, adds `spinDriftCm` to `TrajectoryPoint`, and adds the missing "Spin Drift (cm)" header to the data table.
@@ -934,10 +930,6 @@ Bullet selection cards are `<div>` elements with click listeners only. They are 
 
 ---
 
-### Should Have
-
----
-
 ### UX-4 · Spin drift column in DOPE card · FE · Size S
 
 The DOPE card's `_buildDopeTable` already renders a "Cor. (cm)" column for Coriolis — that code activates automatically once FEAT-2 ships. Spin drift is not in the DOPE card at all. A shooter who has set a twist rate needs the lateral spin drift correction on the same DOPE card as the elevation come-ups.
@@ -1035,10 +1027,6 @@ Users can export trajectory results as JSON but have no way to reload a saved se
 
 ---
 
-### Could Have
-
----
-
 ### PERF-14 · Warm physics worker on idle · FE · Size XS
 
 The physics Web Worker is created lazily on the first `simulateAsync()` call. Worker startup on a mid-range mobile is 20–60 ms. Triggering `_getWorker()` during the idle period after `init()` completes removes that startup cost from the critical path of the first click.
@@ -1059,16 +1047,6 @@ The physics Web Worker is created lazily on the first `simulateAsync()` call. Wo
 - After page load (before any Compute click), the Worker instance exists.
 - Worker startup cost does not appear on the critical path of the first Compute click.
 - `npm test` passes at 100/100/100/100.
-
----
-
-### Icebox (future sprints)
-
-- **ACC-3 · Arrow-key roving tabindex in bullet list** — Follow-on to ACC-1; Up/Down arrows navigate within the bullet list. 2 pts.
-- **FEAT-4 · G7 BC on custom bullets** — Custom bullets with `dragModel: 'G7'` currently use the G1 reference table. Add optional `bcG7` to the custom bullet form. 3 pts.
-- **UX-7 · Print-friendly DOPE card** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts.
-- **DX-2 · Named session saves** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts.
-- **SEC-3 · Content Security Policy header audit** — GitHub Pages does not support custom headers; evaluate `<meta http-equiv="Content-Security-Policy">` or Cloudflare Pages migration. 3 pts.
 
 ---
 
@@ -1179,3 +1157,14 @@ The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter fo
 - On mobile (drawer open), the compute button is visible at the bottom of the drawer when the drawer is fully open.
 - Existing layout and spacing is preserved — no content is clipped or overlaps the button.
 - `npm test` passes at 100/100/100/100.
+
+
+---
+
+### Icebox (future sprints)
+
+- **ACC-3 · Arrow-key roving tabindex in bullet list** — Follow-on to ACC-1; Up/Down arrows navigate within the bullet list. 2 pts.
+- **FEAT-4 · G7 BC on custom bullets** — Custom bullets with `dragModel: 'G7'` currently use the G1 reference table. Add optional `bcG7` to the custom bullet form. 3 pts.
+- **UX-7 · Print-friendly DOPE card** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts.
+- **DX-2 · Named session saves** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts.
+- **SEC-3 · Content Security Policy header audit** — GitHub Pages does not support custom headers; evaluate `<meta http-equiv="Content-Security-Policy">` or Cloudflare Pages migration. 3 pts.
