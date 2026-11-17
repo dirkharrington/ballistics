@@ -113,6 +113,8 @@ function buildDOM() {
       <span id="dragTableName"></span>
       <button type="button" id="dragTableClearBtn">Clear</button>
     </div>
+    <button type="button" id="importJsonBtn" class="copy-link-btn" aria-label="Import previously exported trajectory JSON">⬆ IMPORT JSON</button>
+    <input type="file" id="importJsonFile" accept=".json,application/json" style="display:none" />
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
     <button type="button" id="savePresetBtn">SAVE AS PRESET</button>
     <div id="customPresetSection" hidden></div>
@@ -2134,6 +2136,147 @@ describe('exportJSON', () => {
     expect(parsed[0].points).toBeDefined();
     expect(anchorClick).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// importResultsFromFile (DM-1)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('importResultsFromFile', () => {
+  function makeFileReaderMock(content) {
+    const mockReader = {
+      onload: null,
+      readAsText(file) {
+        // Fire onload synchronously with the provided content
+        this.onload({ target: { result: content } });
+      },
+    };
+    global.FileReader = jest.fn(() => mockReader);
+    return mockReader;
+  }
+
+  beforeEach(() => {
+    buildDOM();
+  });
+
+  test('renders results when given valid JSON with bullet and points', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const result = simulate(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    const json = JSON.stringify([result]);
+    makeFileReaderMock(json);
+    const file = new File([json], 'trajectory.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    expect(document.getElementById('resultsContainer').style.display).not.toBe('none');
+    expect(document.getElementById('emptyState').style.display).toBe('none');
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(true);
+  });
+
+  test('shows error when JSON is not valid', async () => {
+    makeFileReaderMock('not-valid-json{{{');
+    const file = new File(['not-valid-json{{{'], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/not valid JSON/i);
+  });
+
+  test('shows error when JSON is not a non-empty array', async () => {
+    makeFileReaderMock(JSON.stringify({}));
+    const file = new File([JSON.stringify({})], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/non-empty array/i);
+  });
+
+  test('shows error when JSON is an empty array', async () => {
+    makeFileReaderMock(JSON.stringify([]));
+    const file = new File([JSON.stringify([])], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/non-empty array/i);
+  });
+
+  test('shows error when an item is missing the bullet property', async () => {
+    const payload = JSON.stringify([{ points: [] }]);
+    makeFileReaderMock(payload);
+    const file = new File([payload], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet.*points/i);
+  });
+
+  test('shows error when an item is missing the points property', async () => {
+    const payload = JSON.stringify([{ bullet: { name: 'Test' } }]);
+    makeFileReaderMock(payload);
+    const file = new File([payload], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet.*points/i);
+  });
+
+  test('returns early without reading when file is falsy', () => {
+    const FileReaderSpy = jest.fn();
+    global.FileReader = FileReaderSpy;
+    mod.importResultsFromFile(null);
+    expect(FileReaderSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('importJsonBtn / importJsonFile wiring', () => {
+  beforeEach(async () => {
+    buildDOM();
+    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await mod.init();
+  });
+
+  test('clicking #importJsonBtn triggers click on #importJsonFile', () => {
+    const fileInput = document.getElementById('importJsonFile');
+    const clickSpy = jest.fn();
+    fileInput.click = clickSpy;
+    document.getElementById('importJsonBtn').click();
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('#importJsonFile change event calls importResultsFromFile and resets value', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const { simulate: simulateFn } = require('../app/physics/engine.ts');
+    const result = simulateFn(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    const json = JSON.stringify([result]);
+
+    const mockReader = {
+      onload: null,
+      readAsText() { this.onload({ target: { result: json } }); },
+    };
+    global.FileReader = jest.fn(() => mockReader);
+
+    const fileInput = document.getElementById('importJsonFile');
+    Object.defineProperty(fileInput, 'files', { value: [new File([json], 'trajectory.json')], configurable: true });
+    fileInput.dispatchEvent(new Event('change'));
+
+    expect(document.getElementById('resultsContainer').style.display).not.toBe('none');
   });
 });
 

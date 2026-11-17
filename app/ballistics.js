@@ -340,6 +340,41 @@ function exportJSON() {
   );
 }
 
+// ── JSON import (DM-1) ────────────────────────────────────────────────────────
+// Validates that the parsed value is an array of trajectory result objects, each
+// with at least a `bullet` and a `points` property, then renders them directly
+// (no physics re-computation).
+function importResultsFromFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(e.target.result);
+    } catch (_) {
+      _setSimulationError('Import failed: file is not valid JSON.');
+      return;
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      _setSimulationError('Import failed: JSON must be a non-empty array of trajectory results.');
+      return;
+    }
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object' || !item.bullet || !item.points) {
+        _setSimulationError('Import failed: each result must have a "bullet" and "points" property.');
+        return;
+      }
+    }
+    _setSimulationError(null);
+    lastResults = parsed;
+    await renderResults(parsed, {});
+    const exportBtn = document.getElementById('exportCsvBtn');
+    /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
+    if (exportBtn) exportBtn.style.display = '';
+  };
+  reader.readAsText(file);
+}
+
 // ── Markdown export ───────────────────────────────────────────────────────────
 function exportMarkdown() {
   if (!lastResults.length) return;
@@ -1344,6 +1379,15 @@ function init() {
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
   document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
   document.querySelector('.export-md-btn')?.addEventListener('click', exportMarkdown);
+  document.getElementById('importJsonBtn')?.addEventListener('click', () => {
+    document.getElementById('importJsonFile')?.click();
+  });
+  document.getElementById('importJsonFile')?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    importResultsFromFile(file);
+    // Reset so the same file can be re-selected
+    e.target.value = '';
+  });
   document.querySelector('.export-toggle')?.addEventListener('click', function() {
     this.closest('.export-dropdown')?.classList.toggle('open');
   });
@@ -1907,7 +1951,7 @@ export {
   renderResults, renderTable, updateReadout, switchTab, init,
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
   exportTrajectoryCSV,
-  exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, showToast,
+  exportCSV, exportJSON, exportMarkdown, exportPNG, importResultsFromFile, runCustom, showToast,
   _downloadBlob,
   BULLET_COLORS, SWEEP_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
   drawVLine, drawHLine, annotationPlugin, windChartSubtitle,
