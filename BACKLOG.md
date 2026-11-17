@@ -307,7 +307,7 @@ for Chart constructor; update mock path if needed).
 
 ## Milestone 7 — User Experience
 
-### UX-3 · Bullet list selection UX · FE · Size S
+### ✅ UX-3 · Bullet list selection UX · FE · Size S · DONE
 
 The bullet list currently selects all rounds on first visit, has no way to
 toggle all at once, and blocks simulation with a browser `alert()` when nothing
@@ -364,7 +364,7 @@ than an interrupting dialog.
 
 ---
 
-### ~~UX-1 · Custom bullet catalog · FE · Size M~~ ✅ Done (PR pending)
+### ✅ UX-1 · Custom bullet catalog · FE · Size M · DONE
 
 Users can only select bullets bundled at build time. Adding a custom load
 (wildcat cartridge, handload, suppressor-specific subsonic) requires a code
@@ -442,7 +442,7 @@ before and after simulation.
 
 ## Milestone 8 — Security hygiene
 
-### SEC-1 · Pin vulnerable transitive Jest dependencies · DevSecOps · Size XS
+### ✅ SEC-1 · Pin vulnerable transitive Jest dependencies · DevSecOps · Size XS · DONE
 
 Dependabot and Trivy report three open vulnerabilities (medium × 2, low × 1),
 all transitive dependencies pulled in by Jest. None reach the browser bundle —
@@ -484,7 +484,7 @@ red and will block any future devsecops gate that enforces zero open findings.
 
 ---
 
-### SEC-2 · Resolve stale CodeQL XSS alert and audit innerHTML usage · DevSecOps · Size XS
+### ✅ SEC-2 · Resolve stale CodeQL XSS alert and audit innerHTML usage · DevSecOps · Size XS · DONE
 
 CodeQL alert #12 flags `innerHTML` usage as a potential DOM XSS vector at
 `src/main/resources/static/tools.js` — a path that was deleted in SPA-4 (moved
