@@ -1027,7 +1027,7 @@ Users can export trajectory results as JSON but have no way to reload a saved se
 
 ---
 
-### PERF-14 · Warm physics worker on idle · FE · Size XS
+### ~~PERF-14 · Warm physics worker on idle · FE · Size XS~~ ✓ Done
 
 The physics Web Worker is created lazily on the first `simulateAsync()` call. Worker startup on a mid-range mobile is 20–60 ms. Triggering `_getWorker()` during the idle period after `init()` completes removes that startup cost from the critical path of the first click.
 
