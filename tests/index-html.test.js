@@ -9,6 +9,15 @@ const REQUIRED_PRELOADS = [
   '/fonts/orbitron-900.woff2',
 ];
 
+describe('index.html aria-live regions', () => {
+  test('contains #simStatus with aria-live="polite" and aria-atomic="true"', () => {
+    expect(html).toContain('id="simStatus"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-atomic="true"');
+    expect(html).toContain('class="sr-only"');
+  });
+});
+
 describe('index.html font preloads', () => {
   test.each(REQUIRED_PRELOADS)('preloads %s with correct attributes', (href) => {
     const escaped = href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

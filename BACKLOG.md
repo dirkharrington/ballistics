@@ -977,7 +977,7 @@ The stat card template in `renderStatCards` already conditionally renders `r.den
 
 ---
 
-### ACC-2 · Screen reader announcements for simulation lifecycle · FE · Size XS
+### ~~ACC-2 · Screen reader announcements for simulation lifecycle · FE · Size XS~~ ✓ DONE
 
 A screen reader user clicking "Compute Trajectories" receives no feedback that the simulation is running or complete. `#simulationError` handles errors (`aria-live="assertive"`) and `#toast` handles toasts, but neither fires for in-progress or success states.
 
