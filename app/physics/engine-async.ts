@@ -61,6 +61,23 @@ export function simulateAsync(bullet: Bullet, params: TrajectoryParams): Promise
   });
 }
 
+/**
+ * Pre-warm the physics worker so the first user-triggered compute avoids
+ * worker startup + script-parse latency. Call this once after the page is
+ * interactive. Uses requestIdleCallback (with a 2 s timeout) so it never
+ * blocks the main thread; falls back to setTimeout on browsers that lack
+ * requestIdleCallback. Safe to call multiple times — no-op if the worker
+ * is already running.
+ */
+export function prewarmPhysicsWorker(): void {
+  const warm = () => { _getWorker(); };
+  if (typeof requestIdleCallback !== 'undefined') {
+    requestIdleCallback(warm, { timeout: 2000 });
+  } else {
+    setTimeout(warm, 2000);
+  }
+}
+
 window.addEventListener('pagehide', () => {
   _worker?.terminate();
   _worker = null;

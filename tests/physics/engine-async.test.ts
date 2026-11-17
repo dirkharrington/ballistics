@@ -1,4 +1,4 @@
-import { simulateAsync, _resetForTest } from '../../app/physics/engine-async.ts';
+import { simulateAsync, _resetForTest, prewarmPhysicsWorker } from '../../app/physics/engine-async.ts';
 import { TrajectoryInputError } from '../../app/physics/engine.ts';
 import { createPhysicsWorker } from '../../app/physics/create-physics-worker.ts';
 
@@ -78,6 +78,52 @@ describe('simulateAsync — pending-map dispatch', () => {
     expect(msg.id).toBeGreaterThan(0);
     expect(msg.bullet).toBe(bullet);
     expect(msg.params).toBe(params);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('prewarmPhysicsWorker', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    delete (globalThis as any).requestIdleCallback;
+  });
+
+  test('uses requestIdleCallback when available, fires callback which creates worker', () => {
+    const ric = jest.fn((cb: IdleRequestCallback) => { cb({ didTimeout: false, timeRemaining: () => 50 }); return 0; });
+    (globalThis as any).requestIdleCallback = ric;
+
+    prewarmPhysicsWorker();
+
+    expect(ric).toHaveBeenCalledWith(expect.any(Function), { timeout: 2000 });
+    expect(workerCtor).toHaveBeenCalledTimes(1);
+  });
+
+  test('falls back to setTimeout when requestIdleCallback is unavailable', () => {
+    delete (globalThis as any).requestIdleCallback;
+
+    prewarmPhysicsWorker();
+
+    expect(workerCtor).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(2000);
+
+    expect(workerCtor).toHaveBeenCalledTimes(1);
+  });
+
+  test('is a no-op if worker already exists (does not create a second worker)', () => {
+    simulateAsync({} as any, {} as any);
+    expect(workerCtor).toHaveBeenCalledTimes(1);
+
+    const ric = jest.fn((cb: IdleRequestCallback) => { cb({ didTimeout: false, timeRemaining: () => 50 }); return 0; });
+    (globalThis as any).requestIdleCallback = ric;
+
+    prewarmPhysicsWorker();
+
+    expect(workerCtor).toHaveBeenCalledTimes(1);
   });
 });
 

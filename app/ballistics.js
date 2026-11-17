@@ -4,7 +4,7 @@ import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
 import { TrajectoryInputError } from './physics/errors.ts';
-import { simulateAsync } from './physics/engine-async.ts';
+import { simulateAsync, prewarmPhysicsWorker } from './physics/engine-async.ts';
 import {
   loadCustomBullets, saveCustomBullets, mergeCatalog, isCustomBulletId,
   renderCustomBulletGroup, syncCustomDeleteGuards, upsertCustomBullet,
@@ -1898,6 +1898,7 @@ function _setCustomStorageStatus(s)  { customStorageStatus = s; }
 // Guard prevents spurious calls when imported by tests before buildDOM().
 if (document.getElementById('bulletList')) {
   init();
+  prewarmPhysicsWorker();
 }
 
 export {

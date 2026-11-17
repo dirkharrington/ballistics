@@ -151,6 +151,7 @@ function buildDOM() {
 
 jest.mock('../app/physics/engine-async.ts', () => ({
   simulateAsync: jest.fn(),
+  prewarmPhysicsWorker: jest.fn(),
 }));
 const { simulate } = require('../app/physics/engine.ts');
 const { simulateAsync } = require('../app/physics/engine-async.ts');
