@@ -475,6 +475,10 @@ header {
   height: var(--chart-h);
 }
 
+.chart-wrap canvas {
+  touch-action: none;
+}
+
 /* ── stats grid ── */
 .stats-grid {
   display: grid;
