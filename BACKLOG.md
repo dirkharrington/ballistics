@@ -364,7 +364,7 @@ than an interrupting dialog.
 
 ---
 
-### UX-1 · Custom bullet catalog · FE · Size M
+### ~~UX-1 · Custom bullet catalog · FE · Size M~~ ✅ Done (PR pending)
 
 Users can only select bullets bundled at build time. Adding a custom load
 (wildcat cartridge, handload, suppressor-specific subsonic) requires a code

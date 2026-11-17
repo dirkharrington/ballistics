@@ -58,6 +58,84 @@
       <!-- populated by JS -->
     </div>
 
+    <!-- UX-1: Custom bullet panel (Add button + form, lives outside #bulletList so re-renders don't wipe in-progress input) -->
+    <div id="customBulletPanel" class="custom-bullet-panel">
+      <button type="button" id="addCustomBulletBtn" class="add-bullet-btn"
+              aria-controls="customBulletForm" aria-expanded="false">
+        + ADD CUSTOM BULLET
+      </button>
+      <form id="customBulletForm" class="custom-bullet-form" hidden novalidate
+            aria-labelledby="customBulletFormTitle">
+        <div id="customBulletFormTitle" class="bullet-group-label">Add custom bullet</div>
+        <!-- Row 1: Name (full width) -->
+        <div class="param-group">
+          <label for="cbName">Name</label>
+          <input type="text" id="cbName" name="cbName"
+                 maxlength="64" required autocomplete="off"
+                 aria-describedby="cbName-error">
+          <small class="field-error" id="cbName-error"></small>
+        </div>
+        <!-- Row A: Short name + Mass -->
+        <div class="param-row">
+          <div class="param-group">
+            <label for="cbShortName">Short name</label>
+            <input type="text" id="cbShortName" name="cbShortName"
+                   maxlength="16" required autocomplete="off"
+                   aria-describedby="cbShortName-error">
+            <small class="field-error" id="cbShortName-error"></small>
+          </div>
+          <div class="param-group">
+            <label for="cbBulletWeightGrains">Mass (gr)</label>
+            <input type="number" id="cbBulletWeightGrains" name="cbBulletWeightGrains"
+                   min="1" max="1000" step="0.1" inputmode="decimal" required
+                   aria-describedby="cbBulletWeightGrains-error">
+            <small class="field-error" id="cbBulletWeightGrains-error"></small>
+          </div>
+        </div>
+        <!-- Row B: BC G1 + BC G7 -->
+        <div class="param-row">
+          <div class="param-group">
+            <label for="cbBcG1">BC G1</label>
+            <input type="number" id="cbBcG1" name="cbBcG1"
+                   min="0.01" max="1.2" step="0.001" inputmode="decimal" required
+                   aria-describedby="cbBcG1-error">
+            <small class="field-error" id="cbBcG1-error"></small>
+          </div>
+          <div class="param-group">
+            <label for="cbBcG7">BC G7 (optional)</label>
+            <input type="number" id="cbBcG7" name="cbBcG7"
+                   min="0.01" max="1.0" step="0.001" inputmode="decimal"
+                   aria-describedby="cbBcG7-error">
+            <small class="field-error" id="cbBcG7-error"></small>
+          </div>
+        </div>
+        <!-- Row C: Diameter + MV -->
+        <div class="param-row">
+          <div class="param-group">
+            <label for="cbBulletDiameterInches">Diameter (in)</label>
+            <input type="number" id="cbBulletDiameterInches" name="cbBulletDiameterInches"
+                   min="0.1" max="1.0" step="0.001" inputmode="decimal" required
+                   aria-describedby="cbBulletDiameterInches-error">
+            <small class="field-error" id="cbBulletDiameterInches-error"></small>
+          </div>
+          <div class="param-group">
+            <label for="cbMuzzleVelocityFps">MV (fps)</label>
+            <input type="number" id="cbMuzzleVelocityFps" name="cbMuzzleVelocityFps"
+                   min="300" max="5000" step="1" inputmode="decimal" required
+                   aria-describedby="cbMuzzleVelocityFps-error">
+            <small class="field-error" id="cbMuzzleVelocityFps-error"></small>
+          </div>
+        </div>
+        <!-- Form-level error -->
+        <div id="customBulletFormError" class="form-error" role="alert"></div>
+        <!-- Actions -->
+        <div class="form-actions">
+          <button type="submit" id="customBulletSaveBtn">SAVE</button>
+          <button type="button" id="customBulletCancelBtn">CANCEL</button>
+        </div>
+      </form>
+    </div>
+
     <div class="section-label">Parameters</div>
     <div class="params">
       <div class="param-row">
