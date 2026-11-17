@@ -527,3 +527,266 @@ affected render function to cover the data-flow fix.
 
 ---
 
+
+## Sprint 9 — Performance
+
+These ten stories ship as **stacked PRs**, merged in the order listed. Each branch is cut from the one before it. The decisions and rationale are in ADR 010, [`contracts/adr-sprint9-performance.md`](contracts/adr-sprint9-performance.md). Before PERF-4 merges, record the baseline from ADR 010 §4: Lighthouse mobile, the SW precache byte total, and the timing of a 10-bullet, 2 000 m, 1 m-step simulation.
+
+Stack: PERF-4 → PERF-5 → PERF-6 → PERF-7 → PERF-8 → PERF-9 → PERF-10 → PERF-11 → PERF-12 → PERF-13
+
+---
+
+### PERF-4 · Vite build target `esnext` and disable `reportCompressedSize` · DevSecOps · Size XS
+
+`vite.config.js` doesn't set `build.target`, so Vite 8 lowers syntax to its default browser baseline. The app already needs module workers (`create-physics-worker.ts`) and a module service worker (`navigator.serviceWorker.register(..., { type: 'module' })`), so lowering gains no browsers and only makes the output bigger. `reportCompressedSize` defaults to `true`, so every build gzips each chunk just to print a size column.
+
+**Work items:**
+1. In `vite.config.js`, add `target: 'esnext'` and `reportCompressedSize: false` to `build`.
+2. Leave `build.cssTarget` unset, so it inherits `target`. Leave the `worker` block unchanged, since worker output also follows `build.target`.
+3. Above `target`, add a one-line comment saying why: the browser floor is already set by module workers and module SWs. The fallback is `'es2022'` if a target browser breaks.
+4. Record `npm run build` wall time before and after (median of 3 runs, `time npm run build`) in the PR description.
+
+**Coverage:** No app code changes, so coverage is unchanged.
+
+**Acceptance:**
+- `npm run build` no longer prints the gzip size column.
+- Served with `npm run build && npx vite preview`, the built app loads and completes a simulation in current Chrome, Firefox and Safari, on desktop and iOS.
+- Build time is not slower.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-5 · Preload critical fonts · FE · Size XS
+
+`app/index.html` has no font preloads. The browser finds the woff2 files only after `ballistics.css` downloads and parses and an element that uses them is styled. With `font-display: swap`, the header then reflows visibly.
+
+**Work items:**
+1. In `app/index.html`, add three preloads immediately **before** `<link rel="stylesheet" href="./ballistics.css">`. Use the same root-relative `/fonts/…` form that `ballistics.css` uses, so Vite resolves both to the same fingerprinted asset:
+   ```html
+   <link rel="preload" href="/fonts/rajdhani-400.woff2"        as="font" type="font/woff2" crossorigin>
+   <link rel="preload" href="/fonts/share-tech-mono-400.woff2" as="font" type="font/woff2" crossorigin>
+   <link rel="preload" href="/fonts/orbitron-900.woff2"        as="font" type="font/woff2" crossorigin>
+   ```
+   Why these three: Rajdhani 400 is the `body` face. Share Tech Mono 400 is used by the header subtitle, `.section-label`, `.param-group label` and the inputs. Orbitron 900 is the `<h1>`. Orbitron 700 and Rajdhani 600 are left to normal discovery, so preloads stay capped at 3 and don't compete with the CSS and entry JS.
+2. `crossorigin` is **required**. Without it the preload is fetched in no-cors mode, `@font-face` can't reuse it, and the font downloads twice.
+3. Check that `vite build` rewrites the preload `href`s to the same `/ballistics/assets/<name>-<hash>.woff2` URLs that the built CSS references. If Vite leaves them untouched, inject the links from a `transformIndexHtml` hook (`order: 'post'`) in `vite.config.js` that looks up the emitted file names in `ctx.bundle`. Don't move the fonts to `public/`, because `serviceWorkerPlugin` only precaches bundled assets (PERF-2).
+4. Add `tests/index-html.test.js` (Node-side, `fs` read only). It asserts the three preload tags exist with `as="font"`, `type="font/woff2"` and `crossorigin`.
+
+**Coverage:** HTML only, plus a file-reading test. The JS coverage denominator is unchanged.
+
+**Acceptance:**
+- In `dist/index.html`, each of the three preload `href`s **exactly matches** a font URL referenced in `dist/assets/*.css`.
+- DevTools → Network (cold cache, Fast 4G): each preloaded font is requested **once**, at Highest priority, with `index.html` as the initiator. The console has no "preloaded but not used within a few seconds" warning.
+- The header text no longer swaps visibly on a throttled cold load. Attach before and after filmstrip screenshots to the PR.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-6 · Audit and drop unused font weights · FE · Size S
+
+`ballistics.css` declares 9 `@font-face` faces (123 KB). The PERF-2 SW precaches **every** woff2 Vite emits, so every visitor downloads all 9 on SW install. A preliminary audit found no rule that uses Rajdhani 300 or 500. Rajdhani 700 is only requested for a `✓` glyph that falls outside the faces' `unicode-range`.
+
+**Contract:** [`contracts/perf6-font-audit.md`](contracts/perf6-font-audit.md) v1.0.0 (2026-11-16)
+
+**Work items:**
+1. Build the family × weight usage matrix from CSS rules (resolving inheritance), UA-default bold elements, inline `style=` attributes, JS-generated markup and Chart.js canvas `font` configs. The method is in contract §3.1. Put the matrix in the PR description.
+2. For each face with zero use, delete its `@font-face` block and `git rm` its woff2. Expected: `rajdhani-300` and `rajdhani-500`, plus `rajdhani-700` if the audit confirms it's unused.
+3. Update the per-family weight comments and the stale file-header comment ("served by Spring Boot").
+4. Add `tests/fonts.test.js`. It checks: every `src` exists, no file in `app/fonts/` is orphaned, no duplicate family/weight, and every PERF-5 preload has a matching `@font-face`.
+
+**Coverage:** No app JS changes. The new test reads files only. `npm test` stays at 100/100/100/100.
+
+**Acceptance:**
+- `app/fonts/` and `dist/assets/` contain only the faces in use.
+- The precache list in `dist/sw.js` no longer contains the deleted faces. The PR states the byte savings.
+- Visual check on desktop and at ≤500 px width (screenshots in the PR): no glyph changes weight or falls back to a system font.
+- No `.woff2` 404s during a full UI walk-through.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-7 · Vite manual chunk split (physics + vendor) · FE · Size XS
+
+No chunk strategy is configured. `app/ballistics.js` imports `TrajectoryInputError` from `./physics/engine.ts`, so the **main-thread** bundle carries the whole RK4 engine plus the G1/G7/atmosphere tables, even though only the worker runs them. Every UI-only deploy also changes the hash of the single entry chunk.
+
+Vite 8 builds with Rolldown. The object form of `manualChunks` is no longer supported and the function form is deprecated, so use `codeSplitting.groups`.
+
+**Work items:**
+1. Create `app/physics/errors.ts` and move `TrajectoryInputError` into it, verbatim. In `engine.ts`, replace the class with `export { TrajectoryInputError } from './errors.ts';` so `engine.worker.ts` and the tests that import from `engine.ts` keep working. Point `app/ballistics.js` and `app/physics/engine-async.ts` at `./physics/errors.ts` and `./errors.ts`. Add `app/physics/errors.ts` to `collectCoverageFrom` in `package.json`.
+2. In `vite.config.js`, add:
+   ```js
+   build: {
+     // …PERF-4 keys…
+     rolldownOptions: {
+       output: {
+         codeSplitting: {
+           groups: [
+             { name: 'vendor',  test: /[\\/]node_modules[\\/](chart\.js|@kurkle)[\\/]/, priority: 20 },
+             { name: 'physics', test: /[\\/]app[\\/]physics[\\/]/,                     priority: 10 },
+           ],
+         },
+       },
+     },
+   },
+   ```
+   Check the option name against the installed Rolldown type definitions (`OutputOptions`). If this Vite 8 release only exposes `advancedChunks`, use that with the same `groups` shape.
+3. Keep the `vendor` test **narrow**. A broad `/node_modules/` can pull Vite's preload helper or modulepreload polyfill into `vendor`. That makes `vendor` a static dependency of the entry, so Chart.js would load eagerly again and PERF-3 would regress.
+4. Don't add groups under `worker`. The worker is already its own bundle.
+
+**Coverage:** `errors.ts` is covered by the existing `TrajectoryInputError` tests. `npm test` stays at 100/100/100/100.
+
+**Acceptance:**
+- `dist/assets/` contains `vendor-*.js` (Chart.js) and `physics-*.js`.
+- `dist/index.html` has no `modulepreload` for the `vendor` chunk, and the entry chunk has no static import of it. Network shows Chart.js fetched only on the first Compute.
+- The entry and `physics` chunks contain no drag-table data (grep for a distinctive G1 table constant). Only the worker chunk does. The PR states the entry-JS byte reduction.
+- If two builds differ only in a change to `app/ballistics.js`, only the entry chunk hash changes. `vendor-*` and `physics-*` hashes stay the same.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-8 · Binary search in `interpolateDragTable` · FE · Size S
+
+`interpolateDragTable` (`app/physics/engine.ts:68`) scans the 40–45-row drag table linearly. It runs 4 times per RK4 step in both the 64-pass zero-angle bisection and the trajectory integration, which is tens of thousands of calls per bullet.
+
+**Contract:** [`contracts/perf8-binary-search.md`](contracts/perf8-binary-search.md) v1.0.0 (2026-11-16)
+
+**Work items:**
+1. Replace the linear loop with a lower-bound binary search over `[1, n-1]`. It must pick the **same** bracket as the scan: the smallest `i` with `|v| <= table[i][0]`.
+2. Keep the clamps, the `NaN → NaN` result (now an explicit `Number.isNaN` guard) and the exact arithmetic order `a[1] + t * (b[1] - a[1])`, so output stays bit-identical.
+3. Write the precondition (table `v` strictly ascending) in the JSDoc.
+4. Leave the signature, the `DragTable` type and every caller unchanged.
+
+**Coverage:** 100% Jest. Add an equivalence property test against a verbatim copy of the old linear scan, compared with `Object.is` on breakpoints, ±ε around them, midpoints, signed zeros, ±Infinity, `NaN` and 10 000 seeded-PRNG samples on both tables. Also add 2- and 3-row edge tables and a strictly-ascending check on `G1_TABLE`/`G7_TABLE`. The SPA-1 golden fixture must pass **without** being regenerated.
+
+**Acceptance:**
+- No linear loop remains in `interpolateDragTable`.
+- The golden fixture and the equivalence test pass.
+- The PR description gives the median of 5 runs of a 10-bullet, 2 000 m, 1 m-step `simulate()`, before and after. "After" is not slower.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-9 · Memoize Chart.js dynamic import and registration · FE · Size XS
+
+`renderResults` (~line 682) and `renderSweepCharts` (~line 1062) each run `await import('chart.js')` plus `Chart.register(...)` on every render. On a cold cache, the chunk fetch starts only **after** the worker returns. A failed chunk load causes an unhandled rejection inside an un-awaited `requestAnimationFrame` callback, so the user gets no charts and no message.
+
+**Contract:** [`contracts/perf9-chart-memoize.md`](contracts/perf9-chart-memoize.md) v1.0.0 (2026-11-16)
+
+**Work items:**
+1. Add a module-level `loadChart()` that imports and registers the 7 components once, caches the promise, and **resets the cache on rejection** so the next call retries. Add `_resetChartLoader()` for tests and export both.
+2. Replace both inline import/register pairs with `await loadChart()`.
+3. Add `warmChart()`, which calls `loadChart().catch(_noop)`. Call it in `runSimulation`, `runCustom` and `runSweep` **before** awaiting the worker, so the chunk download overlaps the computation.
+4. When the loader fails, `renderResults` shows "Couldn't load the chart library. Check your connection and try again." through `_setSimulationError`, skips the charts, and still renders the data table and DOPE card. `renderSweepCharts` shows the same message and returns.
+5. Add `_setSimulationError(null)` at the start of `runCustom` and `runSweep`, so a stale error clears.
+
+**Coverage:** 100% Jest. Tests: `Chart.register` is called exactly once across repeated renders, the cache resets after a failure, both renderer failure paths, the warm-up runs before the worker resolves, warm-up failures are swallowed, and the error clears. Contract §4 has the full list.
+
+**Acceptance:**
+- `app/ballistics.js` contains exactly one `import('chart.js')` and one `Chart.register`.
+- On a cold cache, the Chart.js chunk request starts before the worker result returns.
+- Offline with Chart.js not yet cached: you see the error message plus the data table and no uncaught error. Going back online and clicking Compute again renders the charts.
+- `dist/index.html` still has no modulepreload for Chart.js.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-10 · `content-visibility: auto` on lazy result sections · FE · Size XS
+
+Each run renders 5 `.chart-panel`s (3 per sweep) into the scrolling `.chart-container`, but only 1–2 are on screen. All of them get style, layout and paint, both on the first render and on every crosshair hover, because `onHover` calls `update('none')` on every chart.
+
+**Work items:**
+1. In `app/ballistics.css`, add to `.chart-panel`:
+   ```css
+   content-visibility: auto;
+   contain-intrinsic-size: auto 332px; /* chart-h 240 + padding 40 + header ~34 + gap 16 + border 2 */
+   ```
+   Measure the real panel height in DevTools and use that number. Inside the existing `@media (max-width: 900px)` and `@media (max-width: 500px)` blocks that change `.chart-wrap` height, override `contain-intrinsic-size` with the measured heights (about `auto 292px` and `auto 272px`).
+2. Don't apply it to `.stats-grid`, `.range-readout` (positioned or sticky), table rows (`content-visibility` doesn't reliably apply to table-internal boxes) or `.tool-card` (that panel is `display:none` until it's opened).
+3. Don't change any JS. Chart.js still draws to every canvas; only browser rendering of off-screen panels is skipped.
+
+**Coverage:** CSS only. The JS coverage denominator is unchanged.
+
+**Acceptance:**
+- DevTools Performance: on a 5-bullet run, and while the crosshair hovers, Rendering/Painting time is lower than before. Attach before and after traces or summaries to the PR.
+- Scrolling down shows every chart fully drawn at the correct size. The scrollbar thumb doesn't jump visibly as panels come into view.
+- PNG export of a chart that hasn't been scrolled into view gives a correct, non-blank image.
+- Crosshair hover and pin stay in sync across all charts, including off-screen ones once they're scrolled into view.
+- Find-in-page (Ctrl/Cmd+F) finds the "WIND DRIFT" title while it's off-screen.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-11 · Passive event listeners for scroll and touch · FE · Size XS
+
+An audit on 2026-11-16 found **no** `scroll` or `wheel` listeners. It found exactly two `touchmove` listeners, both on chart canvases in `renderResults` (`app/ballistics.js` ~758 and ~856). They are registered `{ passive: false }` and call `preventDefault()` so the page doesn't scroll while the user scrubs a chart. Non-passive touch listeners make the compositor wait for the main thread, and Lighthouse flags them.
+
+**Work items:**
+1. Add `.chart-wrap canvas { touch-action: none; }` to `app/ballistics.css`. The browser then stops page panning on chart canvases without any JS involved. Users see the same behaviour as today, where `preventDefault` already blocks the scroll.
+2. Replace the two inline forwarders with one helper, `forwardTouchAsMouse(canvas)`. It registers `touchmove` with `{ passive: true }`, **doesn't** call `preventDefault()`, and dispatches the synthetic `mousemove` exactly as today. Export it for tests and use it at both sites.
+3. Repeat the audit and paste the output into the PR: `grep -rnE "addEventListener\(\s*'(scroll|wheel|mousewheel|touchstart|touchmove|touchend|touchcancel|pointermove)'" app/`. Any new match must be `{ passive: true }`. The only exception is a listener that genuinely calls `preventDefault()`, which needs a comment explaining why.
+4. Don't change Chart.js's own `events` options. Chart.js already registers its listeners as passive.
+
+**Coverage:** 100% Jest. Tests: the helper registers `touchmove` with `{ passive: true }` (spy on `addEventListener`), a dispatched `touchmove` produces one `mousemove` with the touch's `clientX`/`clientY`, `preventDefault` is not called, and both chart creation paths use the helper.
+
+**Acceptance:**
+- The Lighthouse "Uses passive listeners to improve scrolling performance" audit passes.
+- On a real touch device (iOS Safari and Android Chrome), scrubbing a chart moves the crosshair and readout and doesn't scroll the page, the same as before.
+- Scrolling the page outside the charts is unaffected.
+- `npm test` passes at 100/100/100/100.
+
+> Follow-up, needs user input and is not in scope: `touch-action: pan-y` would let users scroll vertically over charts while still scrubbing horizontally. It's a UX change, so raise it as its own story if you want it.
+
+---
+
+### PERF-12 · Service Worker NavigationPreload · FE · Size S
+
+`app/sw.js` serves navigations network-first, but the `fetch` can't start until the SW has booted. Idle SWs are stopped often, especially on mobile, so every repeat visit pays the boot time before `index.html` is even requested. Navigation Preload sends the request at the same time as SW boot.
+
+**Contract:** [`contracts/perf12-sw-nav-preload.md`](contracts/perf12-sw-nav-preload.md) v1.0.0 (2026-11-16)
+
+**Work items:**
+1. Add and export `enableNavigationPreload(registration)`. It feature-detects `registration.navigationPreload`, calls `enable()`, never throws, and returns a boolean.
+2. Have `handleActivate()` call `await enableNavigationPreload(self.registration)` after the old-cache cleanup and before `clients.claim()`.
+3. Give `networkFirstCacheFallback(request, preloadResponse?)` the response `(await preloadResponse) ?? await fetch(request)`. Keep the existing `response.ok` cache-put and the cache/503 fallback. A rejected preload (offline) goes to the fallback.
+4. Have `handleFetch`'s navigate branch pass `event.preloadResponse`. Non-navigate requests stay unchanged.
+5. Keep the `vite.config.js` substitution anchors (`let CACHE_VERSION = 'v1';`, `'__VITE_PRECACHE_MANIFEST__'`) byte-identical.
+
+**Coverage:** 100% Jest (`tests/sw.test.js`, Node environment). Tests: all four `enableNavigationPreload` outcomes, the activate ordering, and that the preload is used without calling `fetch`. Also: an `undefined` preload falls back to `fetch`, a non-ok preload isn't cached, a rejected preload uses the cache or returns 503, the navigate branch passes `preloadResponse`, and non-navigate requests ignore it.
+
+**Acceptance:**
+- `(await navigator.serviceWorker.ready).navigationPreload.getState()` reports `enabled: true` after activation.
+- After stopping the SW in DevTools and reloading, the document request carries `Service-Worker-Navigation-Preload: true` and starts before the SW finishes booting.
+- An offline reload still serves the cached app (PERF-2 behaviour).
+- The console has no "preload request was cancelled" warning.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-13 · CI Vite build-cache via `actions/cache` · DevSecOps · Size XS
+
+`ci.yml` caches `~/.npm` but no build or test intermediates. Vite documents `node_modules/.vite` as the dev-server dependency pre-bundling cache, so it's **not yet established** that `vite build` reads it. This story measures first and only merges a cache that pays off.
+
+**Work items:**
+1. **Measure.** Run `rm -rf node_modules/.vite && npm run build` and then `npm run build` again, 3 times each, locally or in a scratch CI run. Record whether `vite build` creates or reads `node_modules/.vite` and the median build-step times.
+2. **If** the warm build is ≥10% faster, add a cache step to both `frontend-build` and `pages-build`, placed **after** `Install` (because `npm ci` deletes `node_modules`) and before `Build`:
+   ```yaml
+   - name: Cache Vite build cache
+     if: needs.changes.outputs.frontend == 'true'   # omit in pages-build
+     uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+     with:
+       path: node_modules/.vite
+       key: ${{ runner.os }}-vite-${{ hashFiles('package-lock.json', 'vite.config.js') }}
+       restore-keys: ${{ runner.os }}-vite-
+   ```
+3. **Otherwise**, don't add a cache that does nothing. Cache Jest's babel transform cache in `frontend-build` instead. Change the test step to `npm test -- --ci --cacheDirectory=.jest-cache`, add an `actions/cache` step (same pinned SHA) for `.jest-cache` keyed on `hashFiles('package-lock.json', 'babel.config.js', 'tsconfig.json')`, and add `.jest-cache/` to `.gitignore`. Measure the `Test` step the same way.
+4. Reuse the existing SHA-pinned `actions/cache`. Don't add any new action.
+5. Don't cache `node_modules` itself, because it bypasses the `npm ci` integrity check.
+
+**Coverage:** No app code changes, so coverage is unchanged.
+
+**Acceptance:**
+- The PR description has the step-1 measurement and states which branch (2 or 3) was taken, with before and after medians for the affected step.
+- A second CI run on the PR logs a cache hit for the new key.
+- No merged cache step saves less than 10% on the step it targets.
+- CI passes. The deployed site is byte-identical apart from the SW `CACHE_VERSION` timestamp.
+- `npm test` passes at 100/100/100/100.
