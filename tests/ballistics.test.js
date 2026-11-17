@@ -1547,7 +1547,7 @@ describe('crosshairPlugin', () => {
     });
   });
 
-  test('all five charts use interaction mode index', async () => {
+  test('all five charts use interaction mode nearest', async () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -1559,7 +1559,7 @@ describe('crosshairPlugin', () => {
     MockChart.mockClear();
     await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     MockChart.mock.calls.forEach(([, cfg]) => {
-      expect(cfg.options.interaction.mode).toBe('index');
+      expect(cfg.options.interaction.mode).toBe('nearest');
     });
   });
 });

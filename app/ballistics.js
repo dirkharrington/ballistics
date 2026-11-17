@@ -661,7 +661,7 @@ function buildChartConfig(def, datasets, results) {
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
       events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
-      interaction: { mode: 'index', intersect: false },
+      interaction: { mode: 'nearest', intersect: false },
       onHover: (event, elements) => {
         if (crosshairPinned) return;
         if (elements.length > 0) {
@@ -912,7 +912,7 @@ async function renderResults(rawResults, req) {
       options: {
         responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
         events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
-        interaction: { mode: 'index', intersect: false },
+        interaction: { mode: 'nearest', intersect: false },
         onHover: (event, elements) => {
           if (crosshairPinned) return;
           if (elements.length > 0) {
