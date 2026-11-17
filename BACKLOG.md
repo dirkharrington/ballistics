@@ -801,7 +801,7 @@ Stack order for physics stories: FEAT-1 → FEAT-2 → FEAT-3 (all three touch `
 
 ---
 
-### FEAT-1 · Gyroscopic spin drift in physics engine and data table · FE · Size S
+### FEAT-1 · Gyroscopic spin drift in physics engine and data table · FE · Size S · DONE (PR #139)
 
 The barrel twist rate input has existed since Sprint 7 and round-trips through URL state, but the engine marks `twistRateInchesPerTurn` as IGNORED. The chart and readout rendering code already checks for `p.spinDriftCm` and will activate automatically; this story implements the Litz simplified formula in the TypeScript engine, adds `spinDriftCm` to `TrajectoryPoint`, and adds the missing "Spin Drift (cm)" header to the data table.
 

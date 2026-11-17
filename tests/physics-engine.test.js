@@ -619,3 +619,211 @@ describe('simulate() — golden fixture', () => {
     });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEAT-1: Gyroscopic spin drift
+// ─────────────────────────────────────────────────────────────────────────────
+const {
+  stabilityFactor,
+  spinDriftInches,
+  integrateTrajectoryFps: _integrateWithExtras,
+} = require('../app/physics/engine.ts');
+
+const B308 = {
+  id: '308-win-168gr', name: '.308 Win', caliber: '.308',
+  bulletWeightGrams: 10.89, muzzleVelocityMps: 807, ballisticCoefficient: 0.475,
+  bulletDiameterMm: 7.82, muzzleEnergyJoules: 3552,
+};
+const COND_A = {
+  zeroRangeMeters: 100, maxRangeMeters: 1000, stepMeters: 25,
+  windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+};
+
+// Test 2: No twist rate — spinDriftCm = 0 on all points
+describe('FEAT-1 test 2: no twist rate → spinDriftCm = 0', () => {
+  for (const twist of [undefined, null]) {
+    test(`twist ${JSON.stringify(twist)} → all points spinDriftCm === 0`, () => {
+      const params = twist === undefined ? COND_A : { ...COND_A, twistRateInchesPerTurn: null };
+      const result = simulate(B308, params);
+      result.points.forEach(p => expect(Object.is(p.spinDriftCm, 0)).toBe(true));
+    });
+  }
+  test('twist undefined (BASE_PARAMS) → all points spinDriftCm === 0', () => {
+    const result = simulate(B308, BASE_PARAMS);
+    result.points.forEach(p => expect(Object.is(p.spinDriftCm, 0)).toBe(true));
+  });
+});
+
+// Test 3: Twist 10, .308 — basic properties
+describe('FEAT-1 test 3: twist 10 basic properties', () => {
+  const params308 = { ...COND_A, dragModel: 'G1', twistRateInchesPerTurn: 10 };
+
+  test('first point spinDriftCm === 0', () => {
+    const result = simulate(B308, params308);
+    expect(result.points[0].spinDriftCm).toBe(0);
+  });
+
+  test('all values >= 0', () => {
+    const result = simulate(B308, params308);
+    result.points.forEach(p => expect(p.spinDriftCm).toBeGreaterThanOrEqual(0));
+  });
+
+  test('non-decreasing with range', () => {
+    const result = simulate(B308, params308);
+    for (let i = 1; i < result.points.length; i++) {
+      expect(result.points[i].spinDriftCm).toBeGreaterThanOrEqual(result.points[i - 1].spinDriftCm);
+    }
+  });
+
+  test('> 0 at every point with rangeMeters >= 100', () => {
+    const result = simulate(B308, params308);
+    result.points.filter(p => p.rangeMeters >= 100).forEach(p => {
+      expect(p.spinDriftCm).toBeGreaterThan(0);
+    });
+  });
+});
+
+// Test 4: Hand-checked values — .308 168gr 1:10 twist
+describe('FEAT-1 test 4: hand-checked values', () => {
+  const params308 = { ...COND_A, dragModel: 'G1', twistRateInchesPerTurn: 10 };
+
+  test('.308 at ~500m: spinDriftCm = 3.8 ± 0.1 (SG=1.7125)', () => {
+    const result = simulate(B308, params308);
+    const p500 = result.points.find(p => p.rangeMeters >= 490 && p.rangeMeters <= 510);
+    expect(p500).toBeDefined();
+    expect(p500.spinDriftCm).toBeGreaterThanOrEqual(3.7);
+    expect(p500.spinDriftCm).toBeLessThanOrEqual(3.9);
+  });
+
+  test('.308 at ~1000m: spinDriftCm = 13.7 ± 0.1 (SG=1.7125)', () => {
+    const result = simulate(B308, params308);
+    const p1000 = result.points.find(p => p.rangeMeters >= 990 && p.rangeMeters <= 1010);
+    expect(p1000).toBeDefined();
+    expect(p1000.spinDriftCm).toBeGreaterThanOrEqual(13.6);
+    expect(p1000.spinDriftCm).toBeLessThanOrEqual(13.8);
+  });
+});
+
+// Test 5: Reference recomputation for every point
+describe('FEAT-1 test 5: reference recomputation', () => {
+  test('all points match reference formula within 0.1 cm', () => {
+    const params308 = { ...COND_A, dragModel: 'G1', twistRateInchesPerTurn: 10 };
+    const result = simulate(B308, params308);
+    const sg = stabilityFactor(B308.bulletDiameterMm, B308.bulletWeightGrams, 10);
+    for (const p of result.points) {
+      const expected = Math.round(1.25 * (sg + 1.2) * Math.pow(p.timeOfFlightSec, 1.83) * 2.54 * 10) / 10;
+      expect(Math.abs(p.spinDriftCm - expected)).toBeLessThanOrEqual(0.1);
+    }
+  });
+});
+
+// Test 6: stabilityFactor known value
+describe('FEAT-1 test 6: stabilityFactor(.308 168gr 1:10)', () => {
+  test('stabilityFactor(7.82, 10.89, 10) ≈ 1.7125', () => {
+    expect(stabilityFactor(7.82, 10.89, 10)).toBeCloseTo(1.7125, 3);
+  });
+});
+
+// Test 7: stabilityFactor monotonicity
+describe('FEAT-1 test 7: stabilityFactor monotonicity', () => {
+  test('faster twist gives higher SG: twist8 > twist10 > twist12', () => {
+    const sg8  = stabilityFactor(7.82, 10.89, 8);
+    const sg10 = stabilityFactor(7.82, 10.89, 10);
+    const sg12 = stabilityFactor(7.82, 10.89, 12);
+    expect(sg8).toBeGreaterThan(sg10);
+    expect(sg10).toBeGreaterThan(sg12);
+  });
+
+  test('heavier bullet at same d and twist gives higher SG', () => {
+    const sgLight = stabilityFactor(7.82, 9.0, 10);
+    const sgHeavy = stabilityFactor(7.82, 11.0, 10);
+    expect(sgHeavy).toBeGreaterThan(sgLight);
+  });
+});
+
+// Test 8: spinDriftInches at tof=0
+describe('FEAT-1 test 8: spinDriftInches(sg, 0) = 0', () => {
+  test('returns 0 at tof=0', () => {
+    expect(spinDriftInches(1.7, 0)).toBe(0);
+  });
+});
+
+// Test 9: Twist 8 vs twist 12 comparison
+describe('FEAT-1 test 9: twist 8 gives larger drift than twist 12', () => {
+  test('last point: twist8 spinDriftCm > twist12 spinDriftCm', () => {
+    const r8  = simulate(B308, { ...COND_A, dragModel: 'G1', twistRateInchesPerTurn: 8  });
+    const r12 = simulate(B308, { ...COND_A, dragModel: 'G1', twistRateInchesPerTurn: 12 });
+    const last8  = r8.points[r8.points.length - 1].spinDriftCm;
+    const last12 = r12.points[r12.points.length - 1].spinDriftCm;
+    expect(last8).toBeGreaterThan(last12);
+  });
+});
+
+// Test 10: Twist does not affect other fields
+describe('FEAT-1 test 10: twist does not affect other fields', () => {
+  test('drop, velocity, energy, windDrift are unchanged by twist', () => {
+    const noTwist   = simulate(B308, { ...COND_A, dragModel: 'G1' });
+    const withTwist = simulate(B308, { ...COND_A, dragModel: 'G1', twistRateInchesPerTurn: 10 });
+    const strip = pts => pts.map(({ spinDriftCm: _, ...rest }) => rest);
+    expect(strip(withTwist.points)).toEqual(strip(noTwist.points));
+    expect(withTwist.maxOrdinateCm).toEqual(noTwist.maxOrdinateCm);
+    expect(withTwist.maxOrdinateRangeMeters).toEqual(noTwist.maxOrdinateRangeMeters);
+    expect(withTwist.supersonicLimitMeters).toEqual(noTwist.supersonicLimitMeters);
+  });
+});
+
+// Test 11: Validation — invalid twist rate
+describe('FEAT-1 test 11: invalid twist rate validation', () => {
+  const c = 'a finite number between 1 and 100';
+  for (const bad of [0, 0.99, 100.01, -5, NaN, Infinity]) {
+    test(`rejects twistRateInchesPerTurn = ${bad}`, () => {
+      expectValidationError(B308, { ...COND_A, twistRateInchesPerTurn: bad }, 'twistRateInchesPerTurn', c);
+    });
+  }
+});
+
+// Test 12: Validation boundaries
+describe('FEAT-1 test 12: twist rate boundary values accepted', () => {
+  test('accepts twist = 1', () => {
+    expect(() => simulate(B308, { ...COND_A, twistRateInchesPerTurn: 1 })).not.toThrow();
+  });
+  test('accepts twist = 100', () => {
+    expect(() => simulate(B308, { ...COND_A, twistRateInchesPerTurn: 100 })).not.toThrow();
+  });
+});
+
+// Test 13: Invalid bulletDiameterMm with twist set
+describe('FEAT-1 test 13: invalid bulletDiameterMm when twist is set', () => {
+  const c = 'a finite number between 1 and 30';
+  for (const bad of [0, 0.5, 31, NaN]) {
+    test(`rejects bulletDiameterMm = ${bad} with twist set`, () => {
+      expectValidationError(
+        { ...B308, bulletDiameterMm: bad },
+        { ...COND_A, twistRateInchesPerTurn: 10 },
+        'bullet.bulletDiameterMm', c
+      );
+    });
+  }
+});
+
+// Test 14: Absent twist with invalid bulletDiameterMm — no throw
+describe('FEAT-1 test 14: absent twist with invalid diameter — no throw', () => {
+  test('bulletDiameterMm: NaN with no twist does not throw', () => {
+    expect(() => simulate({ ...B308, bulletDiameterMm: NaN }, COND_A)).not.toThrow();
+  });
+});
+
+// Test 15: integrateTrajectoryFps without extras — spinDriftCm: 0
+describe('FEAT-1 test 15: integrateTrajectoryFps without extras gives spinDriftCm: 0', () => {
+  test('all points have spinDriftCm: 0 when called without extras', () => {
+    const mvFps      = 807 * 3.28084;
+    const bc         = 0.475;
+    const rho        = 1.0;
+    const wLbs       = 10.89 / 453.592;
+    const maxRangeYd = 500 / 0.9144;
+    const stepYd     = 100 / 0.9144;
+    const angle      = 0.002;
+    const { points } = _integrateWithExtras(mvFps, angle, bc, rho, wLbs, 0, maxRangeYd, stepYd);
+    points.forEach(p => expect(p.spinDriftCm).toBe(0));
+  });
+});
