@@ -1138,7 +1138,7 @@ The app ships with a fixed dark theme (deep navy/cyan). Users in bright environm
 
 ---
 
-### UX-10 · Sticky compute button in sidebar · FE · Size XS
+### ~~UX-10 · Sticky compute button in sidebar · FE · Size XS~~ DONE
 
 The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter form in the sidebar — after the bullet list, custom bullet panel, and 10+ parameter inputs. On a typical laptop screen the button is off-screen below the fold when several bullets are selected or the custom bullet form is expanded, requiring users to scroll to the bottom of the sidebar to trigger a simulation.
 
