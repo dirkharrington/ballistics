@@ -790,3 +790,282 @@ An audit on 2026-11-16 found **no** `scroll` or `wheel` listeners. It found exac
 - No merged cache step saves less than 10% on the step it targets.
 - CI passes. The deployed site is byte-identical apart from the SW `CACHE_VERSION` timestamp.
 - `npm test` passes at 100/100/100/100.
+
+---
+
+## Sprint 10 — Physics Completeness & Accessibility
+
+**Sprint Goal:** Spin drift and Coriolis are computed by the engine and appear in charts, data table, and DOPE card; the custom drag CSV changes the trajectory; the bullet selector is fully usable with a keyboard or screen reader; density altitude appears in stat cards.
+
+Stack order for physics stories: FEAT-1 → FEAT-2 → FEAT-3 (all three touch `app/physics/engine.ts`, `app/physics/types.ts`, and `tests/fixtures/spa1-golden.json`; merge in sequence). UX-6 may merge independently before FEAT-3. ACC-1, ACC-2, UX-5, and DM-1 are fully independent and can run in parallel.
+
+---
+
+### Must Have
+
+---
+
+### FEAT-1 · Gyroscopic spin drift in physics engine and data table · FE · Size S
+
+The barrel twist rate input has existed since Sprint 7 and round-trips through URL state, but the engine marks `twistRateInchesPerTurn` as IGNORED. The chart and readout rendering code already checks for `p.spinDriftCm` and will activate automatically; this story implements the Litz simplified formula in the TypeScript engine, adds `spinDriftCm` to `TrajectoryPoint`, and adds the missing "Spin Drift (cm)" header to the data table.
+
+**Work items:**
+
+1. In `app/physics/types.ts`, add `spinDriftCm: number` as the last field on `TrajectoryPoint`. It is a primitive (never optional): `0` when twist rate is absent; positive = rightward for a right-hand-twist barrel.
+2. In `app/physics/engine.ts`, compute the Litz simplified formula inside `integrateTrajectoryFps`. Compute once before the loop:
+   - `SG = (150 × d_in³) / (twist² × massGr × 21.25)` where `d_in = bullet.bulletDiameterMm / 25.4`, `massGr = bullet.bulletWeightGrams × 15.4324`, and `21.25 = 1 + 4.5²` (fixed L/d = 4.5 approximation).
+   - Per point: `spinDriftCm = round1(1.25 × (SG + 1.2) × tof^1.83 × rangeMeters × π / 10800 × 100)`.
+   - `spinDriftCm = 0` when `twistRateInchesPerTurn` is null/absent.
+3. Remove the `IGNORED` comment from `twistRateInchesPerTurn` on `TrajectoryParams` in `types.ts`. Thread the value from `simulate()` into `integrateTrajectoryFps`; add it as an optional trailing parameter to avoid breaking existing test call sites.
+4. In `app/index.html` `#dataTable`, add `<th id="spinDriftColHeader" style="display:none">Spin Drift (cm)</th>` immediately before the existing `id="coriolisColHeader"` column header.
+5. In `app/ballistics.js` `renderTable()`, mirror the existing `showCoriolis` pattern: `const showSpinDrift = results.some(r => r.points.some(p => p.spinDriftCm !== 0))`. Show/hide `#spinDriftColHeader` and emit the cell formatted as `+3.2 cm` (sign-prefixed, 1 decimal) in each row.
+6. Update `tests/fixtures/spa1-golden.json`: add `"spinDriftCm": 0` to every point (the golden run sends no twist rate; all zeros are correct).
+
+**Coverage:** 100% Jest. Tests: (a) twist rate 1:10, `.308 Win 168gr`, 500 m — `spinDriftCm` is in the range 3–6 cm; (b) no twist rate — all `spinDriftCm = 0`; (c) `renderTable` shows the column when non-zero and hides it when all-zero; (d) golden fixture still passes.
+
+**Acceptance:**
+- `.308 Win 168gr`, 1:10 twist, 1 000 m: `spinDriftCm` ≈ 15–25 cm at 1 000 m.
+- No twist rate: all `spinDriftCm = 0`, "Spin Drift (cm)" column hidden in data table.
+- Spin drift dashed series appears on the wind drift chart (existing `hasSpinDrift` guard activates).
+- Range readout shows "Spin Drift: X.X cm" cell when non-zero.
+- `npm test` passes at 100/100/100/100.
+
+**Out of scope:** Left-hand twist (negative values), bullet-length input for exact L/d, DOPE card spin drift column (UX-4).
+
+---
+
+### FEAT-2 · Coriolis deflection in physics engine · FE · Size S
+
+The latitude and azimuth inputs were added in Sprint 7 and encoded in URL state. The engine marks both RESERVED. The chart, range readout, data table column, and DOPE card rendering code **all already conditionally handle `coriolisDeflectionCm`**; they never activate because the engine never produces the field.
+
+**Work items:**
+
+1. In `app/physics/types.ts`, add `coriolisDeflectionCm: number` as the last field on `TrajectoryPoint` (after `spinDriftCm`). Primitive, never optional: `0` when `latitudeDeg` is absent.
+2. In `app/physics/engine.ts` `integrateTrajectoryFps`, after spin drift:
+   - `coriolisDeflectionCm = 0` when `latitudeDeg` is null/undefined.
+   - Otherwise: `const OMEGA = 7.2921e-5; const deflM = OMEGA * Math.sin(latitudeDeg * Math.PI / 180) * muzzleVelocityMps * tof * tof; coriolisDeflectionCm = round1(deflM * 100);`
+   - Positive = right of bore (Northern Hemisphere). `azimuthDeg` is accepted but does not appear in this first-order formula.
+3. Remove the `RESERVED, IGNORED` comments from `latitudeDeg` and `azimuthDeg` on `TrajectoryParams`. Thread `latitudeDeg` into `integrateTrajectoryFps` as a trailing optional parameter.
+4. Update `tests/fixtures/spa1-golden.json`: add `"coriolisDeflectionCm": 0` to every point (golden run has no latitude).
+
+**Coverage:** 100% Jest. Tests: (a) `.338 Lapua 250gr`, latitude 45°, 2 000 m — `coriolisDeflectionCm` ≈ 20–25 cm; (b) latitude −33° — all values negative; (c) latitude 0 or absent — all zeros; (d) golden fixture passes.
+
+**Acceptance:**
+- `.338 Lapua 250gr`, latitude 45°, 2 000 m: `coriolisDeflectionCm` ≈ 20–25 cm.
+- Latitude −33°: all `coriolisDeflectionCm` values are negative.
+- No latitude: all zeros; Coriolis chart series, data table column, and DOPE card column remain hidden.
+- Setting latitude makes the DOPE card "Cor. (cm)" column appear (existing code activates without further changes).
+- `npm test` passes at 100/100/100/100.
+
+**Out of scope:** Higher-accuracy per-step velocity integral, azimuth-dependent magnitude, DOPE card spin drift column (UX-4).
+
+---
+
+### FEAT-3 · Wire custom drag CSV to physics engine · FE · Size M
+
+The Custom Round panel has had a drag table CSV uploader since before Sprint 1. The engine marks `customDragTable` as RESERVED and ignores it — every trajectory still uses G1 or G7 regardless of what the user uploads.
+
+**Work items:**
+
+1. In `app/physics/engine.ts` `simulate()`, when `params.customDragTable` is non-null and `.length >= 3`:
+   - Convert each `{ mach, cd }` entry to `[fps, cd]` using `fps = mach * SOUND_FPS` (existing constant: 1125). Sort ascending by fps.
+   - Pass the converted table to `findZeroAngleFps` and `integrateTrajectoryFps` instead of the G1/G7 reference table.
+2. Add custom drag table validation inside `validate()`: `customDragTable.length >= 3` (throw `TrajectoryInputError` on `'customDragTable'`); every `mach` ∈ [0, 5] and every `cd > 0`.
+3. In `app/physics/types.ts`, remove the `RESERVED, IGNORED` comment from `customDragTable` on `TrajectoryParams`.
+4. Update help text in three places (matches UX-6; merge UX-6 first or together):
+   - `app/index.html` `#dragTableHelp` → `"Mach,CD columns. Overrides G1/G7 drag when loaded."`
+   - `app/ballistics.js` `_updateDragTableStatus()` → same string.
+   - `app/ballistics.js` `_clearCustomDragTable()` → same string.
+
+**Coverage:** 100% Jest. Tests: (a) sample table produces different `dropCm` than G1 for the same params; (b) table with 2 entries throws `TrajectoryInputError` on `'customDragTable'`; (c) table with `mach = 6` throws; (d) `customDragTable: null` or `[]` — G1 behavior byte-identical to current.
+
+**Acceptance:**
+- Uploading a sample custom table and clicking "Compute Custom" produces a trajectory different from G1 at supersonic ranges.
+- An uploaded table with fewer than 3 rows shows the existing inline validation error; no trajectory is computed.
+- Clearing the custom drag table reverts to G1 behavior.
+- Help text reads "Mach,CD columns. Overrides G1/G7 drag when loaded." — no "server update" text anywhere.
+- `npm test` passes at 100/100/100/100.
+
+**Out of scope:** Custom drag for catalog bullets (Custom Round panel only), G7-indexed CSV format.
+
+---
+
+### UX-6 · Remove stale "server update" drag table help text · FE · Size XS
+
+The drag table help text reads "Stored for future use — drag model override requires server update" in three places. The server was removed in Sprint 5 (SPA-3). CLN-1 fixed `app/drag-csv.js` but missed `app/ballistics.js` (two functions) and `app/index.html`. With FEAT-3 shipping this sprint the custom drag table is live; the copy must be accurate before it merges.
+
+**Work items:**
+
+1. `app/index.html` `#dragTableHelp` initial text → `"Mach,CD columns. Overrides G1/G7 drag when loaded."`.
+2. `app/ballistics.js` `_updateDragTableStatus()` `helpEl.textContent` assignment → same string.
+3. `app/ballistics.js` `_clearCustomDragTable()` `helpEl.textContent` assignment → same string.
+4. Update any assertion in `tests/ballistics.test.js` that checks the old help text string.
+
+**Coverage:** No new logic. Update text assertions in existing tests only.
+
+**Acceptance:**
+- `git grep -rn "server update\|stored for future use" app/` returns zero results.
+- Help text in the Custom Round section reads "Mach,CD columns. Overrides G1/G7 drag when loaded."
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### ACC-1 · Keyboard-navigable bullet selector · FE · Size S
+
+Bullet selection cards are `<div>` elements with click listeners only. They are unreachable by Tab and cannot be activated with Enter or Space. A keyboard-only user or screen reader user cannot select a round without a mouse.
+
+**Work items:**
+
+1. In `app/ballistics.js` `renderBulletList()`, add `role="checkbox"`, `tabindex="0"`, and `aria-checked="false"` (or `"true"` for pre-selected cards) to each card `<div>`.
+2. In `updateBulletCards()`, toggle `aria-checked` between `"true"` and `"false"` in sync with the `.active` class.
+3. In `renderBulletList()`, alongside each card's `click` listener, add a `keydown` listener: when `key === 'Enter' || key === ' '`, call `toggleBullet(b.id)` and `e.preventDefault()`.
+4. In `app/custom-bullets.js` `renderCustomBulletGroup()`, apply the same `role="checkbox"`, `tabindex="0"`, `aria-checked`, and `keydown` pattern to custom bullet cards.
+5. In `app/ballistics.css`, add an explicit `:focus-visible` rule to `.bullet-card`: `outline: 2px solid #00d4ff; outline-offset: 2px;`.
+
+**Coverage:** 100% Jest. Tests: (a) `keydown` Enter calls `toggleBullet`; (b) `keydown` Space calls `toggleBullet` and calls `e.preventDefault()`; (c) `aria-checked` is `"true"` after selecting and `"false"` after deselecting; (d) rendered cards have `tabindex="0"`.
+
+**Acceptance:**
+- Tabbing through the sidebar reaches every built-in and custom bullet card in sequence.
+- Pressing Enter or Space on a focused card toggles its selection.
+- Focus ring (`:focus-visible` outline) is visible in Chrome, Firefox, and Safari.
+- `npm test` passes at 100/100/100/100.
+
+**Out of scope:** Arrow-key roving tabindex within the bullet list, grouping bullets under a `role="group"` container.
+
+---
+
+### Should Have
+
+---
+
+### UX-4 · Spin drift column in DOPE card · FE · Size S
+
+The DOPE card's `_buildDopeTable` already renders a "Cor. (cm)" column for Coriolis — that code activates automatically once FEAT-2 ships. Spin drift is not in the DOPE card at all. A shooter who has set a twist rate needs the lateral spin drift correction on the same DOPE card as the elevation come-ups.
+
+**Work items:**
+
+1. In `app/tools.js` `_buildDopeTable(results)`, mirror the `hasCoriolis` pattern:
+   `const hasSpinDrift = results.some(r => r.points.some(p => p.spinDriftCm !== 0));`
+2. Update `colSpan` to account for both optional columns.
+3. Add `${hasSpinDrift ? '<th>Spin (cm)</th>' : ''}` alongside the existing Coriolis sub-header.
+4. In `bodyRows`, use `interpolateAt(r.points, dist, 'spinDriftCm')` and render `${val >= 0 ? '+' : ''}${val.toFixed(1)}`, or `'–'` when null.
+
+**Coverage:** 100% Jest. Tests: (a) non-zero spin drift — "Spin (cm)" column appears; (b) all-zero — column absent; (c) copied text includes the column when shown.
+
+**Acceptance:**
+- With twist rate set (FEAT-1 on main): DOPE card shows "Spin (cm)" alongside elevation come-ups.
+- Without twist rate: column absent; existing Coriolis column behavior unchanged.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies: FEAT-1**
+
+---
+
+### UX-5 · Density altitude in result stat cards · FE · Size XS
+
+The stat card template in `renderStatCards` already conditionally renders `r.densityAltitudeMeters` as "X m density alt", but `TrajectoryResult` has no such field and the branch is dead code today. Density altitude converts altitude plus temperature into a single number describing how the air behaves relative to sea level.
+
+**Work items:**
+
+1. In `app/physics/types.ts`, add `densityAltitudeMeters: number` to `TrajectoryResult`.
+2. In `app/physics/engine.ts` `simulate()`, compute density altitude before the return statement:
+   ```ts
+   const isaTempC = 15 - 0.00198 * params.altitudeMeters;
+   const densityAltitudeMeters = Math.round(params.altitudeMeters + 118.8 * (params.temperatureC - isaTempC));
+   ```
+3. No change to `renderStatCards` needed — the existing `r.densityAltitudeMeters !== undefined` conditional fires automatically.
+
+**Coverage:** 100% Jest. Tests: (a) sea level 15°C → `densityAltitudeMeters ≈ 0`; (b) 1 500 m, 35°C → `densityAltitudeMeters > 1 500`; (c) stat card HTML contains the "density alt" string after simulation.
+
+**Acceptance:**
+- Stat cards show "X m density alt" after simulation for all runs.
+- Sea level, ISA conditions: density altitude ≈ 0 m.
+- 1 500 m, 35°C: `densityAltitudeMeters` noticeably greater than 1 500.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### ACC-2 · Screen reader announcements for simulation lifecycle · FE · Size XS
+
+A screen reader user clicking "Compute Trajectories" receives no feedback that the simulation is running or complete. `#simulationError` handles errors (`aria-live="assertive"`) and `#toast` handles toasts, but neither fires for in-progress or success states.
+
+**Work items:**
+
+1. In `app/index.html`, add a visually-hidden live region:
+   ```html
+   <div id="simStatus" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+   ```
+2. In `app/ballistics.css`, add `.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }` if not already present.
+3. In `runSimulation()`: set `#simStatus` to `"Computing trajectories…"` at entry; on success set it to `"Simulation complete. ${results.length} bullet(s) computed to ${req.maxRangeMeters} m."`; on error clear it. Apply the same pattern to `runCustom()` and `runSweep()`.
+
+**Coverage:** 100% Jest. Tests: (a) `#simStatus` reads "Computing trajectories…" at start; (b) reads success string after render; (c) is cleared on error.
+
+**Acceptance:**
+- VoiceOver/NVDA announces "Computing trajectories…" when Compute is clicked.
+- Announces a completion message when charts and table render.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### DM-1 · Re-import previously exported trajectory JSON · FE · Size S
+
+Users can export trajectory results as JSON but have no way to reload a saved session. The exported JSON file contains everything needed to redisplay the results.
+
+**Work items:**
+
+1. In `app/index.html`, add a hidden file input and visible import button near the export dropdown:
+   ```html
+   <input type="file" id="importJsonFile" accept=".json,application/json"
+          style="display:none" aria-label="Import trajectory JSON">
+   <button class="export-toggle" id="importJsonBtn">↑ IMPORT JSON</button>
+   ```
+2. In `app/ballistics.js`, wire `#importJsonBtn` to click `#importJsonFile`. On `change`: read with `FileReader.readAsText`, `JSON.parse` in a try/catch, validate structure (non-empty array, each element has `bullet.id`, `bullet.name`, `points`, `request`), call `_setSimulationError` on any failure.
+3. On success: set `lastResults = parsed`, `lastReq = parsed[0].request`, call `renderResults(parsed, lastReq)`, reveal `#exportCsvBtn`. Do not re-simulate.
+4. Import button always visible (not gated on existing results).
+
+**Coverage:** 100% Jest. Tests: (a) valid JSON restores `lastResults` and calls `renderResults`; (b) non-array JSON shows error; (c) element missing `points` shows error; (d) `JSON.parse` failure shows error; (e) export buttons produce valid output on imported results.
+
+**Acceptance:**
+- Export a 2-bullet run to JSON then import it — identical charts and data table result.
+- Importing a CSV (wrong format) shows error and leaves existing results intact.
+- After import all three export formats produce valid output.
+- `npm test` passes at 100/100/100/100.
+
+**Out of scope:** Merging imports with existing results, importing CSV or from a URL, re-running simulation from imported data.
+
+---
+
+### Could Have
+
+---
+
+### PERF-14 · Warm physics worker on idle · FE · Size XS
+
+The physics Web Worker is created lazily on the first `simulateAsync()` call. Worker startup on a mid-range mobile is 20–60 ms. Triggering `_getWorker()` during the idle period after `init()` completes removes that startup cost from the critical path of the first click.
+
+**Work items:**
+
+1. In `app/physics/engine-async.ts`, add and export `export function warmWorker(): void { try { _getWorker(); } catch (_) {} }`.
+2. In `app/ballistics.js` `init()`, after the initial render:
+   ```js
+   const ric = window.requestIdleCallback ?? ((fn: () => void) => setTimeout(fn, 100));
+   ric(() => warmWorker());
+   ```
+3. `warmWorker` must not throw when Worker creation fails.
+
+**Coverage:** 100% Jest. Tests: (a) `warmWorker` invokes the worker factory exactly once; (b) second call does not create a second worker (singleton); (c) does not throw when creation fails.
+
+**Acceptance:**
+- After page load (before any Compute click), the Worker instance exists.
+- Worker startup cost does not appear on the critical path of the first Compute click.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### Icebox (future sprints)
+
+- **ACC-3 · Arrow-key roving tabindex in bullet list** — Follow-on to ACC-1; Up/Down arrows navigate within the bullet list. 2 pts.
+- **FEAT-4 · G7 BC on custom bullets** — Custom bullets with `dragModel: 'G7'` currently use the G1 reference table. Add optional `bcG7` to the custom bullet form. 3 pts.
+- **UX-7 · Print-friendly DOPE card** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts.
+- **DX-2 · Named session saves** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts.
+- **SEC-3 · Content Security Policy header audit** — GitHub Pages does not support custom headers; evaluate `<meta http-equiv="Content-Security-Policy">` or Cloudflare Pages migration. 3 pts.
