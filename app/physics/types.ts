@@ -65,4 +65,5 @@ export interface TrajectoryResult {
   readonly maxOrdinateCm: number;
   readonly maxOrdinateRangeMeters: number;
   readonly supersonicLimitMeters: number;
+  readonly densityAltitudeMeters: number;
 }

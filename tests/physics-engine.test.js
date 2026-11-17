@@ -606,6 +606,32 @@ describe('integrateTrajectoryFps', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// UX-5: density altitude in TrajectoryResult
+// ─────────────────────────────────────────────────────────────────────────────
+describe('simulate() — densityAltitudeMeters', () => {
+  test('sea level 15°C (ISA standard) → density altitude ≈ 0 m', () => {
+    const result = simulate(BASE_BULLET, { ...BASE_PARAMS, altitudeMeters: 0, temperatureC: 15 });
+    expect(result.densityAltitudeMeters).toBe(0);
+  });
+
+  test('1500 m, 35°C → density altitude greater than 1500 m', () => {
+    const result = simulate(BASE_BULLET, { ...BASE_PARAMS, altitudeMeters: 1500, temperatureC: 35 });
+    expect(result.densityAltitudeMeters).toBeGreaterThan(1500);
+  });
+
+  test('cold temperature at altitude → density altitude less than pressure altitude', () => {
+    // Cold air is denser, so density altitude < pressure altitude
+    const result = simulate(BASE_BULLET, { ...BASE_PARAMS, altitudeMeters: 1000, temperatureC: -10 });
+    expect(result.densityAltitudeMeters).toBeLessThan(1000);
+  });
+
+  test('densityAltitudeMeters is a rounded integer', () => {
+    const result = simulate(BASE_BULLET, { ...BASE_PARAMS, altitudeMeters: 500, temperatureC: 20 });
+    expect(Number.isInteger(result.densityAltitudeMeters)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Golden fixture (§11.3) — bit-identical output lock
 // ─────────────────────────────────────────────────────────────────────────────
 describe('simulate() — golden fixture', () => {

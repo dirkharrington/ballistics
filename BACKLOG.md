@@ -953,7 +953,7 @@ The DOPE card's `_buildDopeTable` already renders a "Cor. (cm)" column for Corio
 
 ---
 
-### UX-5 · Density altitude in result stat cards · FE · Size XS
+### ~~UX-5 · Density altitude in result stat cards · FE · Size XS~~ DONE
 
 The stat card template in `renderStatCards` already conditionally renders `r.densityAltitudeMeters` as "X m density alt", but `TrajectoryResult` has no such field and the branch is dead code today. Density altitude converts altitude plus temperature into a single number describing how the air behaves relative to sea level.
 
