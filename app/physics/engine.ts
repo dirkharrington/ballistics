@@ -85,31 +85,32 @@ function validate(bullet: Bullet, params: TrajectoryParams): void {
     if (!Array.isArray(table))
       throw new TrajectoryInputError('customDragTable', 'an array of { mach, cd } points');
     // Empty array means "absent" — no further validation needed
-    if (table.length === 0) return;
-    // Rule 2: length 3–100
-    if (!(table.length >= 3) || !(table.length <= 100))
-      throw new TrajectoryInputError('customDragTable', 'between 3 and 100 points');
-    // Rule 3: mach values [0, 5]
-    for (const p of table) {
-      if (!(isFiniteNumber(p?.mach) && p.mach >= 0 && p.mach <= 5))
-        throw new TrajectoryInputError('customDragTable', 'mach values between 0 and 5');
+    if (table.length > 0) {
+      // Rule 2: length 3–100
+      if (!(table.length >= 3) || !(table.length <= 100))
+        throw new TrajectoryInputError('customDragTable', 'between 3 and 100 points');
+      // Rule 3: mach values [0, 5]
+      for (const p of table) {
+        if (!(isFiniteNumber(p?.mach) && p.mach >= 0 && p.mach <= 5))
+          throw new TrajectoryInputError('customDragTable', 'mach values between 0 and 5');
+      }
+      // Rule 4: cd values [0.001, 2]
+      for (const p of table) {
+        if (!(isFiniteNumber(p?.cd) && p.cd >= 0.001 && p.cd <= 2))
+          throw new TrajectoryInputError('customDragTable', 'cd values between 0.001 and 2');
+      }
+      // Rule 5: strictly increasing fps values (guards against ULP-collapse divide-by-zero)
+      for (let i = 1; i < table.length; i++) {
+        if (!(table[i]!.mach * SOUND_FPS > table[i - 1]!.mach * SOUND_FPS))
+          throw new TrajectoryInputError('customDragTable', 'strictly increasing mach values');
+      }
+      // Rule 6: at least one mach <= 0.5
+      if (!table.some(p => p.mach <= 0.5))
+        throw new TrajectoryInputError('customDragTable', 'at least one point with mach <= 0.5');
+      // Rule 7: at least one mach >= 2.0
+      if (!table.some(p => p.mach >= 2.0))
+        throw new TrajectoryInputError('customDragTable', 'at least one point with mach >= 2.0');
     }
-    // Rule 4: cd values [0.001, 2]
-    for (const p of table) {
-      if (!(isFiniteNumber(p?.cd) && p.cd >= 0.001 && p.cd <= 2))
-        throw new TrajectoryInputError('customDragTable', 'cd values between 0.001 and 2');
-    }
-    // Rule 5: strictly increasing fps values (guards against ULP-collapse divide-by-zero)
-    for (let i = 1; i < table.length; i++) {
-      if (!(table[i]!.mach * SOUND_FPS > table[i - 1]!.mach * SOUND_FPS))
-        throw new TrajectoryInputError('customDragTable', 'strictly increasing mach values');
-    }
-    // Rule 6: at least one mach <= 0.5
-    if (!table.some(p => p.mach <= 0.5))
-      throw new TrajectoryInputError('customDragTable', 'at least one point with mach <= 0.5');
-    // Rule 7: at least one mach >= 2.0
-    if (!table.some(p => p.mach >= 2.0))
-      throw new TrajectoryInputError('customDragTable', 'at least one point with mach >= 2.0');
   }
 }
 
