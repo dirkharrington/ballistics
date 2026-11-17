@@ -1069,3 +1069,113 @@ The physics Web Worker is created lazily on the first `simulateAsync()` call. Wo
 - **UX-7 · Print-friendly DOPE card** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts.
 - **DX-2 · Named session saves** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts.
 - **SEC-3 · Content Security Policy header audit** — GitHub Pages does not support custom headers; evaluate `<meta http-equiv="Content-Security-Policy">` or Cloudflare Pages migration. 3 pts.
+
+---
+
+### DX-3 · VS Code workspace settings · DX · Size XS
+
+The repo has no `.vscode/` directory. Developers opening the project in VS Code get no TypeScript path resolution, no recommended extensions, no task shortcuts, and the editor may index `dist/`, `node_modules/`, and `.claude/worktrees/` unnecessarily. This is a one-time setup cost that affects every contributor from their first checkout.
+
+**Work items:**
+
+1. Create `.vscode/settings.json`:
+   - `"typescript.tsdk": "node_modules/typescript/lib"` — use the project's own TypeScript, not VS Code's bundled version.
+   - `"editor.formatOnSave": false` — the project has no formatter configured; don't auto-corrupt files.
+   - `"search.exclude"` and `"files.exclude"`: add `dist/`, `coverage/`, `.jest-cache/`, `.claude/worktrees/`, `node_modules/`.
+   - `"jest.jestCommandLine": "npm test --"` — if the Jest extension is installed, point it at the npm script.
+   - `"typescript.preferences.importModuleSpecifier": "relative"`.
+2. Create `.vscode/extensions.json` with `"recommendations"`:
+   - `"dbaeumer.vscode-eslint"` (if an ESLint config is ever added)
+   - `"esbenp.prettier-vscode"` (if Prettier is ever added)
+   - `"orta.vscode-jest"` — Jest test runner sidebar.
+   - `"antfu.vite"` — Vite project support.
+   - `"ms-vscode.vscode-typescript-next"` — latest TS language service.
+3. Add `.vscode/` to `.gitignore`? No — commit it. These are project-level settings, not personal overrides. Personal overrides go in `.vscode/*.code-workspace` (gitignored).
+4. Verify: open the repo in VS Code, check that TypeScript "Go to Definition" works for imports in `app/physics/engine.ts`, that the Jest sidebar shows tests, and that `dist/` and `.claude/` are absent from the Explorer tree.
+
+**Coverage:** No app code changes; no test changes needed.
+
+**Acceptance:**
+- `git show HEAD:.vscode/settings.json` and `.vscode/extensions.json` are present and valid JSON.
+- Opening `app/physics/engine.ts` in VS Code shows no "Cannot find module" errors.
+- `dist/`, `coverage/`, `.jest-cache/`, and `.claude/worktrees/` do not appear in the VS Code Explorer or search results.
+- `npm test` passes at 100/100/100/100 (no test changes).
+
+---
+
+### UX-8 · Chart.js tooltip with many bullets · FE · Size S
+
+When 6 or more bullets are selected and the user hovers over the trajectory charts, the tooltip renders one item per dataset per chart — easily 10–15 lines for a full bullet selection — overflowing the viewport and obscuring the chart data the user is trying to read. The issue is that `interaction: { mode: 'index' }` shows all series at the hovered x-position simultaneously.
+
+**Work items:**
+
+1. In `app/ballistics.js`, in the trajectory chart options (the `buildChartConfig` helper, or wherever `interaction` is set for the main drop/velocity charts), change the tooltip filter strategy:
+   - Keep `mode: 'index'` so all series fire (the crosshair plugin needs this), but add a `tooltip.filter` callback that limits displayed items to the **nearest 4 datasets** to the cursor's y-position (sorted by `Math.abs(item.parsed.y - pointerY)`). Pass `pointerY` through the `external` context or capture it in `onHover`.
+   - Alternatively, if `filter` alone is sufficient: limit to `item.datasetIndex < maxVisible` where `maxVisible = Math.min(datasets.length, 5)`.
+   - Add a `tooltip.footer` callback that, when datasets exceed the limit, appends `"+ N more"` so the user knows they're not seeing all series.
+2. Apply the same change to the wind drift chart and the sweep chart.
+3. Add a `tooltip.callbacks.label` that trims the bullet name to 20 characters with `…` to prevent long custom-bullet names from causing overflow.
+4. If a `maxWidth` CSS constraint on `.chartjs-tooltip` exists (or if Chart.js allows `options.plugins.tooltip.boxWidth`), set a max-width of `280px`.
+
+**Coverage:** 100% Jest. Tests: (a) `tooltip.filter` with 8 datasets returns at most 5 items; (b) `footer` callback appends `"+ 3 more"` when 8 datasets are present and filter cap is 5; (c) label callback truncates a 30-character bullet name to `"…"` at 20 chars.
+
+**Acceptance:**
+- With 8 bullets selected, hover shows at most 5 tooltip rows plus a `"+ 3 more"` footer.
+- With 3 bullets selected, all 3 rows are shown and no footer appears.
+- Tooltip never overflows the chart canvas boundary.
+- Crosshair line and range readout still update for all visible series on hover.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### UX-9 · Light / dark mode toggle · FE · Size S
+
+The app ships with a fixed dark theme (deep navy/cyan). Users in bright environments or with accessibility needs that prefer high-contrast light backgrounds have no way to switch. The CSS already uses custom properties (`--bg`, `--text`, `--accent`, etc.) on `:root`, making a light theme a matter of overriding those variables. The toggle state persists in `localStorage` and respects `prefers-color-scheme` on first load.
+
+**Work items:**
+
+1. In `app/ballistics.css`, add a `[data-theme="light"]` selector on `:root` that overrides the core colour tokens:
+   - `--bg: #f4f6f8; --bg-panel: #ffffff; --bg-raised: #e8ecf0;`
+   - `--text: #1a2530; --text-dim: #4a5568; --border: #cbd5e0;`
+   - `--accent: #0077b6; --accent-dim: #90caf9;`
+   - Adjust chart canvas background (`--chart-bg: #ffffff`) and any hardcoded `#141d26` or `#1e3040` values in inline styles to use CSS variables instead.
+2. In `app/index.html`, add a theme toggle button in the top-right of the `<header>`:
+   ```html
+   <button id="themeToggle" class="theme-btn" aria-label="Toggle light/dark mode" title="Toggle theme">☀</button>
+   ```
+3. In `app/ballistics.js` `init()`:
+   - On load: read `localStorage.getItem('theme')` or fall back to `window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'`. Apply `document.documentElement.dataset.theme = theme`.
+   - `#themeToggle` click: toggle between `'light'` and `'dark'`, update `document.documentElement.dataset.theme`, persist to `localStorage`, and update the button icon (`☀` / `☾`).
+4. Chart.js chart instances must re-render with updated colours after a theme switch. In the click handler, after applying the theme, call `Chart.instances` and `chart.update('none')` on each active chart (or re-render results if `lastResults` is set).
+5. In `app/ballistics.css`, add `.theme-btn` with appropriate sizing and placement.
+
+**Coverage:** 100% Jest. Tests: (a) `init()` reads `localStorage.getItem('theme')` and sets `document.documentElement.dataset.theme`; (b) clicking `#themeToggle` toggles `dataset.theme` between `'light'` and `'dark'`; (c) the new value is written to `localStorage`; (d) on first load with no `localStorage` value, `prefers-color-scheme: light` media query result is used.
+
+**Acceptance:**
+- Clicking the toggle visibly switches the UI between dark (default) and light themes.
+- Charts re-render with appropriate background and text colours in both themes.
+- Theme preference persists across page reloads.
+- On first load with no stored preference, `prefers-color-scheme: light` users see the light theme.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### UX-10 · Sticky compute button in sidebar · FE · Size XS
+
+The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter form in the sidebar — after the bullet list, custom bullet panel, and 10+ parameter inputs. On a typical laptop screen the button is off-screen below the fold when several bullets are selected or the custom bullet form is expanded, requiring users to scroll to the bottom of the sidebar to trigger a simulation.
+
+**Work items:**
+
+1. In `app/ballistics.css`, modify `.sidebar` to use `display: flex; flex-direction: column` (it may already be a flex column; verify). Give the scrollable content area above the button `flex: 1; overflow-y: auto; min-height: 0` via a new wrapper `<div class="sidebar-scroll">`.
+2. In `app/index.html`, wrap the content above `#runBtn` in `<div class="sidebar-scroll">` (from the opening `<aside>` content through the end of the parameter form at line ~224). Leave `#runBtn`, `#sweepControls`, `#simulationError`, the export dropdown, and `#copyLinkBtn` outside that wrapper — they stay pinned to the bottom.
+3. In `app/ballistics.css`, give the sticky bottom area (`#runBtn` and siblings outside `.sidebar-scroll`) `flex-shrink: 0; padding: 8px var(--space-sm) var(--space-sm)` with a `border-top: 1px solid var(--border)` separator.
+4. On mobile (≤ 900 px the sidebar is a bottom drawer), verify the sticky bottom bar still looks correct inside the drawer. The drawer already has its own height constraints; test that the scrollable content doesn't push the button off the bottom edge of the drawer.
+
+**Coverage:** No JS logic change; no test changes needed. If any existing test checks sidebar DOM structure, update the assertions to account for the new `.sidebar-scroll` wrapper.
+
+**Acceptance:**
+- `#runBtn` is always visible in the sidebar without scrolling, regardless of how many bullets are in the list or whether the custom bullet panel is expanded.
+- The bullet list and parameter form scroll independently within their container.
+- On mobile (drawer open), the compute button is visible at the bottom of the drawer when the drawer is fully open.
+- Existing layout and spacing is preserved — no content is clipped or overlaps the button.
+- `npm test` passes at 100/100/100/100.
