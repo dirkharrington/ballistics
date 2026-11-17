@@ -26,9 +26,13 @@ export async function cacheFirstNetworkFallback(request) {
   }
 }
 
-export async function networkFirstCacheFallback(request) {
+export async function networkFirstCacheFallback(request, preloadResponsePromise) {
   try {
-    const response = await fetch(request);
+    // Use the preloaded response when NavigationPreload is active; it started
+    // in parallel with SW boot so it may already be ready. Fall back to fetch.
+    const response = preloadResponsePromise
+      ? ((await preloadResponsePromise) ?? await fetch(request))
+      : await fetch(request);
     if (response.ok) {
       const cache = await caches.open(getCacheName());
       cache.put(request, response.clone());
@@ -59,6 +63,9 @@ export async function handleActivate() {
         .map(k => caches.delete(k)),
   );
   await self.clients.claim();
+  if (self.registration?.navigationPreload) {
+    await self.registration.navigationPreload.enable();
+  }
 }
 
 export function handleFetch(event) {
@@ -66,9 +73,11 @@ export function handleFetch(event) {
 
   if (request.method !== 'GET') return;
 
-  // Navigation requests (HTML pages) go network-first to avoid stale deploys
+  // Navigation requests (HTML pages) go network-first to avoid stale deploys.
+  // Pass event.preloadResponse so the fetch that started during SW boot is used
+  // when NavigationPreload is active.
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirstCacheFallback(request));
+    event.respondWith(networkFirstCacheFallback(request, event.preloadResponse));
     return;
   }
 
