@@ -18,9 +18,14 @@ import {
 const BULLET_COLORS = Object.fromEntries(BULLET_CATALOG.map(b => [b.id, b.hexColor]));
 
 // ── Colour helper ─────────────────────────────────────────────────────────────
+/** Regex for a safe CSS hex colour — #rrggbb exactly. */
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
 /** Returns the display colour for any bullet (custom or built-in). */
 export function colorFor(bullet) {
-  return bullet.hexColor || BULLET_COLORS[bullet.id] || '#4ADE80';
+  const hex = bullet.hexColor;
+  const validHex = (typeof hex === 'string' && HEX_COLOR_RE.test(hex)) ? hex : null;
+  return validHex || BULLET_COLORS[bullet.id] || '#4ADE80';
 }
 
 // Five-step sweep color ramp (independent of bullet catalog colors)
@@ -341,11 +346,38 @@ function exportJSON() {
 }
 
 // ── JSON import (DM-1) ────────────────────────────────────────────────────────
-// Validates that the parsed value is an array of trajectory result objects, each
-// with at least a `bullet` and a `points` property, then renders them directly
-// (no physics re-computation).
+// Validates and sanitises the parsed value — must be a non-empty array of
+// trajectory result objects.  Every field is rebuilt from an allowlist so that
+// only known-safe values reach innerHTML / style sinks.
+//
+// Limits:  5 MB file, 10 results, 2000 points per result.
+// Strings: bullet.id and bullet.name capped at 200 chars.
+// Colours: bullet.hexColor must match /^#[0-9a-f]{6}$/i or is dropped.
+// Numbers: every numeric field checked with Number.isFinite().
+
+/** Bullet-level numeric fields we copy from the import. */
+const BULLET_NUMERIC_FIELDS = [
+  'muzzleVelocityMps', 'ballisticCoefficient', 'bulletWeightGrams',
+  'bulletDiameterMm', 'muzzleEnergyJoules',
+];
+
+/** Result-level numeric fields we copy from the import. */
+const RESULT_NUMERIC_FIELDS = [
+  'supersonicLimitMeters', 'maxOrdinateCm', 'maxOrdinateRangeMeters', 'densityAltitudeMeters',
+];
+
+/** Point-level numeric fields we copy from the import. */
+const POINT_NUMERIC_FIELDS = [
+  'rangeMeters', 'dropCm', 'velocityMps', 'energyJoules', 'windDriftCm',
+  'timeOfFlightSec', 'spinDriftCm', 'coriolisDeflectionCm',
+];
+
 function importResultsFromFile(file) {
   if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    _setSimulationError('Import failed: file exceeds 5 MB limit.');
+    return;
+  }
   const reader = new FileReader();
   reader.onload = async (e) => {
     let parsed;
@@ -359,15 +391,101 @@ function importResultsFromFile(file) {
       _setSimulationError('Import failed: JSON must be a non-empty array of trajectory results.');
       return;
     }
+    if (parsed.length > 10) {
+      _setSimulationError('Import failed: file contains more than 10 results.');
+      return;
+    }
+
+    const sanitized = [];
     for (const item of parsed) {
       if (!item || typeof item !== 'object' || !item.bullet || !item.points) {
         _setSimulationError('Import failed: each result must have a "bullet" and "points" property.');
         return;
       }
+      if (!Array.isArray(item.points)) {
+        _setSimulationError('Import failed: each result "points" must be an array.');
+        return;
+      }
+      if (item.points.length > 2000) {
+        _setSimulationError('Import failed: a result contains more than 2000 points.');
+        return;
+      }
+
+      // ── Validate & rebuild bullet ────────────────────────────────────────────
+      const rawBullet = item.bullet;
+      if (!rawBullet || typeof rawBullet !== 'object') {
+        _setSimulationError('Import failed: bullet must be an object.');
+        return;
+      }
+      if (typeof rawBullet.id !== 'string' || rawBullet.id.length > 200) {
+        _setSimulationError('Import failed: bullet.id must be a string of at most 200 characters.');
+        return;
+      }
+      if (typeof rawBullet.name !== 'string' || rawBullet.name.length > 200) {
+        _setSimulationError('Import failed: bullet.name must be a string of at most 200 characters.');
+        return;
+      }
+
+      const hexColorRaw = rawBullet.hexColor;
+      const hexColor = (typeof hexColorRaw === 'string' && HEX_COLOR_RE.test(hexColorRaw))
+        ? hexColorRaw : undefined;
+
+      const bullet = { id: rawBullet.id, name: rawBullet.name };
+      if (hexColor !== undefined) bullet.hexColor = hexColor;
+
+      for (const field of BULLET_NUMERIC_FIELDS) {
+        if (rawBullet[field] !== undefined) {
+          if (!Number.isFinite(rawBullet[field])) {
+            _setSimulationError(`Import failed: bullet.${field} must be a finite number.`);
+            return;
+          }
+          bullet[field] = rawBullet[field];
+        }
+      }
+
+      // ── Validate & rebuild result-level numeric fields ───────────────────────
+      const sanitizedResult = { bullet, points: [] };
+      for (const field of RESULT_NUMERIC_FIELDS) {
+        if (item[field] !== undefined) {
+          if (!Number.isFinite(item[field])) {
+            _setSimulationError(`Import failed: ${field} must be a finite number.`);
+            return;
+          }
+          sanitizedResult[field] = item[field];
+        }
+      }
+
+      // ── Validate & rebuild points ────────────────────────────────────────────
+      for (const pt of item.points) {
+        if (!pt || typeof pt !== 'object') {
+          _setSimulationError('Import failed: each point must be an object.');
+          return;
+        }
+        const sanitizedPoint = {};
+        for (const field of POINT_NUMERIC_FIELDS) {
+          if (pt[field] !== undefined) {
+            if (!Number.isFinite(pt[field])) {
+              _setSimulationError(`Import failed: point.${field} must be a finite number.`);
+              return;
+            }
+            sanitizedPoint[field] = pt[field];
+          }
+        }
+        sanitizedResult.points.push(sanitizedPoint);
+      }
+
+      sanitized.push(sanitizedResult);
     }
+
     _setSimulationError(null);
-    lastResults = parsed;
-    await renderResults(parsed, {});
+    lastResults = sanitized;
+    try {
+      await renderResults(sanitized, {});
+    } catch (_) {
+      _setSimulationError('Import failed: could not render the imported data.');
+      lastResults = [];
+      return;
+    }
     const exportBtn = document.getElementById('exportCsvBtn');
     /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
     if (exportBtn) exportBtn.style.display = '';
