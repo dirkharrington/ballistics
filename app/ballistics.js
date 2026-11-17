@@ -977,6 +977,11 @@ function renderTable(results) {
   tableResults = results;
   const tbody = document.getElementById('tableBody');
 
+  const showSpinDrift = results.some(r => r.points.some(p => p.spinDriftCm > 0));
+  const spinDriftHeader = document.getElementById('spinDriftColHeader');
+  /* istanbul ignore else -- #spinDriftColHeader is always present in the app shell */
+  if (spinDriftHeader) spinDriftHeader.style.display = showSpinDrift ? '' : 'none';
+
   const showCoriolis = results.some(r => r.points.some(p => p.coriolisDeflectionCm !== undefined && p.coriolisDeflectionCm !== 0));
   const coriolisHeader = document.getElementById('coriolisColHeader');
   /* istanbul ignore else -- #coriolisColHeader is always present in the app shell */
@@ -1018,6 +1023,7 @@ function renderTable(results) {
           <td>${p.timeOfFlightSec}s</td>
           <td>${adj.moa > 0 ? '+' : ''}${adj.moa}</td>
           <td>${adj.mrad > 0 ? '+' : ''}${adj.mrad}</td>
+          ${showSpinDrift ? `<td>${(p.spinDriftCm ?? 0).toFixed(1)} cm</td>` : ''}
           ${showCoriolis ? `<td>${(p.coriolisDeflectionCm ?? 0) >= 0 ? '+' : ''}${(p.coriolisDeflectionCm ?? 0).toFixed(1)} cm</td>` : ''}
         </tr>`;
   });

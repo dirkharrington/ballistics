@@ -90,6 +90,7 @@ function buildDOM() {
           <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
           <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
           <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th id="spinDriftColHeader" style="display:none">Spin Drift (cm)</th>
           <th id="coriolisColHeader" style="display:none">Coriolis (cm)</th>
         </tr>
       </thead>
@@ -722,6 +723,38 @@ describe('renderTable', () => {
     const rows = document.querySelectorAll('#tableBody tr');
     expect(rows[1].textContent).toContain('-2.1 cm');
     expect(rows[1].textContent).not.toContain('+-');
+  });
+
+  test('spinDriftColHeader hidden when no Spin Drift data', () => {
+    mod.renderTable(results);
+    const hdr = document.getElementById('spinDriftColHeader');
+    expect(hdr.style.display).toBe('none');
+  });
+
+  test('spinDriftColHeader shown and cells rendered when Spin Drift data present', () => {
+    const spinResults = [{
+      bullet: { id: '308-win-168gr', name: '.308' },
+      points: [
+        { rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    spinDriftCm: 0   },
+        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13, spinDriftCm: 1.2 },
+      ],
+    }];
+    mod.renderTable(spinResults);
+    expect(document.getElementById('spinDriftColHeader').style.display).toBe('');
+    const rows = document.querySelectorAll('#tableBody tr');
+    expect(rows[1].textContent).toContain('1.2 cm');
+  });
+
+  test('spinDriftColHeader hidden when all Spin Drift values are zero', () => {
+    const noSpinResults = [{
+      bullet: { id: '308-win-168gr', name: '.308' },
+      points: [
+        { rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    spinDriftCm: 0 },
+        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13, spinDriftCm: 0 },
+      ],
+    }];
+    mod.renderTable(noSpinResults);
+    expect(document.getElementById('spinDriftColHeader').style.display).toBe('none');
   });
 });
 
