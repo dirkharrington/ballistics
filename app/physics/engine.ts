@@ -1,5 +1,5 @@
 import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
-import type { Bullet, TrajectoryParams, TrajectoryPoint, TrajectoryResult, DragTable } from './types.ts';
+import type { Bullet, TrajectoryParams, TrajectoryPoint, TrajectoryResult, DragTable, DragPoint, EffectiveDragModel } from './types.ts';
 export type * from './types.ts';
 
 import { TrajectoryInputError } from './errors.ts';
@@ -12,6 +12,9 @@ const SOUND_FPS   = 1125;
 const MIN_VEL_FPS = 100;
 const MPH_TO_FPS  = 1.46667;
 const G_PER_LB    = 453.592;
+
+// ── Coriolis deflection ───────────────────────────────────────────────────────
+const EARTH_OMEGA_RADS = 7.2921e-5;
 
 // ── Spin drift (Miller stability + Litz drift) ────────────────────────────────
 const MM_PER_INCH  = 25.4;
@@ -68,6 +71,61 @@ function validate(bullet: Bullet, params: TrajectoryParams): void {
     if (!isFiniteNumber(bullet.bulletDiameterMm) || !(bullet.bulletDiameterMm >= 1) || !(bullet.bulletDiameterMm <= 30))
       throw new TrajectoryInputError('bullet.bulletDiameterMm', 'a finite number between 1 and 30');
   }
+  if (params.latitudeDeg != null) {
+    if (!isFiniteNumber(params.latitudeDeg) || !(params.latitudeDeg >= -90) || !(params.latitudeDeg <= 90))
+      throw new TrajectoryInputError('latitudeDeg', 'a finite number between -90 and 90');
+  }
+  if (params.azimuthDeg != null) {
+    if (!isFiniteNumber(params.azimuthDeg) || !(params.azimuthDeg >= 0) || !(params.azimuthDeg <= 360))
+      throw new TrajectoryInputError('azimuthDeg', 'a finite number between 0 and 360');
+  }
+  const table = params.customDragTable;
+  if (table != null) {
+    // Rule 1: must be an array
+    if (!Array.isArray(table))
+      throw new TrajectoryInputError('customDragTable', 'an array of { mach, cd } points');
+    // Empty array means "absent" — no further validation needed
+    if (table.length > 0) {
+      // Rule 2: length 3–100
+      if (!(table.length >= 3) || !(table.length <= 100))
+        throw new TrajectoryInputError('customDragTable', 'between 3 and 100 points');
+      // Rule 3: mach values [0, 5]
+      for (const p of table) {
+        if (!(isFiniteNumber(p?.mach) && p.mach >= 0 && p.mach <= 5))
+          throw new TrajectoryInputError('customDragTable', 'mach values between 0 and 5');
+      }
+      // Rule 4: cd values [0.001, 2]
+      for (const p of table) {
+        if (!(isFiniteNumber(p?.cd) && p.cd >= 0.001 && p.cd <= 2))
+          throw new TrajectoryInputError('customDragTable', 'cd values between 0.001 and 2');
+      }
+      // Rule 5: strictly increasing fps values (guards against ULP-collapse divide-by-zero)
+      for (let i = 1; i < table.length; i++) {
+        if (!(table[i]!.mach * SOUND_FPS > table[i - 1]!.mach * SOUND_FPS))
+          throw new TrajectoryInputError('customDragTable', 'strictly increasing mach values');
+      }
+      // Rule 6: at least one mach <= 0.5
+      if (!table.some(p => p.mach <= 0.5))
+        throw new TrajectoryInputError('customDragTable', 'at least one point with mach <= 0.5');
+      // Rule 7: at least one mach >= 2.0
+      if (!table.some(p => p.mach >= 2.0))
+        throw new TrajectoryInputError('customDragTable', 'at least one point with mach >= 2.0');
+    }
+  }
+}
+
+/**
+ * Converts a Mach→Cd table to the engine's [velocity fps, value] DragTable shape.
+ *
+ * Physics note: The engine's G1/G7 columns are scaled form-factor values F(v), not true
+ * drag coefficients. The custom `cd` drops into the same slot and is still divided by the
+ * bullet's BC, with no Cd→retardation conversion. Results are self-consistent and respond
+ * correctly to the shape of the curve, but the absolute effect of a custom curve is small
+ * due to the engine's near-vacuum drag behaviour. See WA-13 for details.
+ * @internal
+ */
+export function toDragTable(points: readonly DragPoint[]): DragTable {
+  return points.map(p => [p.mach * SOUND_FPS, p.cd] as const);
 }
 
 /**
@@ -121,6 +179,8 @@ export function spinDriftInches(sg: number, tofSec: number): number {
 export interface PointExtras {
   /** Gyroscopic stability factor. null/undefined = spin drift disabled (spinDriftCm = 0). */
   readonly stabilityFactor?: number | null;
+  /** OMEGA × sin(lat) × muzzleVelocityMps (m/s²). null/undefined = Coriolis disabled (key omitted). */
+  readonly coriolisK?: number | null;
 }
 
 /** @internal */
@@ -168,6 +228,7 @@ export function integrateTrajectoryFps(
     return [-(vx / vel) * drag, -(vy / vel) * drag - G_FPS2];
   };
   const sg = extras.stabilityFactor ?? null;
+  const ck = extras.coriolisK ?? null;
   let vx = mvFps * Math.cos(angle), vy = mvFps * Math.sin(angle);
   let x = 0, y = 0, t = 0;
   const points: TrajectoryPoint[] = [];
@@ -186,7 +247,7 @@ export function integrateTrajectoryFps(
       const energy    = 0.5 * (wLbs / G_FPS2) * vel * vel;
       const vacuumTof = x / mvHorizFps;
       const windDrift = windFps * (t - vacuumTof) * 12;
-      points.push({
+      const point: TrajectoryPoint = {
         rangeMeters:     Math.round(rangeYd * M_PER_YARD * 10) / 10,
         dropCm:          Math.round(dropIn * CM_PER_INCH * 10) / 10,
         velocityMps:     Math.round(vel / FPS_PER_MPS * 10) / 10,
@@ -194,7 +255,12 @@ export function integrateTrajectoryFps(
         windDriftCm:     Math.round(windDrift * CM_PER_INCH * 10) / 10 + 0,
         timeOfFlightSec: Math.round(t * 10000) / 10000,
         spinDriftCm:     sg == null ? 0 : Math.round(spinDriftInches(sg, t) * CM_PER_INCH * 10) / 10
-      });
+      };
+      if (ck != null) {
+        const deflM = ck * t * t;
+        point.coriolisDeflectionCm = Math.round(deflM * 100 * 10) / 10 + 0;   // + 0 normalises -0
+      }
+      points.push(point);
       if (y * 12 > maxOrdIn) { maxOrdIn = y * 12; maxOrdRangeYd = rangeYd; }
       nextYd += stepYd;
     }
@@ -229,13 +295,22 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
   const rho   = airDensityRatio(params.altitudeMeters * FT_PER_M,
                                 params.temperatureC * 9 / 5 + 32);
 
-  const dragTable = (params.dragModel ?? 'G1') === 'G7' ? G7_TABLE : G1_TABLE;
+  const custom      = params.customDragTable;
+  const useCustom   = custom != null && custom.length > 0;
+  const dragModel: EffectiveDragModel =
+    useCustom ? 'custom' : ((params.dragModel ?? 'G1') === 'G7' ? 'G7' : 'G1');
+  const dragTable   = useCustom ? toDragTable(custom) : (dragModel === 'G7' ? G7_TABLE : G1_TABLE);
 
   const twist  = params.twistRateInchesPerTurn;
+  const lat = params.latitudeDeg;
+  const az  = params.azimuthDeg;
   const extras: PointExtras = {
     stabilityFactor: twist == null
       ? null
       : stabilityFactor(bullet.bulletDiameterMm, bullet.bulletWeightGrams, twist),
+    coriolisK: lat == null || az == null
+      ? null
+      : EARTH_OMEGA_RADS * Math.sin(lat * Math.PI / 180) * bullet.muzzleVelocityMps,
   };
 
   const sightHtFt = (params.sightHeightMm ?? 38.1) / 25.4 / 12;
@@ -262,6 +337,7 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
     maxOrdinateCm:          Math.round(maxOrdIn * CM_PER_INCH * 10) / 10,
     maxOrdinateRangeMeters: Math.round(maxOrdRangeYd * M_PER_YARD * 10) / 10,
     supersonicLimitMeters:  Math.round(supersonicLimYd * M_PER_YARD * 10) / 10,
-    densityAltitudeMeters
+    densityAltitudeMeters,
+    dragModel
   };
 }

@@ -1,17 +1,17 @@
-/** Reference drag model. Runtime is lenient: any value other than 'G7' selects G1 (§4.2). */
+/** Reference drag model (input). Runtime is lenient: any value other than 'G7' selects G1. */
 export type DragModel = 'G1' | 'G7';
+
+/** Drag model actually used for a result (output). 'custom' = customDragTable was applied. FEAT-3 */
+export type EffectiveDragModel = DragModel | 'custom';
 
 /** One row of a reference drag table from physics-tables.yaml: [velocity ft/s, drag-function value]. */
 export type DragTableRow = readonly [velocityFps: number, dragFunction: number];
 export type DragTable = readonly DragTableRow[];
 
-/**
- * One point on a user-supplied Mach → Cd curve (shape fixed by wa12-custom-drag.md §1.1).
- * RESERVED in SPA-1: accepted on TrajectoryParams.customDragTable, never read.
- */
+/** One point on a user-supplied Mach → Cd curve. Validated by simulate() (FEAT-3 §3.3). */
 export interface DragPoint {
-  readonly mach: number; // 0.0–5.0 once WA-12 lands
-  readonly cd: number;   // 0.001–2.0 once WA-12 lands
+  readonly mach: number; // [0, 5], strictly increasing within a table
+  readonly cd: number;   // [0.001, 2]
 }
 
 /** A projectile. Catalog entries (bullets.yaml → virtual:bullet-catalog) always include every field. */
@@ -41,9 +41,9 @@ export interface TrajectoryParams {
   readonly shootingAngleDegrees?: number | null;   // [-45, 45]; default 0
   readonly dragModel?: DragModel | null;           // default 'G1'
   readonly twistRateInchesPerTurn?: number | null; // [1, 100]; absent = spin drift disabled (FEAT-1)
-  readonly latitudeDeg?: number | null;            // RESERVED, IGNORED (WA-13; Q2)
-  readonly azimuthDeg?: number | null;             // RESERVED, IGNORED (WA-13; Q2)
-  readonly customDragTable?: readonly DragPoint[] | null; // RESERVED, IGNORED (WA-12; Q2)
+  readonly latitudeDeg?: number | null;  // [-90, 90], north positive. Coriolis needs BOTH latitudeDeg and azimuthDeg (FEAT-2)
+  readonly azimuthDeg?: number | null;   // [0, 360], clockwise from north. Enable flag only; not in the formula (FEAT-2)
+  readonly customDragTable?: readonly DragPoint[] | null; // 3–100 points; non-empty overrides dragModel (FEAT-3). null/[] = use dragModel
   readonly bulletIds?: readonly string[];          // passthrough from UI request objects; IGNORED
 }
 
@@ -56,6 +56,7 @@ export interface TrajectoryPoint {
   windDriftCm: number;
   timeOfFlightSec: number;
   spinDriftCm: number;          // FEAT-1. Gyroscopic spin drift, cm, >= 0, positive = right (right-hand twist). 0 when twist rate is absent.
+  coriolisDeflectionCm?: number; // FEAT-2. cm, positive = right. Key is ABSENT unless both latitudeDeg and azimuthDeg are set.
 }
 
 /** Return value of simulate(). */
@@ -67,4 +68,5 @@ export interface TrajectoryResult {
   readonly maxOrdinateRangeMeters: number;
   readonly supersonicLimitMeters: number;
   readonly densityAltitudeMeters: number;
+  readonly dragModel: EffectiveDragModel;   // FEAT-3. 'custom' when customDragTable was applied, else 'G7' if params.dragModel === 'G7', else 'G1'
 }

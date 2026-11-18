@@ -830,7 +830,7 @@ The barrel twist rate input has existed since Sprint 7 and round-trips through U
 
 ---
 
-### FEAT-2 · Coriolis deflection in physics engine · FE · Size S
+### FEAT-2 · Coriolis deflection in physics engine · FE · Size S ✓ Done
 
 The latitude and azimuth inputs were added in Sprint 7 and encoded in URL state. The engine marks both RESERVED. The chart, range readout, data table column, and DOPE card rendering code **all already conditionally handle `coriolisDeflectionCm`**; they never activate because the engine never produces the field.
 
@@ -857,9 +857,11 @@ The latitude and azimuth inputs were added in Sprint 7 and encoded in URL state.
 
 ---
 
-### FEAT-3 · Wire custom drag CSV to physics engine · FE · Size M
+### FEAT-3 · Wire custom drag CSV to physics engine · FE · Size M ✅ Done (PR #133)
 
 The Custom Round panel has had a drag table CSV uploader since before Sprint 1. The engine marks `customDragTable` as RESERVED and ignores it — every trajectory still uses G1 or G7 regardless of what the user uploads.
+
+**WA-12 FE work (UI copy updates) was delivered by UX-6 (PR #130). Engine work is delivered by FEAT-3 (this PR). `contracts/wa12-custom-drag.md` §2–§4 (Rust/Java) remain on hold.**
 
 **Work items:**
 
@@ -930,24 +932,15 @@ Bullet selection cards are `<div>` elements with click listeners only. They are 
 
 ---
 
-### UX-4 · Spin drift column in DOPE card · FE · Size S
+### UX-4 · Spin drift column in trajectory table · FE · Size S · DONE (PR #TBD)
 
-The DOPE card's `_buildDopeTable` already renders a "Cor. (cm)" column for Coriolis — that code activates automatically once FEAT-2 ships. Spin drift is not in the DOPE card at all. A shooter who has set a twist rate needs the lateral spin drift correction on the same DOPE card as the elevation come-ups.
+Add `spinDriftCm` from FEAT-1 to the trajectory data table and per-range readout in `ballistics.js`.
 
-**Work items:**
-
-1. In `app/tools.js` `_buildDopeTable(results)`, mirror the `hasCoriolis` pattern:
-   `const hasSpinDrift = results.some(r => r.points.some(p => p.spinDriftCm !== 0));`
-2. Update `colSpan` to account for both optional columns.
-3. Add `${hasSpinDrift ? '<th>Spin (cm)</th>' : ''}` alongside the existing Coriolis sub-header.
-4. In `bodyRows`, use `interpolateAt(r.points, dist, 'spinDriftCm')` and render `${val >= 0 ? '+' : ''}${val.toFixed(1)}`, or `'–'` when null.
-
-**Coverage:** 100% Jest. Tests: (a) non-zero spin drift — "Spin (cm)" column appears; (b) all-zero — column absent; (c) copied text includes the column when shown.
-
-**Acceptance:**
-- With twist rate set (FEAT-1 on main): DOPE card shows "Spin (cm)" alongside elevation come-ups.
-- Without twist rate: column absent; existing Coriolis column behavior unchanged.
-- `npm test` passes at 100/100/100/100.
+**Delivered:**
+- `app/index.html`: added `<th id="spinDriftColHeader">` before the Coriolis header
+- `app/ballistics.js` `renderTable`: shows/hides "Spin Drift (cm)" column when any point has `spinDriftCm > 0`
+- `app/ballistics.js` `updateReadout`: existing code verified correct — shows "Spin Drift: X.X cm" cell when `spinDriftCm > 0`
+- 3 new Jest tests for `renderTable` spin drift; `updateReadout` spin drift tests already present
 
 **Dependencies: FEAT-1**
 

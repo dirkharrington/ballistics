@@ -644,6 +644,7 @@ describe('simulate() — golden fixture', () => {
       expect(result.maxOrdinateCm).toEqual(expected.maxOrdinateCm);
       expect(result.maxOrdinateRangeMeters).toEqual(expected.maxOrdinateRangeMeters);
       expect(result.supersonicLimitMeters).toEqual(expected.supersonicLimitMeters);
+      expect(result.dragModel).toBe(expected.dragModel ?? (params.dragModel === 'G7' ? 'G7' : 'G1'));
     });
   }
 });
@@ -853,5 +854,449 @@ describe('FEAT-1 test 15: integrateTrajectoryFps without extras gives spinDriftC
     const angle      = 0.002;
     const { points } = _integrateWithExtras(mvFps, angle, bc, rho, wLbs, 0, maxRangeYd, stepYd);
     points.forEach(p => expect(p.spinDriftCm).toBe(0));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEAT-2: Coriolis deflection
+// ─────────────────────────────────────────────────────────────────────────────
+
+const COND_A_CORIOLIS = {
+  zeroRangeMeters: 100, maxRangeMeters: 1000, stepMeters: 25,
+  windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+};
+
+// Test 2: Neither/only/null — coriolisDeflectionCm key absent
+describe('FEAT-2 test 2: coriolisDeflectionCm absent when lat/az not both set', () => {
+  for (const [desc, params] of [
+    ['neither set',      COND_A_CORIOLIS],
+    ['latitudeDeg only', { ...COND_A_CORIOLIS, latitudeDeg: 45 }],
+    ['azimuthDeg only',  { ...COND_A_CORIOLIS, azimuthDeg: 90 }],
+    ['both null',        { ...COND_A_CORIOLIS, latitudeDeg: null, azimuthDeg: null }],
+  ]) {
+    test(`${desc} → 'coriolisDeflectionCm' in p === false`, () => {
+      const result = simulate(B308, params);
+      result.points.forEach(p => expect('coriolisDeflectionCm' in p).toBe(false));
+    });
+  }
+});
+
+// Test 3: .308 condA G1, lat 45, az 90 — numeric checks
+describe('FEAT-2 test 3: lat 45 az 90 hand-checked values', () => {
+  const params = { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 90 };
+
+  test('point at ~500m: coriolisDeflectionCm = 1.6 ± 0.1', () => {
+    const result = simulate(B308, params);
+    const p500 = result.points.find(p => p.rangeMeters >= 490 && p.rangeMeters <= 510);
+    expect(p500).toBeDefined();
+    expect(p500.coriolisDeflectionCm).toBeGreaterThanOrEqual(1.5);
+    expect(p500.coriolisDeflectionCm).toBeLessThanOrEqual(1.7);
+  });
+
+  test('point at ~1000m: coriolisDeflectionCm = 6.4 ± 0.1', () => {
+    const result = simulate(B308, params);
+    const p1000 = result.points.find(p => p.rangeMeters >= 990 && p.rangeMeters <= 1010);
+    expect(p1000).toBeDefined();
+    expect(p1000.coriolisDeflectionCm).toBeGreaterThanOrEqual(6.3);
+    expect(p1000.coriolisDeflectionCm).toBeLessThanOrEqual(6.5);
+  });
+
+  test('points[0].coriolisDeflectionCm === 0', () => {
+    const result = simulate(B308, params);
+    expect(result.points[0].coriolisDeflectionCm).toBe(0);
+  });
+});
+
+// Test 4: .308 condA G1, lat -33, az 0 — southern hemisphere
+describe('FEAT-2 test 4: lat -33 az 0 southern hemisphere', () => {
+  const params = { ...COND_A_CORIOLIS, latitudeDeg: -33, azimuthDeg: 0 };
+
+  test('point at ~1000m: coriolisDeflectionCm = -4.9 ± 0.1', () => {
+    const result = simulate(B308, params);
+    const p1000 = result.points.find(p => p.rangeMeters >= 990 && p.rangeMeters <= 1010);
+    expect(p1000).toBeDefined();
+    expect(p1000.coriolisDeflectionCm).toBeGreaterThanOrEqual(-5.0);
+    expect(p1000.coriolisDeflectionCm).toBeLessThanOrEqual(-4.8);
+  });
+
+  test('every value <= 0', () => {
+    const result = simulate(B308, params);
+    result.points.forEach(p => expect(p.coriolisDeflectionCm).toBeLessThanOrEqual(0));
+  });
+
+  test('points[0].coriolisDeflectionCm is +0 not -0', () => {
+    const result = simulate(B308, params);
+    expect(Object.is(result.points[0].coriolisDeflectionCm, 0)).toBe(true);
+  });
+});
+
+// Test 5: Latitude 0 — all exactly 0 (not -0)
+describe('FEAT-2 test 5: latitude 0 gives 0 for all points', () => {
+  test('every point coriolisDeflectionCm is +0', () => {
+    const result = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 0, azimuthDeg: 0 });
+    result.points.forEach(p => expect(Object.is(p.coriolisDeflectionCm, 0)).toBe(true));
+  });
+});
+
+// Test 6: Azimuth independence
+describe('FEAT-2 test 6: azimuth does not affect coriolisDeflectionCm', () => {
+  test('lat 45 with az 0, 90, 270, 360 gives toEqual points', () => {
+    const r0   = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 0 });
+    const r90  = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 90 });
+    const r270 = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 270 });
+    const r360 = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 360 });
+    expect(r0.points).toEqual(r90.points);
+    expect(r0.points).toEqual(r270.points);
+    expect(r0.points).toEqual(r360.points);
+  });
+});
+
+// Test 7: Hemisphere symmetry
+describe('FEAT-2 test 7: hemisphere symmetry', () => {
+  test('lat 30 and lat -30 Coriolis values sum to 0 within ±0.1', () => {
+    const rN = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 30, azimuthDeg: 0 });
+    const rS = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: -30, azimuthDeg: 0 });
+    rN.points.forEach((pN, i) => {
+      const pS = rS.points[i];
+      expect(Math.abs(pN.coriolisDeflectionCm + pS.coriolisDeflectionCm)).toBeLessThanOrEqual(0.1);
+    });
+  });
+});
+
+// Test 8: Reference recomputation (lat 45)
+describe('FEAT-2 test 8: reference recomputation lat 45', () => {
+  test('all points match reference formula within 0.1 cm', () => {
+    const mv = B308.muzzleVelocityMps;
+    const params = { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 0 };
+    const result = simulate(B308, params);
+    const OMEGA = 7.2921e-5;
+    for (const p of result.points) {
+      const ref = Math.round(OMEGA * Math.sin(Math.PI / 4) * mv * p.timeOfFlightSec * p.timeOfFlightSec * 100 * 10) / 10;
+      expect(Math.abs(p.coriolisDeflectionCm - ref)).toBeLessThanOrEqual(0.1);
+    }
+  });
+});
+
+// Test 9: Coriolis does not affect other fields
+describe('FEAT-2 test 9: Coriolis does not affect other fields', () => {
+  test('after removing coriolisDeflectionCm, points are equal', () => {
+    const noLat = simulate(B308, COND_A_CORIOLIS);
+    const withLat = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 90 });
+    const strip = pts => pts.map(({ coriolisDeflectionCm: _, ...rest }) => rest);
+    expect(strip(withLat.points)).toEqual(strip(noLat.points));
+    expect(withLat.maxOrdinateCm).toEqual(noLat.maxOrdinateCm);
+    expect(withLat.maxOrdinateRangeMeters).toEqual(noLat.maxOrdinateRangeMeters);
+    expect(withLat.supersonicLimitMeters).toEqual(noLat.supersonicLimitMeters);
+  });
+});
+
+// Test 10: Combined with spin drift
+describe('FEAT-2 test 10: combined spin drift + Coriolis', () => {
+  test('both fields present; spinDriftCm equals twist-only run; coriolisDeflectionCm equals Coriolis-only run', () => {
+    const twistOnly    = simulate(B308, { ...COND_A_CORIOLIS, twistRateInchesPerTurn: 10 });
+    const coriolisOnly = simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 90 });
+    const combined     = simulate(B308, { ...COND_A_CORIOLIS, twistRateInchesPerTurn: 10, latitudeDeg: 45, azimuthDeg: 90 });
+
+    combined.points.forEach((p, i) => {
+      expect('spinDriftCm' in p).toBe(true);
+      expect('coriolisDeflectionCm' in p).toBe(true);
+      expect(p.spinDriftCm).toEqual(twistOnly.points[i].spinDriftCm);
+      expect(p.coriolisDeflectionCm).toEqual(coriolisOnly.points[i].coriolisDeflectionCm);
+    });
+  });
+});
+
+// Test 11: Validation — invalid latitudeDeg
+describe('FEAT-2 test 11: invalid latitudeDeg validation', () => {
+  const c = 'a finite number between -90 and 90';
+  for (const bad of [-90.01, 90.01, NaN, Infinity]) {
+    test(`rejects latitudeDeg = ${bad} with azimuth set`, () => {
+      expectValidationError(B308, { ...COND_A_CORIOLIS, latitudeDeg: bad, azimuthDeg: 0 }, 'latitudeDeg', c);
+    });
+    test(`rejects latitudeDeg = ${bad} without azimuth set`, () => {
+      expectValidationError(B308, { ...COND_A_CORIOLIS, latitudeDeg: bad }, 'latitudeDeg', c);
+    });
+  }
+});
+
+// Test 12: Validation — invalid azimuthDeg
+describe('FEAT-2 test 12: invalid azimuthDeg validation', () => {
+  const c = 'a finite number between 0 and 360';
+  for (const bad of [-0.01, 360.01, NaN]) {
+    test(`rejects azimuthDeg = ${bad} with latitude set`, () => {
+      expectValidationError(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: bad }, 'azimuthDeg', c);
+    });
+    test(`rejects azimuthDeg = ${bad} without latitude set`, () => {
+      expectValidationError(B308, { ...COND_A_CORIOLIS, azimuthDeg: bad }, 'azimuthDeg', c);
+    });
+  }
+});
+
+// Test 13: Validation boundaries — accepted
+describe('FEAT-2 test 13: validation boundary values accepted', () => {
+  test('accepts latitudeDeg = -90', () => {
+    expect(() => simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: -90, azimuthDeg: 0 })).not.toThrow();
+  });
+  test('accepts latitudeDeg = 90', () => {
+    expect(() => simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 90, azimuthDeg: 0 })).not.toThrow();
+  });
+  test('accepts azimuthDeg = 0', () => {
+    expect(() => simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 0 })).not.toThrow();
+  });
+  test('accepts azimuthDeg = 360', () => {
+    expect(() => simulate(B308, { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 360 })).not.toThrow();
+  });
+});
+
+// Test 14: integrateTrajectoryFps with coriolisK: 0 and without
+describe('FEAT-2 test 14: integrateTrajectoryFps with coriolisK', () => {
+  const mvFps      = 807 * 3.28084;
+  const bc         = 0.475;
+  const rho        = 1.0;
+  const wLbs       = 10.89 / 453.592;
+  const maxRangeYd = 500 / 0.9144;
+  const stepYd     = 100 / 0.9144;
+  const angle      = 0.002;
+
+  test('extras = { coriolisK: 0 } → key present and value 0 on all points', () => {
+    const { points } = _integrateWithExtras(mvFps, angle, bc, rho, wLbs, 0, maxRangeYd, stepYd, 1, undefined, { coriolisK: 0 });
+    points.forEach(p => {
+      expect('coriolisDeflectionCm' in p).toBe(true);
+      expect(p.coriolisDeflectionCm).toBe(0);
+    });
+  });
+
+  test('extras = {} → coriolisDeflectionCm key absent on all points', () => {
+    const { points } = _integrateWithExtras(mvFps, angle, bc, rho, wLbs, 0, maxRangeYd, stepYd, 1, undefined, {});
+    points.forEach(p => expect('coriolisDeflectionCm' in p).toBe(false));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEAT-3: Custom drag table
+// ─────────────────────────────────────────────────────────────────────────────
+
+const { toDragTable } = require('../app/physics/engine.ts');
+
+const FLAT_TABLE    = [{mach:0,cd:0.28},{mach:1,cd:0.28},{mach:3,cd:0.28}];
+const HEAVY_TABLE   = [{mach:0,cd:2.0},{mach:1,cd:2.0},{mach:3,cd:2.0}];
+
+// Test 2: customDragTable omitted / null / [] — identical to no-table run
+describe('FEAT-3 test 2: absent/null/empty customDragTable equals no-table run', () => {
+  test('G1: omitted/null/[] all toEqual', () => {
+    const base   = simulate(B308, COND_A);
+    const noTbl  = simulate(B308, { ...COND_A, customDragTable: undefined });
+    const nullTbl = simulate(B308, { ...COND_A, customDragTable: null });
+    const emptyTbl = simulate(B308, { ...COND_A, customDragTable: [] });
+    expect(noTbl.points).toEqual(base.points);
+    expect(nullTbl.points).toEqual(base.points);
+    expect(emptyTbl.points).toEqual(base.points);
+    expect(base.dragModel).toBe('G1');
+    expect(noTbl.dragModel).toBe('G1');
+    expect(nullTbl.dragModel).toBe('G1');
+    expect(emptyTbl.dragModel).toBe('G1');
+  });
+
+  test('G7: omitted/null/[] all toEqual', () => {
+    const base    = simulate(B308, { ...COND_A, dragModel: 'G7' });
+    const noTbl   = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: undefined });
+    const nullTbl = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: null });
+    const emptyTbl = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: [] });
+    expect(noTbl.points).toEqual(base.points);
+    expect(nullTbl.points).toEqual(base.points);
+    expect(emptyTbl.points).toEqual(base.points);
+    expect(base.dragModel).toBe('G7');
+    expect(noTbl.dragModel).toBe('G7');
+    expect(nullTbl.dragModel).toBe('G7');
+    expect(emptyTbl.dragModel).toBe('G7');
+  });
+});
+
+// Test 3: G1-equivalent table produces similar results, dragModel === 'custom'
+describe('FEAT-3 test 3: G1-equivalent custom table', () => {
+  test('every point within ±0.1 of G1 run; dragModel === custom', () => {
+    const g1Table = G1_TABLE.map(([v, f]) => ({ mach: v / 1125, cd: f }));
+    const g1Run  = simulate(B308, COND_A);
+    const cusRun = simulate(B308, { ...COND_A, customDragTable: g1Table });
+    expect(cusRun.dragModel).toBe('custom');
+    for (let i = 0; i < g1Run.points.length; i++) {
+      const pg1 = g1Run.points[i];
+      const pc  = cusRun.points[i];
+      expect(Math.abs(pc.dropCm        - pg1.dropCm)).toBeLessThanOrEqual(0.1);
+      expect(Math.abs(pc.velocityMps   - pg1.velocityMps)).toBeLessThanOrEqual(0.1);
+      expect(Math.abs(pc.timeOfFlightSec - pg1.timeOfFlightSec)).toBeLessThanOrEqual(0.1);
+    }
+  });
+});
+
+// Test 4: same table with dragModel G1 and G7 both produce dragModel === 'custom' and identical points
+describe('FEAT-3 test 4: dragModel override — custom table takes precedence', () => {
+  test('same table with G1 and G7 produces identical points and dragModel === custom', () => {
+    const rG1 = simulate(B308, { ...COND_A, dragModel: 'G1', customDragTable: FLAT_TABLE });
+    const rG7 = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: FLAT_TABLE });
+    expect(rG1.dragModel).toBe('custom');
+    expect(rG7.dragModel).toBe('custom');
+    expect(rG1.points).toEqual(rG7.points);
+  });
+});
+
+// Test 5: heavy flat table vs plain G1 — more drag, lower velocity, more drop
+describe('FEAT-3 test 5: heavy flat table (cd:2.0) vs G1', () => {
+  test('last point: lower velocity, higher tof, more negative drop than G1', () => {
+    const g1  = simulate(B308, COND_A);
+    const cus = simulate(B308, { ...COND_A, customDragTable: HEAVY_TABLE });
+    const lastG1  = g1.points[g1.points.length - 1];
+    const lastCus = cus.points[cus.points.length - 1];
+    expect(lastCus.velocityMps).toBeLessThan(lastG1.velocityMps);
+    expect(lastCus.timeOfFlightSec).toBeGreaterThan(lastG1.timeOfFlightSec);
+    expect(lastCus.dropCm).toBeLessThan(lastG1.dropCm);
+  });
+});
+
+// Test 6: custom table + twist + lat/az — spinDrift and coriolis are still present
+describe('FEAT-3 test 6: custom table + spin drift + Coriolis', () => {
+  test('spinDriftCm and coriolisDeflectionCm both present and > 0 at last point', () => {
+    const result = simulate(B308, {
+      ...COND_A,
+      customDragTable: FLAT_TABLE,
+      twistRateInchesPerTurn: 10,
+      latitudeDeg: 45,
+      azimuthDeg: 90,
+    });
+    expect('spinDriftCm' in result.points[result.points.length - 1]).toBe(true);
+    expect('coriolisDeflectionCm' in result.points[result.points.length - 1]).toBe(true);
+    result.points.forEach(p => expect(p.spinDriftCm).toBeGreaterThanOrEqual(0));
+    result.points.forEach(p => expect(p.coriolisDeflectionCm).toBeGreaterThanOrEqual(0));
+    const last = result.points[result.points.length - 1];
+    expect(last.spinDriftCm).toBeGreaterThan(0);
+    expect(last.coriolisDeflectionCm).toBeGreaterThan(0);
+  });
+});
+
+// Test 7: toDragTable
+describe('FEAT-3 test 7: toDragTable', () => {
+  test('converts [{mach:0,cd:0.1},{mach:2,cd:0.3}] to [[0,0.1],[2250,0.3]]', () => {
+    const result = toDragTable([{mach:0,cd:0.1},{mach:2,cd:0.3}]);
+    expect(result[0][0]).toBe(0);
+    expect(result[0][1]).toBeCloseTo(0.1);
+    expect(result[1][0]).toBe(2250);
+    expect(result[1][1]).toBeCloseTo(0.3);
+    // Strictly ascending in column 0
+    expect(result[1][0]).toBeGreaterThan(result[0][0]);
+  });
+});
+
+// Test 8: Validation — one test per rule 1–7
+describe('FEAT-3 test 8: customDragTable validation — rule 1 (must be array)', () => {
+  test('string throws customDragTable', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: 'x' }, 'customDragTable', 'an array of { mach, cd } points');
+  });
+  test('object throws customDragTable', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: {} }, 'customDragTable', 'an array of { mach, cd } points');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 2 (3–100 points)', () => {
+  const minTable = [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}];
+  test('2 points throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: minTable.slice(0,2) }, 'customDragTable', 'between 3 and 100 points');
+  });
+  test('101 points throws', () => {
+    const big = Array.from({length:101}, (_, i) => ({mach: i * 0.049, cd: 0.1}));
+    // ensure coverage: big[0].mach=0, big[100].mach=4.9, need mach<=0.5 and >=2.0
+    expectValidationError(B308, { ...COND_A, customDragTable: big }, 'customDragTable', 'between 3 and 100 points');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 3 (mach [0,5])', () => {
+  const base3 = [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}];
+  test('mach -0.1 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:-0.1,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'mach values between 0 and 5');
+  });
+  test('mach 5.1 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:5.1,cd:0.1}] }, 'customDragTable', 'mach values between 0 and 5');
+  });
+  test('mach NaN throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:NaN,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'mach values between 0 and 5');
+  });
+  test('null entry throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1}, null, {mach:3,cd:0.1}] }, 'customDragTable', 'mach values between 0 and 5');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 4 (cd [0.001,2])', () => {
+  test('cd 0 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'cd values between 0.001 and 2');
+  });
+  test('cd 2.1 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:2.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'cd values between 0.001 and 2');
+  });
+  test('missing cd throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'cd values between 0.001 and 2');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 5 (strictly increasing mach)', () => {
+  test('equal mach values throw', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'strictly increasing mach values');
+  });
+  test('decreasing mach throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:2,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'strictly increasing mach values');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 6 (need mach <= 0.5)', () => {
+  test('no point <= 0.5 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0.6,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] }, 'customDragTable', 'at least one point with mach <= 0.5');
+  });
+});
+
+describe('FEAT-3 test 8: customDragTable validation — rule 7 (need mach >= 2.0)', () => {
+  test('no point >= 2.0 throws', () => {
+    expectValidationError(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:0.5,cd:0.1},{mach:1.9,cd:0.1}] }, 'customDragTable', 'at least one point with mach >= 2.0');
+  });
+});
+
+// Test 9: Validation boundaries — exactly 3 and 100 points, boundary mach/cd, exact coverage
+describe('FEAT-3 test 9: validation boundary values accepted', () => {
+  test('exactly 3 points accepted', () => {
+    expect(() => simulate(B308, { ...COND_A, customDragTable: [{mach:0,cd:0.1},{mach:1,cd:0.1},{mach:3,cd:0.1}] })).not.toThrow();
+  });
+
+  test('exactly 100 points accepted', () => {
+    // 100 points: mach from 0 to 3.0 in 100 steps, guaranteed mach<=0.5 and mach>=2.0
+    const pts = Array.from({length:100}, (_, i) => ({mach: i * (3.0/99), cd: 0.1}));
+    expect(() => simulate(B308, { ...COND_A, customDragTable: pts })).not.toThrow();
+  });
+
+  test('mach 0 and 5 accepted', () => {
+    const pts = [{mach:0,cd:0.1},{mach:0.5,cd:0.1},{mach:2.0,cd:0.1},{mach:5,cd:0.1}];
+    expect(() => simulate(B308, { ...COND_A, customDragTable: pts })).not.toThrow();
+  });
+
+  test('cd 0.001 and 2 accepted', () => {
+    const pts = [{mach:0,cd:0.001},{mach:0.5,cd:2},{mach:2.0,cd:0.1},{mach:3,cd:0.1}];
+    expect(() => simulate(B308, { ...COND_A, customDragTable: pts })).not.toThrow();
+  });
+
+  test('coverage at exactly mach 0.5 and 2.0 accepted', () => {
+    const pts = [{mach:0,cd:0.1},{mach:0.5,cd:0.1},{mach:2.0,cd:0.1},{mach:3,cd:0.1}];
+    expect(() => simulate(B308, { ...COND_A, customDragTable: pts })).not.toThrow();
+  });
+});
+
+// Test 10: dragModel on results
+describe('FEAT-3 test 10: dragModel field on results', () => {
+  test('no table, params.dragModel G7 → dragModel G7', () => {
+    expect(simulate(B308, { ...COND_A, dragModel: 'G7' }).dragModel).toBe('G7');
+  });
+  test('no table, params.dragModel G1 → dragModel G1', () => {
+    expect(simulate(B308, { ...COND_A, dragModel: 'G1' }).dragModel).toBe('G1');
+  });
+  test('no table, params.dragModel null → dragModel G1', () => {
+    expect(simulate(B308, { ...COND_A, dragModel: null }).dragModel).toBe('G1');
+  });
+  test('no table, params.dragModel absent → dragModel G1', () => {
+    expect(simulate(B308, COND_A).dragModel).toBe('G1');
   });
 });
