@@ -404,7 +404,16 @@ export function renderCustomBulletGroup(listEl, customBullets, ctx) {
     card.id = 'card-' + b.id;
     card.className = 'bullet-card bullet-card--custom' + (isSelected ? ' active' : '');
     card.style.setProperty('--bullet-color', customColor(b.id));
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
     card.addEventListener('click', () => onToggle(b.id));
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onToggle(b.id);
+      }
+    });
 
     const nameEl = document.createElement('div');
     nameEl.className = 'bullet-name';
@@ -447,6 +456,7 @@ export function renderCustomBulletGroup(listEl, customBullets, ctx) {
 
     const check = document.createElement('div');
     check.className = 'check';
+    check.setAttribute('aria-hidden', 'true');
     card.appendChild(check);
 
     group.appendChild(card);

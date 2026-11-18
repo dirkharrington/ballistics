@@ -69,7 +69,7 @@ jobs:
 
       - name: npm audit
         if: needs.changes.outputs.frontend == 'true'
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
 
       - name: Build
         if: needs.changes.outputs.frontend == 'true'

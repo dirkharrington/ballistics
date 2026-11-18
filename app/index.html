@@ -41,10 +41,12 @@
     <p>External trajectory modeling // G1 drag model // RK4 integration</p>
   </div>
   <div class="header-status">
+    <button id="themeToggle" aria-label="Switch to light mode" title="Toggle theme">&#x1F319;</button>
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
   </div>
 </header>
 <div id="toast" class="toast" aria-live="polite"></div>
+<div id="simStatus" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 
 <!-- APP -->
 <div class="app">
@@ -57,7 +59,7 @@
       <input type="checkbox" id="selectAllBullets" aria-label="Select all rounds">
       <span>Select all</span>
     </label>
-    <div class="bullet-list" id="bulletList">
+    <div class="bullet-list" id="bulletList" role="group" aria-label="Select bullet">
       <!-- populated by JS -->
     </div>
 
@@ -223,9 +225,11 @@
       </div>
     </div>
 
-    <button class="run-btn" id="runBtn">
-      <span>▶ COMPUTE TRAJECTORIES</span>
-    </button>
+    <div class="sidebar-compute">
+      <button class="run-btn" id="runBtn">
+        <span>▶ COMPUTE TRAJECTORIES</span>
+      </button>
+    </div>
     <div id="sweepControls" style="display:none; margin-top:8px;">
       <div class="param-row">
         <div class="param-group" style="flex:1">
@@ -253,6 +257,8 @@
         <button class="export-md-btn">Markdown</button>
       </div>
     </div>
+    <button type="button" id="importJsonBtn" class="copy-link-btn" aria-label="Import previously exported trajectory JSON">⬆ IMPORT JSON</button>
+    <input type="file" id="importJsonFile" accept=".json,application/json" style="display:none" aria-hidden="true" tabindex="-1">
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
 
     <details class="custom-section">

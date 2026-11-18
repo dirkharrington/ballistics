@@ -801,7 +801,7 @@ Stack order for physics stories: FEAT-1 → FEAT-2 → FEAT-3 (all three touch `
 
 ---
 
-### FEAT-1 · Gyroscopic spin drift in physics engine and data table · FE · Size S
+### FEAT-1 · Gyroscopic spin drift in physics engine and data table · FE · Size S · DONE (PR #139)
 
 The barrel twist rate input has existed since Sprint 7 and round-trips through URL state, but the engine marks `twistRateInchesPerTurn` as IGNORED. The chart and readout rendering code already checks for `p.spinDriftCm` and will activate automatically; this story implements the Litz simplified formula in the TypeScript engine, adds `spinDriftCm` to `TrajectoryPoint`, and adds the missing "Spin Drift (cm)" header to the data table.
 
@@ -906,7 +906,7 @@ The drag table help text reads "Stored for future use — drag model override re
 
 ---
 
-### ACC-1 · Keyboard-navigable bullet selector · FE · Size S
+### ~~ACC-1 · Keyboard-navigable bullet selector · FE · Size S~~ — DONE
 
 Bullet selection cards are `<div>` elements with click listeners only. They are unreachable by Tab and cannot be activated with Enter or Space. A keyboard-only user or screen reader user cannot select a round without a mouse.
 
@@ -953,7 +953,7 @@ The DOPE card's `_buildDopeTable` already renders a "Cor. (cm)" column for Corio
 
 ---
 
-### UX-5 · Density altitude in result stat cards · FE · Size XS
+### ~~UX-5 · Density altitude in result stat cards · FE · Size XS~~ DONE
 
 The stat card template in `renderStatCards` already conditionally renders `r.densityAltitudeMeters` as "X m density alt", but `TrajectoryResult` has no such field and the branch is dead code today. Density altitude converts altitude plus temperature into a single number describing how the air behaves relative to sea level.
 
@@ -962,8 +962,9 @@ The stat card template in `renderStatCards` already conditionally renders `r.den
 1. In `app/physics/types.ts`, add `densityAltitudeMeters: number` to `TrajectoryResult`.
 2. In `app/physics/engine.ts` `simulate()`, compute density altitude before the return statement:
    ```ts
-   const isaTempC = 15 - 0.00198 * params.altitudeMeters;
-   const densityAltitudeMeters = Math.round(params.altitudeMeters + 118.8 * (params.temperatureC - isaTempC));
+   const isa = 15 - 0.0065 * params.altitudeMeters;   // ISA temperature at altitude (°C/m lapse)
+   const densityAltitudeMeters = Math.round(params.altitudeMeters + 36.2 * (params.temperatureC - isa));
+   // 36.2 = 118.8 ft/°C × 0.3048 m/ft
    ```
 3. No change to `renderStatCards` needed — the existing `r.densityAltitudeMeters !== undefined` conditional fires automatically.
 
@@ -977,7 +978,7 @@ The stat card template in `renderStatCards` already conditionally renders `r.den
 
 ---
 
-### ACC-2 · Screen reader announcements for simulation lifecycle · FE · Size XS
+### ~~ACC-2 · Screen reader announcements for simulation lifecycle · FE · Size XS~~ ✓ DONE
 
 A screen reader user clicking "Compute Trajectories" receives no feedback that the simulation is running or complete. `#simulationError` handles errors (`aria-live="assertive"`) and `#toast` handles toasts, but neither fires for in-progress or success states.
 
@@ -999,7 +1000,7 @@ A screen reader user clicking "Compute Trajectories" receives no feedback that t
 
 ---
 
-### DM-1 · Re-import previously exported trajectory JSON · FE · Size S
+### ~~DM-1 · Re-import previously exported trajectory JSON · FE · Size S~~ — DONE (PR #TBD)
 
 Users can export trajectory results as JSON but have no way to reload a saved session. The exported JSON file contains everything needed to redisplay the results.
 
@@ -1027,7 +1028,7 @@ Users can export trajectory results as JSON but have no way to reload a saved se
 
 ---
 
-### PERF-14 · Warm physics worker on idle · FE · Size XS
+### ~~PERF-14 · Warm physics worker on idle · FE · Size XS~~ ✓ Done
 
 The physics Web Worker is created lazily on the first `simulateAsync()` call. Worker startup on a mid-range mobile is 20–60 ms. Triggering `_getWorker()` during the idle period after `init()` completes removes that startup cost from the critical path of the first click.
 
@@ -1081,7 +1082,7 @@ The repo has no `.vscode/` directory. Developers opening the project in VS Code 
 
 ---
 
-### UX-8 · Chart.js tooltip with many bullets · FE · Size S
+### ~~UX-8 · Chart.js tooltip with many bullets · FE · Size S~~ ✅ Done
 
 When 6 or more bullets are selected and the user hovers over the trajectory charts, the tooltip renders one item per dataset per chart — easily 10–15 lines for a full bullet selection — overflowing the viewport and obscuring the chart data the user is trying to read. The issue is that `interaction: { mode: 'index' }` shows all series at the hovered x-position simultaneously.
 
@@ -1106,7 +1107,7 @@ When 6 or more bullets are selected and the user hovers over the trajectory char
 
 ---
 
-### UX-9 · Light / dark mode toggle · FE · Size S
+### ~~UX-9 · Light / dark mode toggle · FE · Size S~~ ✅ Done (PR #TBD)
 
 The app ships with a fixed dark theme (deep navy/cyan). Users in bright environments or with accessibility needs that prefer high-contrast light backgrounds have no way to switch. The CSS already uses custom properties (`--bg`, `--text`, `--accent`, etc.) on `:root`, making a light theme a matter of overriding those variables. The toggle state persists in `localStorage` and respects `prefers-color-scheme` on first load.
 
@@ -1138,7 +1139,7 @@ The app ships with a fixed dark theme (deep navy/cyan). Users in bright environm
 
 ---
 
-### UX-10 · Sticky compute button in sidebar · FE · Size XS
+### ~~UX-10 · Sticky compute button in sidebar · FE · Size XS~~ DONE
 
 The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter form in the sidebar — after the bullet list, custom bullet panel, and 10+ parameter inputs. On a typical laptop screen the button is off-screen below the fold when several bullets are selected or the custom bullet form is expanded, requiring users to scroll to the bottom of the sidebar to trigger a simulation.
 

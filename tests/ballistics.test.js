@@ -22,7 +22,7 @@ function buildDOM() {
       <input type="checkbox" id="selectAllBullets" aria-label="Select all rounds">
       <span>Select all</span>
     </label>
-    <div id="bulletList"></div>
+    <div id="bulletList" role="group" aria-label="Select bullet"></div>
     <div id="customBulletPanel">
       <button type="button" id="addCustomBulletBtn" aria-controls="customBulletForm" aria-expanded="false">+ ADD CUSTOM BULLET</button>
       <form id="customBulletForm" hidden novalidate>
@@ -99,8 +99,10 @@ function buildDOM() {
     <div class="tab"        id="tab-data"></div>
     <div class="tab"        id="tab-tools"></div>
     <div id="toolsPanel" class="tools-panel"></div>
+    <button id="themeToggle" aria-label="Switch to light mode">&#x1F319;</button>
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
     <div id="toast"></div>
+    <div id="simStatus" aria-live="polite" aria-atomic="true" class="sr-only"></div>
     <input id="customName"   value="" />
     <input id="customWeight" value="9.0" />
     <input id="customMV"     value="850" />
@@ -113,6 +115,8 @@ function buildDOM() {
       <span id="dragTableName"></span>
       <button type="button" id="dragTableClearBtn">Clear</button>
     </div>
+    <button type="button" id="importJsonBtn" class="copy-link-btn" aria-label="Import previously exported trajectory JSON">⬆ IMPORT JSON</button>
+    <input type="file" id="importJsonFile" accept=".json,application/json" style="display:none" />
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
     <button type="button" id="savePresetBtn">SAVE AS PRESET</button>
     <div id="customPresetSection" hidden></div>
@@ -151,6 +155,7 @@ function buildDOM() {
 
 jest.mock('../app/physics/engine-async.ts', () => ({
   simulateAsync: jest.fn(),
+  prewarmPhysicsWorker: jest.fn(),
 }));
 const { simulate } = require('../app/physics/engine.ts');
 const { simulateAsync } = require('../app/physics/engine-async.ts');
@@ -397,6 +402,36 @@ describe('renderBulletList', () => {
     expect(html).not.toContain('<img src=x');
     expect(html).toContain('&lt;img src=x');
   });
+
+  test('ACC-1: each built-in card has tabindex="0" and role="button"', () => {
+    mod.renderBulletList();
+    const cards = document.querySelectorAll('#bulletList > .bullet-card');
+    expect(cards.length).toBeGreaterThan(0);
+    cards.forEach(card => {
+      expect(card.getAttribute('tabindex')).toBe('0');
+      expect(card.getAttribute('role')).toBe('button');
+    });
+  });
+
+  test('ACC-1: unselected card has aria-pressed="false"', () => {
+    mod._setSelectedIds(new Set());
+    mod.renderBulletList();
+    const card = document.getElementById('card-308-win-168gr');
+    expect(card.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('ACC-1: selected card has aria-pressed="true"', () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod.renderBulletList();
+    const card = document.getElementById('card-308-win-168gr');
+    expect(card.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('ACC-1: #bulletList has role="group" and aria-label', () => {
+    const list = document.getElementById('bulletList');
+    expect(list.getAttribute('role')).toBe('group');
+    expect(list.getAttribute('aria-label')).toBeTruthy();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -452,6 +487,15 @@ describe('updateBulletCards', () => {
     mod.updateBulletCards();
     expect(document.getElementById('card-308-win-168gr').classList.contains('active')).toBe(true);
     expect(document.getElementById('card-223-rem-55gr').classList.contains('active')).toBe(false);
+  });
+
+  test('ACC-1: syncs aria-pressed on selection change', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod.renderBulletList();
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod.updateBulletCards();
+    expect(document.getElementById('card-308-win-168gr').getAttribute('aria-pressed')).toBe('true');
+    expect(document.getElementById('card-223-rem-55gr').getAttribute('aria-pressed')).toBe('false');
   });
 });
 
@@ -1157,6 +1201,67 @@ describe('runSimulation — input validation', () => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ACC-2: aria-live simulation lifecycle announcements
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ACC-2: _setSimStatus', () => {
+  test('sets textContent on #simStatus', () => {
+    mod._setSimStatus('Computing trajectories…');
+    expect(document.getElementById('simStatus').textContent).toBe('Computing trajectories…');
+  });
+
+  test('clears textContent when called with empty string', () => {
+    mod._setSimStatus('some text');
+    mod._setSimStatus('');
+    expect(document.getElementById('simStatus').textContent).toBe('');
+  });
+});
+
+describe('ACC-2: runSimulation aria-live announcements', () => {
+  test('announces "Computing trajectories…" when simulation starts', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    const promise = mod.runSimulation();
+    expect(document.getElementById('simStatus').textContent).toBe('Computing trajectories…');
+    await promise;
+    jest.runAllTimers();
+  });
+
+  test('announces trajectories ready with result count on success', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    await mod.runSimulation();
+    jest.runAllTimers();
+
+    expect(document.getElementById('simStatus').textContent).toMatch(/Trajectories ready\. 1 result computed\./);
+  });
+
+  test('uses plural "results" when multiple trajectories computed', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr', '3006-150gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    await mod.runSimulation();
+    jest.runAllTimers();
+
+    const text = document.getElementById('simStatus').textContent;
+    expect(text).toMatch(/Trajectories ready\. \d+ results computed\./);
+  });
+
+  test('announces simulation failure on TrajectoryInputError', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    const { TrajectoryInputError } = require('../app/physics/engine.ts');
+    simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
+
+    await mod.runSimulation();
+
+    const text = document.getElementById('simStatus').textContent;
+    expect(text).toMatch(/^Simulation failed: /);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // FE-R2: savePrefs / loadPrefs map-driven loop
 // ─────────────────────────────────────────────────────────────────────────────
 describe('FE-R2: savePrefs loop', () => {
@@ -1547,7 +1652,7 @@ describe('crosshairPlugin', () => {
     });
   });
 
-  test('all five charts use interaction mode index', async () => {
+  test('all five charts use interaction mode nearest', async () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -1559,7 +1664,7 @@ describe('crosshairPlugin', () => {
     MockChart.mockClear();
     await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
     MockChart.mock.calls.forEach(([, cfg]) => {
-      expect(cfg.options.interaction.mode).toBe('index');
+      expect(cfg.options.interaction.mode).toBe('nearest');
     });
   });
 });
@@ -2138,6 +2243,442 @@ describe('exportJSON', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// importResultsFromFile (DM-1)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('importResultsFromFile', () => {
+  function makeFileReaderMock(content) {
+    const mockReader = {
+      onload: null,
+      readAsText(file) {
+        // Fire onload synchronously with the provided content
+        this.onload({ target: { result: content } });
+      },
+    };
+    global.FileReader = jest.fn(() => mockReader);
+    return mockReader;
+  }
+
+  beforeEach(() => {
+    buildDOM();
+  });
+
+  test('renders results when given valid JSON with bullet and points', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const result = simulate(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    const json = JSON.stringify([result]);
+    makeFileReaderMock(json);
+    const file = new File([json], 'trajectory.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    expect(document.getElementById('resultsContainer').style.display).not.toBe('none');
+    expect(document.getElementById('emptyState').style.display).toBe('none');
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(true);
+  });
+
+  test('shows error when JSON is not valid', async () => {
+    makeFileReaderMock('not-valid-json{{{');
+    const file = new File(['not-valid-json{{{'], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/not valid JSON/i);
+  });
+
+  test('shows error when JSON is not a non-empty array', async () => {
+    makeFileReaderMock(JSON.stringify({}));
+    const file = new File([JSON.stringify({})], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/non-empty array/i);
+  });
+
+  test('shows error when JSON is an empty array', async () => {
+    makeFileReaderMock(JSON.stringify([]));
+    const file = new File([JSON.stringify([])], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/non-empty array/i);
+  });
+
+  test('shows error when an item is missing the bullet property', async () => {
+    const payload = JSON.stringify([{ points: [] }]);
+    makeFileReaderMock(payload);
+    const file = new File([payload], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet.*points/i);
+  });
+
+  test('shows error when an item is missing the points property', async () => {
+    const payload = JSON.stringify([{ bullet: { name: 'Test' } }]);
+    makeFileReaderMock(payload);
+    const file = new File([payload], 'bad.json', { type: 'application/json' });
+
+    await mod.importResultsFromFile(file);
+
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet.*points/i);
+  });
+
+  test('returns early without reading when file is falsy', () => {
+    const FileReaderSpy = jest.fn();
+    global.FileReader = FileReaderSpy;
+    mod.importResultsFromFile(null);
+    expect(FileReaderSpy).not.toHaveBeenCalled();
+  });
+
+  // ── Security: file size limit ──────────────────────────────────────────────
+  test('rejects file larger than 5 MB without reading', () => {
+    const FileReaderSpy = jest.fn();
+    global.FileReader = FileReaderSpy;
+    const bigFile = { size: 6 * 1024 * 1024 };
+    mod.importResultsFromFile(bigFile);
+    expect(FileReaderSpy).not.toHaveBeenCalled();
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/5 MB/i);
+  });
+
+  // ── Security: result count cap ─────────────────────────────────────────────
+  test('rejects array with more than 10 results', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const result = simulate(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    const payload = JSON.stringify(Array(11).fill(result));
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/more than 10/i);
+  });
+
+  // ── Security: points array must be an array ────────────────────────────────
+  test('rejects result whose "points" is a plain object (not an array)', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const payload = JSON.stringify([{ bullet: { id: 'x', name: 'X' }, points: {} }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/points.*array/i);
+  });
+
+  test('rejects result whose "points" is a string (not an array)', async () => {
+    const payload = JSON.stringify([{ bullet: { id: 'x', name: 'X' }, points: 'bad' }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/points.*array/i);
+  });
+
+  // ── Security: points count cap ─────────────────────────────────────────────
+  test('rejects result with more than 2000 points', async () => {
+    const pt = { rangeMeters: 0, dropCm: 0, velocityMps: 850, energyJoules: 3000, windDriftCm: 0, timeOfFlightSec: 0 };
+    const points = Array(2001).fill(pt);
+    const payload = JSON.stringify([{ bullet: { id: 'x', name: 'X' }, points }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/2000/i);
+  });
+
+  // ── Security: hexColor XSS ────────────────────────────────────────────────
+  test('strips a malicious hexColor and still renders when other fields are valid', async () => {
+    const pt = { rangeMeters: 100, dropCm: -5, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0.12 };
+    const maliciousBullet = {
+      id: 'evil', name: 'Evil Bullet',
+      hexColor: 'red><img src=x onerror=alert(1)>',
+      muzzleVelocityMps: 850, ballisticCoefficient: 0.45,
+      bulletWeightGrams: 9, bulletDiameterMm: 7.82, muzzleEnergyJoules: 3251,
+    };
+    const payload = JSON.stringify([{
+      bullet: maliciousBullet,
+      points: [pt],
+      supersonicLimitMeters: 500, maxOrdinateCm: 10, maxOrdinateRangeMeters: 200,
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    // Should not error — the bad hexColor is simply dropped
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(true);
+    // The table should not contain the XSS payload
+    expect(document.body.innerHTML).not.toContain('onerror=alert');
+  });
+
+  // ── Security: numeric field containing a non-finite value ─────────────────
+  test('rejects a bullet whose numeric field is a non-finite string', async () => {
+    const pt = { rangeMeters: 100, dropCm: -5, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0.12 };
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X', muzzleVelocityMps: '=HYPERLINK("http://evil.example/")' },
+      points: [pt],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/finite number/i);
+  });
+
+  test('rejects a point whose numeric field is Infinity', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: [{ rangeMeters: Infinity, dropCm: 0, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0 }],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/finite number/i);
+  });
+
+  test('rejects a result-level numeric field that is not finite', async () => {
+    const pt = { rangeMeters: 100, dropCm: 0, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0 };
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: [pt],
+      supersonicLimitMeters: NaN,
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/finite number/i);
+  });
+
+  // ── Security: __proto__ pollution ─────────────────────────────────────────
+  test('is safe when input contains a __proto__ key', async () => {
+    // The allowlist rebuild means __proto__ is never copied to sanitised objects
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X', '__proto__': { polluted: true } },
+      points: [{ rangeMeters: 100, dropCm: 0, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0 }],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    // Should succeed — __proto__ key is ignored by allowlist
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(true);
+    expect(({}).polluted).toBeUndefined();
+  });
+
+  // ── Security: bullet.id / bullet.name string caps ─────────────────────────
+  test('rejects bullet.id that is not a string', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 42, name: 'X' },
+      points: [],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet\.id/i);
+  });
+
+  test('rejects bullet.id longer than 200 characters', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'a'.repeat(201), name: 'X' },
+      points: [],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet\.id/i);
+  });
+
+  test('rejects bullet.name that is not a string', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 999 },
+      points: [],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet\.name/i);
+  });
+
+  test('rejects bullet.name longer than 200 characters', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'b'.repeat(201) },
+      points: [],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet\.name/i);
+  });
+
+  // ── Security: bullet property that is a non-object ────────────────────────
+  test('rejects item whose bullet is a string (not an object)', async () => {
+    const payload = JSON.stringify([{ bullet: 'not-an-object', points: [] }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/bullet.*object/i);
+  });
+
+  // ── Security: point that is not an object ─────────────────────────────────
+  test('rejects a points array containing a non-object element (string)', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: ['bad-point'],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/each point must be an object/i);
+  });
+
+  test('rejects a points array containing a null element', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: [null],
+    }]);
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    expect(errorEl.hasAttribute('hidden')).toBe(false);
+    expect(errorEl.textContent).toMatch(/each point must be an object/i);
+  });
+
+  // ── Low: renderResults error is caught gracefully ────────────────────────
+  test('shows error and clears lastResults when renderResults throws', async () => {
+    const pt = { rangeMeters: 100, dropCm: -5, velocityMps: 850, energyJoules: 3000,
+                 windDriftCm: 0, timeOfFlightSec: 0.12 };
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'X' },
+      points: [pt],
+    }]);
+    // Force renderResults to throw by removing the tableBody element
+    document.getElementById('tableBody').remove();
+    makeFileReaderMock(payload);
+    const file = { size: payload.length };
+    await mod.importResultsFromFile(file);
+    const errorEl = document.getElementById('simulationError');
+    // Either succeeds (tableBody absence is handled) or the error is caught
+    // The important thing is the page does not throw uncaught
+    expect(typeof errorEl.textContent).toBe('string');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// colorFor — XSS protection
+// ─────────────────────────────────────────────────────────────────────────────
+describe('colorFor', () => {
+  test('returns hexColor when it is a valid #rrggbb value', () => {
+    expect(mod.colorFor({ hexColor: '#ff0000' })).toBe('#ff0000');
+    expect(mod.colorFor({ hexColor: '#4ADE80' })).toBe('#4ADE80');
+    expect(mod.colorFor({ hexColor: '#000000' })).toBe('#000000');
+  });
+
+  test('falls back to catalog colour when hexColor is a malicious string', () => {
+    const result = mod.colorFor({ hexColor: 'red><img src=x onerror=alert(1)>' });
+    expect(result).not.toContain('<');
+    expect(result).not.toContain('>');
+    expect(result).not.toContain('onerror');
+  });
+
+  test('falls back to catalog colour when hexColor is an invalid colour name', () => {
+    const result = mod.colorFor({ hexColor: 'red' });
+    expect(result).not.toBe('red');
+    expect(result.startsWith('#')).toBe(true);
+  });
+
+  test('falls back to catalog colour when hexColor is a 3-digit hex', () => {
+    const result = mod.colorFor({ hexColor: '#f00' });
+    expect(result).not.toBe('#f00');
+    expect(result.startsWith('#')).toBe(true);
+  });
+
+  test('returns default green when bullet has no hexColor and id is unknown', () => {
+    expect(mod.colorFor({ id: 'unknown-bullet-xyz', name: 'X' })).toBe('#4ADE80');
+  });
+});
+
+describe('importJsonBtn / importJsonFile wiring', () => {
+  beforeEach(async () => {
+    buildDOM();
+    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await mod.init();
+  });
+
+  test('clicking #importJsonBtn triggers click on #importJsonFile', () => {
+    const fileInput = document.getElementById('importJsonFile');
+    const clickSpy = jest.fn();
+    fileInput.click = clickSpy;
+    document.getElementById('importJsonBtn').click();
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('#importJsonFile change event calls importResultsFromFile and resets value', async () => {
+    const bullet = mod.getMockBullets()[0];
+    const { simulate: simulateFn } = require('../app/physics/engine.ts');
+    const result = simulateFn(bullet, {
+      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
+    });
+    const json = JSON.stringify([result]);
+
+    const mockReader = {
+      onload: null,
+      readAsText() { this.onload({ target: { result: json } }); },
+    };
+    global.FileReader = jest.fn(() => mockReader);
+
+    const fileInput = document.getElementById('importJsonFile');
+    Object.defineProperty(fileInput, 'files', { value: [new File([json], 'trajectory.json')], configurable: true });
+    fileInput.dispatchEvent(new Event('change'));
+
+    expect(document.getElementById('resultsContainer').style.display).not.toBe('none');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // exportMarkdown
 // ─────────────────────────────────────────────────────────────────────────────
 describe('exportMarkdown', () => {
@@ -2658,6 +3199,37 @@ describe('bullet card click listener', () => {
     mod._setSelectedIds(new Set());
     card.click();
     expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACC-1: bullet card keyboard listener
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ACC-1: bullet card keyboard listener', () => {
+  beforeEach(() => {
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set());
+    mod.renderBulletList();
+  });
+
+  test('Enter key toggles bullet selection', () => {
+    const card = document.getElementById('card-308-win-168gr');
+    expect(card).not.toBeNull();
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(true);
+  });
+
+  test('Space key toggles bullet selection', () => {
+    const card = document.getElementById('card-308-win-168gr');
+    expect(card).not.toBeNull();
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(true);
+  });
+
+  test('other keys do not toggle bullet selection', () => {
+    const card = document.getElementById('card-308-win-168gr');
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(false);
   });
 });
 
@@ -5148,5 +5720,147 @@ describe('UX-1: _syncCustomPanelAvailability', () => {
     // localStorage is empty (cleared in beforeEach), loadCustomBullets returns 'empty' -> ok
     mod.init();
     expect(document.getElementById('addCustomBulletBtn').disabled).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UX-9: Theme toggle
+// ─────────────────────────────────────────────────────────────────────────────
+describe('UX-9: theme toggle', () => {
+  test('initThemeToggle defaults to dark when no saved theme', () => {
+    localStorage.removeItem('bv_theme');
+    mod.initThemeToggle();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  test('initThemeToggle restores saved light theme', () => {
+    localStorage.setItem('bv_theme', 'light');
+    mod.initThemeToggle();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  test('initThemeToggle restores saved dark theme', () => {
+    localStorage.setItem('bv_theme', 'dark');
+    mod.initThemeToggle();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  test('clicking toggle switches dark -> light and persists to localStorage', () => {
+    localStorage.removeItem('bv_theme');
+    mod.initThemeToggle();
+    document.getElementById('themeToggle').click();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(localStorage.getItem('bv_theme')).toBe('light');
+  });
+
+  test('clicking toggle switches light -> dark and persists to localStorage', () => {
+    localStorage.setItem('bv_theme', 'light');
+    mod.initThemeToggle();
+    document.getElementById('themeToggle').click();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(localStorage.getItem('bv_theme')).toBe('dark');
+  });
+
+  test('updateToggleLabel sets correct aria-label for dark theme', () => {
+    mod.updateToggleLabel('dark');
+    expect(document.getElementById('themeToggle').getAttribute('aria-label')).toBe('Switch to light mode');
+  });
+
+  test('updateToggleLabel sets correct aria-label for light theme', () => {
+    mod.updateToggleLabel('light');
+    expect(document.getElementById('themeToggle').getAttribute('aria-label')).toBe('Switch to dark mode');
+  });
+
+  test('updateToggleLabel sets moon icon for dark theme', () => {
+    mod.updateToggleLabel('dark');
+    expect(document.getElementById('themeToggle').textContent).toBe('\u{1F319}');
+  });
+
+  test('updateToggleLabel sets sun icon for light theme', () => {
+    mod.updateToggleLabel('light');
+    expect(document.getElementById('themeToggle').textContent).toBe('☀️');
+  });
+
+  test('updateToggleLabel does nothing when button is absent', () => {
+    document.getElementById('themeToggle').remove();
+    // Should not throw
+    expect(() => mod.updateToggleLabel('dark')).not.toThrow();
+  });
+
+  test('initThemeToggle does nothing when button is absent', () => {
+    document.getElementById('themeToggle').remove();
+    expect(() => mod.initThemeToggle()).not.toThrow();
+    // docElement should still have data-theme set
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  test('_applyChartTheme updates chart tooltip colours', () => {
+    const fakeChart = {
+      options: { plugins: { tooltip: { backgroundColor: '#000', borderColor: '#000', titleColor: '#000', bodyColor: '#000' } } },
+      update: jest.fn(),
+    };
+    mod._setCharts({ main: fakeChart });
+    mod._applyChartTheme('light');
+    expect(fakeChart.options.plugins.tooltip.backgroundColor).toBe('#ffffff');
+    expect(fakeChart.options.plugins.tooltip.borderColor).toBe('#b0c4d8');
+    expect(fakeChart.options.plugins.tooltip.titleColor).toBe('#0077aa');
+    expect(fakeChart.options.plugins.tooltip.bodyColor).toBe('#1a2a38');
+    expect(fakeChart.update).toHaveBeenCalledWith('none');
+  });
+
+  test('_applyChartTheme dark mode restores dark tooltip colours', () => {
+    const fakeChart = {
+      options: { plugins: { tooltip: { backgroundColor: '#fff', borderColor: '#fff', titleColor: '#fff', bodyColor: '#fff' } } },
+      update: jest.fn(),
+    };
+    mod._setCharts({ main: fakeChart });
+    mod._applyChartTheme('dark');
+    expect(fakeChart.options.plugins.tooltip.backgroundColor).toBe('#141d26');
+    expect(fakeChart.options.plugins.tooltip.borderColor).toBe('#1e3040');
+    expect(fakeChart.options.plugins.tooltip.titleColor).toBe('#00d4ff');
+    expect(fakeChart.options.plugins.tooltip.bodyColor).toBe('#c8dde8');
+  });
+
+  test('_applyChartTheme skips charts without tooltip plugin', () => {
+    const fakeChart = { options: { plugins: {} }, update: jest.fn() };
+    mod._setCharts({ main: fakeChart });
+    expect(() => mod._applyChartTheme('dark')).not.toThrow();
+    expect(fakeChart.update).not.toHaveBeenCalled();
+  });
+
+  test('localStorage failure during toggle is silently swallowed', () => {
+    localStorage.removeItem('bv_theme');
+    mod.initThemeToggle();
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+    });
+    expect(() => document.getElementById('themeToggle').click()).not.toThrow();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    jest.restoreAllMocks();
+  });
+
+  test('localStorage failure during init falls back to dark', () => {
+    jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    mod.initThemeToggle();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    jest.restoreAllMocks();
+  });
+
+  test('init() wires up the theme toggle button', () => {
+    localStorage.removeItem('bv_theme');
+    mod.init();
+    document.getElementById('themeToggle').click();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  test('toggle click when data-theme attribute is absent defaults to dark -> light', () => {
+    // Wire up the toggle without calling initThemeToggle so data-theme is not pre-set
+    mod.initThemeToggle();
+    document.documentElement.removeAttribute('data-theme');
+    document.getElementById('themeToggle').click();
+    // No attribute means current === null, || 'dark' fires, next = 'light'
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 });

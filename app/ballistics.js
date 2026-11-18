@@ -4,7 +4,7 @@ import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
 import { TrajectoryInputError } from './physics/errors.ts';
-import { simulateAsync } from './physics/engine-async.ts';
+import { simulateAsync, prewarmPhysicsWorker } from './physics/engine-async.ts';
 import {
   loadCustomBullets, saveCustomBullets, mergeCatalog, isCustomBulletId,
   renderCustomBulletGroup, syncCustomDeleteGuards, upsertCustomBullet,
@@ -18,9 +18,14 @@ import {
 const BULLET_COLORS = Object.fromEntries(BULLET_CATALOG.map(b => [b.id, b.hexColor]));
 
 // ── Colour helper ─────────────────────────────────────────────────────────────
+/** Regex for a safe CSS hex colour — #rrggbb exactly. */
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
 /** Returns the display colour for any bullet (custom or built-in). */
 export function colorFor(bullet) {
-  return bullet.hexColor || BULLET_COLORS[bullet.id] || '#4ADE80';
+  const hex = bullet.hexColor;
+  const validHex = (typeof hex === 'string' && HEX_COLOR_RE.test(hex)) ? hex : null;
+  return validHex || BULLET_COLORS[bullet.id] || '#4ADE80';
 }
 
 // Five-step sweep color ramp (independent of bullet catalog colors)
@@ -154,18 +159,28 @@ function renderBulletList() {
 
   list.innerHTML = builtIns.map(b => `
     <div class="bullet-card" id="card-${escapeHtml(b.id)}"
+         role="button" tabindex="0"
+         aria-pressed="${selectedIds.has(b.id) ? 'true' : 'false'}"
          style="--bullet-color:${colorFor(b)}">
       <div class="bullet-name">${escapeHtml(b.name)}</div>
       <div class="bullet-specs">
         BC: ${escapeHtml(String(b.ballisticCoefficient))} &nbsp;|&nbsp; MV: ${escapeHtml(String(b.muzzleVelocityMps))} m/s
       </div>
-      <div class="check"></div>
+      <div class="check" aria-hidden="true"></div>
     </div>
   `).join('');
   builtIns.forEach(b => {
     const card = document.getElementById('card-' + b.id);
     /* istanbul ignore else -- card is always present after innerHTML is set */
-    if (card) card.addEventListener('click', () => toggleBullet(b.id));
+    if (card) {
+      card.addEventListener('click', () => toggleBullet(b.id));
+      card.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleBullet(b.id);
+        }
+      });
+    }
   });
 
   // Append custom group (always rendered, even with 0 customs)
@@ -193,7 +208,11 @@ function toggleBullet(id) {
 function updateBulletCards() {
   bullets.forEach(b => {
     const card = document.getElementById('card-' + b.id);
-    if (card) card.classList.toggle('active', selectedIds.has(b.id));
+    if (card) {
+      const isActive = selectedIds.has(b.id);
+      card.classList.toggle('active', isActive);
+      card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
   });
   syncSelectAllCheckbox();
   syncRunButton();
@@ -223,6 +242,14 @@ function syncRunButton() {
 
 // ── Error handling helpers ────────────────────────────────────────────────────
 
+/** Updates the aria-live status region for screen reader announcements. */
+function _setSimStatus(message) {
+  const el = document.getElementById('simStatus');
+  /* istanbul ignore next -- #simStatus is always present in the app shell */
+  if (!el) return;
+  el.textContent = String(message);
+}
+
 /** Shows or hides the inline simulation error banner. */
 function _setSimulationError(message) {
   const el = document.getElementById('simulationError');
@@ -249,6 +276,7 @@ async function runSimulation() {
 
   const btn = document.getElementById('runBtn');
   btn.classList.add('loading');
+  _setSimStatus('Computing trajectories…');
 
   const twistRaw = document.getElementById('twistRate')?.value;
   const req = {
@@ -280,12 +308,14 @@ async function runSimulation() {
       if (exportBtn) exportBtn.style.display = '';
       btn.classList.remove('loading');
       btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
+      _setSimStatus(`Trajectories ready. ${results.length} result${results.length === 1 ? '' : 's'} computed.`);
     });
   } catch (err) {
     btn.classList.remove('loading');
     btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
     if (err instanceof TrajectoryInputError) {
       _setSimulationError(err.message);
+      _setSimStatus(`Simulation failed: ${err.message}`);
     } else {
       console.error(err);
     }
@@ -338,6 +368,154 @@ function exportJSON() {
     new Blob([JSON.stringify(lastResults, null, 2)], { type: 'application/json' }),
     'trajectory.json'
   );
+}
+
+// ── JSON import (DM-1) ────────────────────────────────────────────────────────
+// Validates and sanitises the parsed value — must be a non-empty array of
+// trajectory result objects.  Every field is rebuilt from an allowlist so that
+// only known-safe values reach innerHTML / style sinks.
+//
+// Limits:  5 MB file, 10 results, 2000 points per result.
+// Strings: bullet.id and bullet.name capped at 200 chars.
+// Colours: bullet.hexColor must match /^#[0-9a-f]{6}$/i or is dropped.
+// Numbers: every numeric field checked with Number.isFinite().
+
+/** Bullet-level numeric fields we copy from the import. */
+const BULLET_NUMERIC_FIELDS = [
+  'muzzleVelocityMps', 'ballisticCoefficient', 'bulletWeightGrams',
+  'bulletDiameterMm', 'muzzleEnergyJoules',
+];
+
+/** Result-level numeric fields we copy from the import. */
+const RESULT_NUMERIC_FIELDS = [
+  'supersonicLimitMeters', 'maxOrdinateCm', 'maxOrdinateRangeMeters', 'densityAltitudeMeters',
+];
+
+/** Point-level numeric fields we copy from the import. */
+const POINT_NUMERIC_FIELDS = [
+  'rangeMeters', 'dropCm', 'velocityMps', 'energyJoules', 'windDriftCm',
+  'timeOfFlightSec', 'spinDriftCm', 'coriolisDeflectionCm',
+];
+
+function importResultsFromFile(file) {
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    _setSimulationError('Import failed: file exceeds 5 MB limit.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(e.target.result);
+    } catch (_) {
+      _setSimulationError('Import failed: file is not valid JSON.');
+      return;
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      _setSimulationError('Import failed: JSON must be a non-empty array of trajectory results.');
+      return;
+    }
+    if (parsed.length > 10) {
+      _setSimulationError('Import failed: file contains more than 10 results.');
+      return;
+    }
+
+    const sanitized = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object' || !item.bullet || !item.points) {
+        _setSimulationError('Import failed: each result must have a "bullet" and "points" property.');
+        return;
+      }
+      if (!Array.isArray(item.points)) {
+        _setSimulationError('Import failed: each result "points" must be an array.');
+        return;
+      }
+      if (item.points.length > 2000) {
+        _setSimulationError('Import failed: a result contains more than 2000 points.');
+        return;
+      }
+
+      // ── Validate & rebuild bullet ────────────────────────────────────────────
+      const rawBullet = item.bullet;
+      if (!rawBullet || typeof rawBullet !== 'object') {
+        _setSimulationError('Import failed: bullet must be an object.');
+        return;
+      }
+      if (typeof rawBullet.id !== 'string' || rawBullet.id.length > 200) {
+        _setSimulationError('Import failed: bullet.id must be a string of at most 200 characters.');
+        return;
+      }
+      if (typeof rawBullet.name !== 'string' || rawBullet.name.length > 200) {
+        _setSimulationError('Import failed: bullet.name must be a string of at most 200 characters.');
+        return;
+      }
+
+      const hexColorRaw = rawBullet.hexColor;
+      const hexColor = (typeof hexColorRaw === 'string' && HEX_COLOR_RE.test(hexColorRaw))
+        ? hexColorRaw : undefined;
+
+      const bullet = { id: rawBullet.id, name: rawBullet.name };
+      if (hexColor !== undefined) bullet.hexColor = hexColor;
+
+      for (const field of BULLET_NUMERIC_FIELDS) {
+        if (rawBullet[field] !== undefined) {
+          if (!Number.isFinite(rawBullet[field])) {
+            _setSimulationError(`Import failed: bullet.${field} must be a finite number.`);
+            return;
+          }
+          bullet[field] = rawBullet[field];
+        }
+      }
+
+      // ── Validate & rebuild result-level numeric fields ───────────────────────
+      const sanitizedResult = { bullet, points: [] };
+      for (const field of RESULT_NUMERIC_FIELDS) {
+        if (item[field] !== undefined) {
+          if (!Number.isFinite(item[field])) {
+            _setSimulationError(`Import failed: ${field} must be a finite number.`);
+            return;
+          }
+          sanitizedResult[field] = item[field];
+        }
+      }
+
+      // ── Validate & rebuild points ────────────────────────────────────────────
+      for (const pt of item.points) {
+        if (!pt || typeof pt !== 'object') {
+          _setSimulationError('Import failed: each point must be an object.');
+          return;
+        }
+        const sanitizedPoint = {};
+        for (const field of POINT_NUMERIC_FIELDS) {
+          if (pt[field] !== undefined) {
+            if (!Number.isFinite(pt[field])) {
+              _setSimulationError(`Import failed: point.${field} must be a finite number.`);
+              return;
+            }
+            sanitizedPoint[field] = pt[field];
+          }
+        }
+        sanitizedResult.points.push(sanitizedPoint);
+      }
+
+      sanitized.push(sanitizedResult);
+    }
+
+    _setSimulationError(null);
+    lastResults = sanitized;
+    try {
+      await renderResults(sanitized, {});
+    } catch (_) {
+      _setSimulationError('Import failed: could not render the imported data.');
+      lastResults = [];
+      return;
+    }
+    const exportBtn = document.getElementById('exportCsvBtn');
+    /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
+    if (exportBtn) exportBtn.style.display = '';
+  };
+  reader.readAsText(file);
 }
 
 // ── Markdown export ───────────────────────────────────────────────────────────
@@ -661,7 +839,7 @@ function buildChartConfig(def, datasets, results) {
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
       events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
-      interaction: { mode: 'index', intersect: false },
+      interaction: { mode: 'nearest', intersect: false },
       onHover: (event, elements) => {
         if (crosshairPinned) return;
         if (elements.length > 0) {
@@ -912,7 +1090,7 @@ async function renderResults(rawResults, req) {
       options: {
         responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
         events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
-        interaction: { mode: 'index', intersect: false },
+        interaction: { mode: 'nearest', intersect: false },
         onHover: (event, elements) => {
           if (crosshairPinned) return;
           if (elements.length > 0) {
@@ -1246,6 +1424,54 @@ async function copyLink() {
   }
 }
 
+// ── Theme toggle (UX-9) ───────────────────────────────────────────────────────
+
+/** Update the toggle button label and icon to reflect the current theme. */
+function updateToggleLabel(theme) {
+  const btn = document.getElementById('themeToggle');
+  if (!btn) return;
+  btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+  btn.textContent = theme === 'dark' ? '\u{1F319}' : '☀️';
+}
+
+/** Update Chart.js tooltip colours to match the active theme. */
+function _applyChartTheme(theme) {
+  const isDark = theme === 'dark';
+  const bg     = isDark ? '#141d26' : '#ffffff';
+  const border = isDark ? '#1e3040' : '#b0c4d8';
+  const title  = isDark ? '#00d4ff' : '#0077aa';
+  const body   = isDark ? '#c8dde8' : '#1a2a38';
+  Object.values(charts).forEach(chart => {
+    if (chart.options?.plugins?.tooltip) {
+      chart.options.plugins.tooltip.backgroundColor = bg;
+      chart.options.plugins.tooltip.borderColor     = border;
+      chart.options.plugins.tooltip.titleColor      = title;
+      chart.options.plugins.tooltip.bodyColor       = body;
+      chart.update('none');
+    }
+  });
+}
+
+/** Wire up the theme toggle button and apply the saved/default theme. */
+function initThemeToggle() {
+  const savedTheme = (() => {
+    try { return localStorage.getItem('bv_theme') || 'dark'; } catch (_) { return 'dark'; }
+  })();
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  updateToggleLabel(savedTheme);
+
+  const btn = document.getElementById('themeToggle');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next    = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('bv_theme', next); } catch (_) { /* private browsing */ }
+    updateToggleLabel(next);
+    _applyChartTheme(next);
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 let _initListenerController = null;
 
@@ -1344,6 +1570,15 @@ function init() {
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
   document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
   document.querySelector('.export-md-btn')?.addEventListener('click', exportMarkdown);
+  document.getElementById('importJsonBtn')?.addEventListener('click', () => {
+    document.getElementById('importJsonFile')?.click();
+  });
+  document.getElementById('importJsonFile')?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    importResultsFromFile(file);
+    // Reset so the same file can be re-selected
+    e.target.value = '';
+  });
   document.querySelector('.export-toggle')?.addEventListener('click', function() {
     this.closest('.export-dropdown')?.classList.toggle('open');
   });
@@ -1487,6 +1722,9 @@ function init() {
     e.preventDefault();
     _handleCustomBulletSubmit();
   }, { signal });
+
+  // UX-9: Theme toggle
+  initThemeToggle();
 
   // Pin button toggles crosshair lock (chart onClick also toggles)
   document.getElementById('readoutPin')?.addEventListener('click', () => {
@@ -1898,6 +2136,7 @@ function _setCustomStorageStatus(s)  { customStorageStatus = s; }
 // Guard prevents spurious calls when imported by tests before buildDOM().
 if (document.getElementById('bulletList')) {
   init();
+  prewarmPhysicsWorker();
 }
 
 export {
@@ -1907,7 +2146,7 @@ export {
   renderResults, renderTable, updateReadout, switchTab, init,
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
   exportTrajectoryCSV,
-  exportCSV, exportJSON, exportMarkdown, exportPNG, runCustom, showToast,
+  exportCSV, exportJSON, exportMarkdown, exportPNG, importResultsFromFile, runCustom, showToast,
   _downloadBlob,
   BULLET_COLORS, SWEEP_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
   drawVLine, drawHLine, annotationPlugin, windChartSubtitle,
@@ -1917,8 +2156,10 @@ export {
   updateSweepButtonVisibility, buildSweepRequests, runSweep, clearSweep, renderSweepCharts,
   SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
-  _setSimulationError, _loadChart,
+  _setSimulationError, _setSimStatus, _loadChart,
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
   // UX-1 test helpers (openCustomBulletAdd/Edit/close/requestDelete are exported at declaration)
   _setCustomRecords, _setCustomStorageStatus,
+  // UX-9: theme toggle
+  initThemeToggle, updateToggleLabel, _applyChartTheme,
 };

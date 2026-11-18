@@ -13,6 +13,12 @@ const MIN_VEL_FPS = 100;
 const MPH_TO_FPS  = 1.46667;
 const G_PER_LB    = 453.592;
 
+// ── Spin drift (Miller stability + Litz drift) ────────────────────────────────
+const MM_PER_INCH  = 25.4;
+const G_PER_GRAIN  = 0.0648;
+const MILLER_K     = 30;
+const LENGTH_CAL   = 4.5;   // fixed bullet length in calibers (SH-1 judgement call; modern match bullets are 4.0–5.0)
+
 // ── Conversion constants ──────────────────────────────────────────────────────
 const FPS_PER_MPS = 3.28084;
 const FT_PER_M    = 3.28084;
@@ -56,6 +62,12 @@ function validate(bullet: Bullet, params: TrajectoryParams): void {
     if (!isFiniteNumber(params.shootingAngleDegrees) || !(params.shootingAngleDegrees >= -45) || !(params.shootingAngleDegrees <= 45))
       throw new TrajectoryInputError('shootingAngleDegrees', 'a finite number between -45 and 45');
   }
+  if (params.twistRateInchesPerTurn != null) {
+    if (!isFiniteNumber(params.twistRateInchesPerTurn) || !(params.twistRateInchesPerTurn >= 1) || !(params.twistRateInchesPerTurn <= 100))
+      throw new TrajectoryInputError('twistRateInchesPerTurn', 'a finite number between 1 and 100');
+    if (!isFiniteNumber(bullet.bulletDiameterMm) || !(bullet.bulletDiameterMm >= 1) || !(bullet.bulletDiameterMm <= 30))
+      throw new TrajectoryInputError('bullet.bulletDiameterMm', 'a finite number between 1 and 30');
+  }
 }
 
 /**
@@ -89,6 +101,26 @@ export function airDensityRatio(altFt: number, tempF: number): number {
   const tempRatio  = (ATMOSPHERE.rankineOffset + stdTemp) / (ATMOSPHERE.rankineOffset + tempF);
   const pressRatio = Math.pow(1 - ATMOSPHERE.pressureCoeff * altFt, ATMOSPHERE.pressureExp);
   return pressRatio * tempRatio;
+}
+
+/** Miller twist-rule gyroscopic stability factor with a fixed length of LENGTH_CAL calibers. @internal */
+export function stabilityFactor(diameterMm: number, weightGrams: number, twistIn: number): number {
+  const dIn      = diameterMm / MM_PER_INCH;
+  const massGr   = weightGrams / G_PER_GRAIN;
+  const twistCal = twistIn / dIn;
+  return (MILLER_K * massGr) /
+         (twistCal * twistCal * dIn * dIn * dIn * LENGTH_CAL * (1 + LENGTH_CAL * LENGTH_CAL));
+}
+
+/** Litz empirical spin drift, in INCHES, at time of flight tofSec. @internal */
+export function spinDriftInches(sg: number, tofSec: number): number {
+  return 1.25 * (sg + 1.2) * Math.pow(tofSec, 1.83);
+}
+
+/** Per-point add-ons computed alongside the RK4 samples. @internal */
+export interface PointExtras {
+  /** Gyroscopic stability factor. null/undefined = spin drift disabled (spinDriftCm = 0). */
+  readonly stabilityFactor?: number | null;
 }
 
 /** @internal */
@@ -128,12 +160,14 @@ export function findZeroAngleFps(
 export function integrateTrajectoryFps(
   mvFps: number, angle: number, bc: number, rho: number,
   wLbs: number, windMph: number, maxRangeYd: number, stepYd: number,
-  cosAngle: number = 1, dragTable: DragTable = G1_TABLE
+  cosAngle: number = 1, dragTable: DragTable = G1_TABLE,
+  extras: PointExtras = {}
 ): { points: TrajectoryPoint[]; maxOrdIn: number; maxOrdRangeYd: number; supersonicLimYd: number } {
   const deriv = (vx: number, vy: number, vel: number): [number, number] => {
     const drag = interpolateDragTable(Math.abs(vel), dragTable) * rho / bc;
     return [-(vx / vel) * drag, -(vy / vel) * drag - G_FPS2];
   };
+  const sg = extras.stabilityFactor ?? null;
   let vx = mvFps * Math.cos(angle), vy = mvFps * Math.sin(angle);
   let x = 0, y = 0, t = 0;
   const points: TrajectoryPoint[] = [];
@@ -158,7 +192,8 @@ export function integrateTrajectoryFps(
         velocityMps:     Math.round(vel / FPS_PER_MPS * 10) / 10,
         energyJoules:    Math.round(energy * J_PER_FTLB * 10) / 10,
         windDriftCm:     Math.round(windDrift * CM_PER_INCH * 10) / 10 + 0,
-        timeOfFlightSec: Math.round(t * 10000) / 10000
+        timeOfFlightSec: Math.round(t * 10000) / 10000,
+        spinDriftCm:     sg == null ? 0 : Math.round(spinDriftInches(sg, t) * CM_PER_INCH * 10) / 10
       });
       if (y * 12 > maxOrdIn) { maxOrdIn = y * 12; maxOrdRangeYd = rangeYd; }
       nextYd += stepYd;
@@ -196,6 +231,13 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
 
   const dragTable = (params.dragModel ?? 'G1') === 'G7' ? G7_TABLE : G1_TABLE;
 
+  const twist  = params.twistRateInchesPerTurn;
+  const extras: PointExtras = {
+    stabilityFactor: twist == null
+      ? null
+      : stabilityFactor(bullet.bulletDiameterMm, bullet.bulletWeightGrams, twist),
+  };
+
   const sightHtFt = (params.sightHeightMm ?? 38.1) / 25.4 / 12;
   const cosAngle  = Math.cos((params.shootingAngleDegrees ?? 0) * Math.PI / 180);
   const zeroFt    = params.zeroRangeMeters * FT_PER_M * cosAngle;
@@ -207,7 +249,11 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
   const maxRangeYd = params.maxRangeMeters / M_PER_YARD;
   const stepYd     = params.stepMeters / M_PER_YARD;
   const { points, maxOrdIn, maxOrdRangeYd, supersonicLimYd } =
-    integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle, dragTable);
+    integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle, dragTable, extras);
+
+  const isa = 15 - 0.0065 * params.altitudeMeters;   // ISA temperature at altitude (°C/m lapse)
+  const densityAltitudeMeters = Math.round(params.altitudeMeters + 36.2 * (params.temperatureC - isa));
+  // 36.2 = 118.8 ft/°C × 0.3048 m/ft
 
   return {
     bullet,
@@ -215,6 +261,7 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
     points,
     maxOrdinateCm:          Math.round(maxOrdIn * CM_PER_INCH * 10) / 10,
     maxOrdinateRangeMeters: Math.round(maxOrdRangeYd * M_PER_YARD * 10) / 10,
-    supersonicLimitMeters:  Math.round(supersonicLimYd * M_PER_YARD * 10) / 10
+    supersonicLimitMeters:  Math.round(supersonicLimYd * M_PER_YARD * 10) / 10,
+    densityAltitudeMeters
   };
 }
