@@ -442,7 +442,7 @@ before and after simulation.
 
 ## Milestone 8 — Security hygiene
 
-### ✅ SEC-1 · Pin vulnerable transitive Jest dependencies · DevSecOps · Size XS · DONE
+### ✅ SEC-1 · Pin vulnerable transitive Jest dependencies · DevSecOps · Size XS · DONE (PR #146)
 
 Dependabot and Trivy report three open vulnerabilities (medium × 2, low × 1),
 all transitive dependencies pulled in by Jest. None reach the browser bundle —
@@ -861,7 +861,7 @@ The latitude and azimuth inputs were added in Sprint 7 and encoded in URL state.
 
 The Custom Round panel has had a drag table CSV uploader since before Sprint 1. The engine marks `customDragTable` as RESERVED and ignores it — every trajectory still uses G1 or G7 regardless of what the user uploads.
 
-**Engine work is delivered by FEAT-3 (PR #144). §6 UI copy (MODEL pill + drag-table help text) was intentionally deferred from #144 and completed in a follow-up PR (§6 UI copy). `contracts/wa12-custom-drag.md` §2–§4 (Rust/Java) remain on hold.**
+**Engine work is delivered by FEAT-3 (PR #144). §6 UI copy (MODEL pill + drag-table help text) was intentionally deferred from #144 and completed in a follow-up PR (PR #145). `contracts/wa12-custom-drag.md` §2–§4 (Rust/Java) remain on hold.**
 
 **Work items:**
 
