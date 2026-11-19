@@ -1469,7 +1469,7 @@ The select-all / deselect-all checkbox currently allows every bullet in the cata
 
 ---
 
-### PERF-15 · Zero-allocation RK4 hot loop & flat `Float64Array` drag lookup · FE · Size S [Must Have]
+### ~~PERF-15 · Zero-allocation RK4 hot loop & flat `Float64Array` drag lookup · FE · Size S~~ ✅ Done
 
 Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `integrateTrajectoryFps` (`app/physics/engine.ts:226-283`) invokes a nested `deriv` closure that allocates a 2-element `[ax, ay]` tuple 4 times per step and calls `Math.hypot(vx, vy)` 4 times per step. Over a 2 000 m trajectory plus 64 zero-finding passes (~23 000 RK4 steps per bullet), this creates ~92 000 short-lived array allocations and ~92 000 `Math.hypot` calls per bullet. `Math.hypot` performs IEEE overflow/underflow scaling that is unnecessary for bullet speeds (`0–5 000 fps`, where `vx² + vy² ≤ 2.5×10⁷`). Meanwhile `G1_TABLE` and `G7_TABLE` are arrays of boxed `[v, f]` tuples requiring double indirection and binary search on every drag lookup even though projectile speed decreases monotonically during flight.
 
