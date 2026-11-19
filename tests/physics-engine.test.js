@@ -1398,3 +1398,59 @@ describe('PERF-16: findZeroAngleFps safeguarded secant solver', () => {
     expect(angle).toBeLessThanOrEqual(0.05);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERF-17: Worker-side G1 BC back-calculator (solveBC)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-17: solveBC', () => {
+  const { solveBC } = require('../app/physics/engine.ts');
+
+  test('recovers G1 BC monotonically and matches simulated drop to 4 decimal places', () => {
+    const resLow  = simulate({ ...BASE_BULLET, ballisticCoefficient: 0.02 }, {
+      zeroRangeMeters: 100, maxRangeMeters: 1000, stepMeters: 25,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15, dragModel: 'G1',
+    });
+    const resHigh = simulate({ ...BASE_BULLET, ballisticCoefficient: 0.50 }, {
+      zeroRangeMeters: 100, maxRangeMeters: 1000, stepMeters: 25,
+      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15, dragModel: 'G1',
+    });
+    const ptLow  = resLow.points.find(p => Math.abs(p.rangeMeters - 1000) < 1);
+    const ptHigh = resHigh.points.find(p => Math.abs(p.rangeMeters - 1000) < 1);
+
+    const bcLow = solveBC({
+      weightG: BASE_BULLET.bulletWeightGrams,
+      mvMps: BASE_BULLET.muzzleVelocityMps,
+      measuredDropCm: ptLow.dropCm,
+      rangeM: ptLow.rangeMeters,
+      altM: 0,
+      tempC: 15,
+    });
+    const bcHigh = solveBC({
+      weightG: BASE_BULLET.bulletWeightGrams,
+      mvMps: BASE_BULLET.muzzleVelocityMps,
+      measuredDropCm: ptHigh.dropCm,
+      rangeM: ptHigh.rangeMeters,
+      altM: 0,
+      tempC: 15,
+    });
+    expect(bcLow).not.toBeNull();
+    expect(bcHigh).not.toBeNull();
+    expect(bcLow).toBeGreaterThanOrEqual(0.001);
+    expect(bcHigh).toBeLessThanOrEqual(1.5);
+    expect(bcHigh).toBeGreaterThan(bcLow);
+    expect(Math.abs(bcLow - 0.02)).toBeLessThan(0.005);
+    // 4-decimal rounding check
+    expect(Math.round(bcLow * 10000) / 10000).toBe(bcLow);
+  });
+
+  test('returns null for invalid inputs or projectile that drops below MIN_VEL_FPS before rangeM', () => {
+    expect(solveBC({ weightG: 0, mvMps: 800, measuredDropCm: -40, rangeM: 500, altM: 0, tempC: 15 })).toBeNull();
+    expect(solveBC({ weightG: 10, mvMps: -1, measuredDropCm: -40, rangeM: 500, altM: 0, tempC: 15 })).toBeNull();
+    expect(solveBC({ weightG: 10, mvMps: 800, measuredDropCm: NaN, rangeM: 500, altM: 0, tempC: 15 })).toBeNull();
+    expect(solveBC({ weightG: 10, mvMps: 800, measuredDropCm: -40, rangeM: 0, altM: 0, tempC: 15 })).toBeNull();
+    expect(solveBC({ weightG: 10, mvMps: 800, measuredDropCm: -40, rangeM: 500, altM: -5, tempC: 15 })).toBeNull();
+    expect(solveBC({ weightG: 10, mvMps: 800, measuredDropCm: -40, rangeM: 500, altM: 0, tempC: 99 })).toBeNull();
+    // Very slow velocity stalls (< MIN_VEL_FPS) before reaching rangeM → evalDropCmAtRange returns null
+    expect(solveBC({ weightG: 10, mvMps: 20, measuredDropCm: -40, rangeM: 500, altM: 0, tempC: 15 })).toBeNull();
+  });
+});

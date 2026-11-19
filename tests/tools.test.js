@@ -679,10 +679,10 @@ describe('calcBC', () => {
     expect(result).toBeNull();
   });
 
-  test('calls simulateBulletFn 64 times', async () => {
+  test('converges in <=18 calls with tight 1e-5 BC tolerance (PERF-17)', async () => {
     const sim = makeSimFn();
     await calcBC(sim, 10.89, 807, -40, 400, 0, 15);
-    expect(sim).toHaveBeenCalledTimes(64);
+    expect(sim).toHaveBeenCalledTimes(18);
   });
 
   test('rounds result to 4 decimal places', async () => {
@@ -709,7 +709,7 @@ describe('calcBC', () => {
     await calcBC(sim, 10.89, 807, -40, 400, 0, 15);
     const bullets = sim.mock.calls.map(c => c[0]);
     const unique = new Set(bullets);
-    expect(unique.size).toBe(64);
+    expect(unique.size).toBe(18);
   });
 });
 
@@ -758,6 +758,21 @@ describe('initBcSolver', () => {
     await flushPromises();
     const html = document.getElementById('bcCalcResult').innerHTML;
     expect(html).toContain('G1 BC');
+  });
+
+  test('PERF-17: CALCULATE delegates to single-call solveBCFn when provided', async () => {
+    const sim = makeSimFn();
+    const solveBCFn = jest.fn().mockResolvedValue(0.4751);
+    initBcSolver(sim, solveBCFn);
+    document.getElementById('bcCalcWeightG').value = '10.89';
+    document.getElementById('bcCalcMvMps').value   = '807';
+    document.getElementById('bcCalcDropCm').value  = '-150';
+    document.getElementById('bcCalcRangeM').value  = '500';
+    document.getElementById('bcCalcBtn').click();
+    await flushPromises();
+    expect(solveBCFn).toHaveBeenCalledTimes(1);
+    expect(sim).not.toHaveBeenCalled();
+    expect(document.getElementById('bcCalcResult').textContent).toContain('0.4751');
   });
 
   test('CALCULATE shows convergence error when sim returns no points', async () => {

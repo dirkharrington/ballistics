@@ -1531,7 +1531,7 @@ Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `inte
 
 ---
 
-### PERF-17 · Move BC back-calculator solver into physics worker with tight tolerance · FE · Size S [Must Have]
+### ~~PERF-17 · Move BC back-calculator solver into physics worker with tight tolerance · FE · Size S~~ ✅ Done
 
 `calcBC` (`app/tools.js:220-255`) executes **64 sequential `await simulateBulletFn(bullet, req)` calls** across the main-thread ↔ Web Worker `postMessage` boundary. Each iteration runs a full `simulate()` (including full zero-angle solve, allocating every 25 m `TrajectoryPoint` object, and structured-cloning the entire `TrajectoryResult` back to the main thread) just to read a single `dropCm` value, even though `calcBC` rounds its final output to 4 decimal places (`0.0001`). Over `[0.001, 1.5]`, 4-decimal precision needs only ~17 bisection iterations (or ~7–10 safeguarded secant iterations); the remaining ~47 full worker round-trips are pure waste.
 

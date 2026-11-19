@@ -1,5 +1,5 @@
 import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
-import type { Bullet, TrajectoryParams, TrajectoryPoint, TrajectoryResult, DragTable, DragPoint, EffectiveDragModel } from './types.ts';
+import type { Bullet, TrajectoryParams, TrajectoryPoint, TrajectoryResult, DragTable, DragPoint, EffectiveDragModel, SolveBCParams } from './types.ts';
 export type * from './types.ts';
 
 import { TrajectoryInputError } from './errors.ts';
@@ -478,4 +478,100 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
     densityAltitudeMeters,
     dragModel
   };
+}
+
+/**
+ * Lightweight single-scalar drop evaluation at targetFt for BC back-calculation (PERF-17).
+ * Avoids allocating TrajectoryPoint objects or computing unused spin/Coriolis/energy fields.
+ */
+function evalDropCmAtRange(
+  mvFps: number, bc: number, rho: number, zeroFt: number,
+  sightHtFt: number, targetFt: number, ct: CompiledDragTable, startIdx: number
+): number | null {
+  const angle     = findZeroAngleFps(mvFps, bc, rho, zeroFt, sightHtFt, G1_TABLE);
+  const rhoOverBc = rho / bc;
+  const halfDt    = 0.5 * DT_S;
+  const sixthDt   = DT_S / 6;
+  const tanAngle  = Math.tan(angle);
+  let vx = mvFps * Math.cos(angle), vy = mvFps * Math.sin(angle);
+  let x = 0, y = 0;
+  let prevX = 0, prevY = 0;
+  let idx = startIdx;
+
+  while (x < targetFt) {
+    const vel = Math.sqrt(vx * vx + vy * vy);
+    if (vel < MIN_VEL_FPS) return null;
+    prevX = x;
+    prevY = y;
+
+    idx = findBracket(vel, ct, idx);
+    const d1  = evalCompiledDrag(vel, ct, idx) * rhoOverBc;
+    const ax1 = -(vx / vel) * d1;
+    const ay1 = -(vy / vel) * d1 - G_FPS2;
+
+    const vx2 = vx + halfDt * ax1, vy2 = vy + halfDt * ay1;
+    const v2  = Math.sqrt(vx2 * vx2 + vy2 * vy2);
+    const i2  = findBracket(v2, ct, idx);
+    const d2  = evalCompiledDrag(v2, ct, i2) * rhoOverBc;
+    const ax2 = -(vx2 / v2) * d2;
+    const ay2 = -(vy2 / v2) * d2 - G_FPS2;
+
+    const vx3 = vx + halfDt * ax2, vy3 = vy + halfDt * ay2;
+    const v3  = Math.sqrt(vx3 * vx3 + vy3 * vy3);
+    const i3  = findBracket(v3, ct, i2);
+    const d3  = evalCompiledDrag(v3, ct, i3) * rhoOverBc;
+    const ax3 = -(vx3 / v3) * d3;
+    const ay3 = -(vy3 / v3) * d3 - G_FPS2;
+
+    const vx4 = vx + DT_S * ax3, vy4 = vy + DT_S * ay3;
+    const v4  = Math.sqrt(vx4 * vx4 + vy4 * vy4);
+    const i4  = findBracket(v4, ct, i3);
+    const d4  = evalCompiledDrag(v4, ct, i4) * rhoOverBc;
+    const ax4 = -(vx4 / v4) * d4;
+    const ay4 = -(vy4 / v4) * d4 - G_FPS2;
+
+    vx += sixthDt * (ax1 + 2 * ax2 + 2 * ax3 + ax4);
+    vy += sixthDt * (ay1 + 2 * ay2 + 2 * ay3 + ay4);
+    x  += vx * DT_S;
+    y  += vy * DT_S;
+  }
+
+  const frac = (targetFt - prevX) / (x - prevX);
+  const yAtTarget = prevY + frac * (y - prevY);
+  return (yAtTarget - targetFt * tanAngle) * 12 * CM_PER_INCH;
+}
+
+/**
+ * Worker-side G1 BC back-calculator (PERF-17).
+ * Finds the G1 BC in [0.001, 1.5] matching `measuredDropCm` at `rangeM` to 4 decimal places
+ * in <=18 lightweight iterations without main-thread worker round-trips.
+ */
+export function solveBC(params: SolveBCParams): number | null {
+  const { weightG, mvMps, measuredDropCm, rangeM, altM, tempC } = params;
+  if (
+    !isFiniteNumber(weightG) || !(weightG > 0) ||
+    !isFiniteNumber(mvMps) || !(mvMps > 0) ||
+    !isFiniteNumber(measuredDropCm) ||
+    !isFiniteNumber(rangeM) || !(rangeM > 0) ||
+    !isFiniteNumber(altM) || !(altM >= 0) ||
+    !isFiniteNumber(tempC) || tempC < -50 || tempC > 60
+  ) {
+    return null;
+  }
+
+  const mvFps     = mvMps * FPS_PER_MPS;
+  const rho       = airDensityRatio(altM * FT_PER_M, tempC * 9 / 5 + 32);
+  const sightHtFt = 38.1 / 25.4 / 12;
+  const zeroFt    = 100 * FT_PER_M;
+  const targetFt  = rangeM * FT_PER_M;
+  const startIdx  = findBracket(mvFps, G1_COMPILED, G1_COMPILED.last);
+
+  let lo = 0.001, hi = 1.5;
+  for (let i = 0; i < 40 && hi - lo > 1e-5; i++) {
+    const mid  = (lo + hi) / 2;
+    const drop = evalDropCmAtRange(mvFps, mid, rho, zeroFt, sightHtFt, targetFt, G1_COMPILED, startIdx);
+    if (drop === null) return null;
+    if (drop < measuredDropCm) lo = mid; else hi = mid;
+  }
+  return Math.round(((lo + hi) / 2) * 10000) / 10000;
 }

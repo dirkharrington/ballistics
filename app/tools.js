@@ -205,12 +205,13 @@ function renderDopeCard(results, _baseReq) {
   _buildDopeTable(results);
 }
 
-// ── BC Back-Calculator (SH-2) ─────────────────────────────────────────────────
+// ── BC Back-Calculator (SH-2 + PERF-17) ───────────────────────────────────────
 let _bcSimulateFn = null;
+let _bcSolveFn    = null;
 
 /**
  * Bisection solver: find the G1 BC that produces `measuredDropCm` at `rangeM`.
- * Runs 64 iterations → converges to < 0.0001 BC precision.
+ * Terminates once `hi - lo <= 1e-5` (<=18 iterations for 4-decimal BC precision).
  *
  * @param {Function} simulateBulletFn
  * @param {number}   weightG          bullet weight in grams
@@ -245,7 +246,7 @@ async function calcBC(simulateBulletFn, weightG, mvMps, measuredDropCm, rangeM, 
   };
 
   let lo = 0.001, hi = 1.5;
-  for (let i = 0; i < 64; i++) {
+  for (let i = 0; i < 64 && hi - lo > 1e-5; i++) {
     const mid = (lo + hi) / 2;
     const bullet = { ...base, ballisticCoefficient: mid };
     const result = await simulateBulletFn(bullet, req);
@@ -261,9 +262,11 @@ async function calcBC(simulateBulletFn, weightG, mvMps, measuredDropCm, rangeM, 
 /**
  * Initialise the BC back-calculator card DOM and wire the CALCULATE button.
  * @param {Function} simulateBulletFn
+ * @param {Function} [solveBCFn]  Optional single-round-trip worker solver (PERF-17)
  */
-function initBcSolver(simulateBulletFn) {
+function initBcSolver(simulateBulletFn, solveBCFn = null) {
   _bcSimulateFn = simulateBulletFn;
+  _bcSolveFn    = solveBCFn;
 
   document.getElementById('bcCalcBtn')?.addEventListener('click', async () => {
     const weightG = +document.getElementById('bcCalcWeightG').value;
@@ -283,7 +286,9 @@ function initBcSolver(simulateBulletFn) {
 
     if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); }
     try {
-      const bc = await calcBC(_bcSimulateFn, weightG, mvMps, dropCm, rangeM, altM, tempC);
+      const bc = _bcSolveFn
+        ? await _bcSolveFn({ weightG, mvMps, measuredDropCm: dropCm, rangeM, altM, tempC })
+        : await calcBC(_bcSimulateFn, weightG, mvMps, dropCm, rangeM, altM, tempC);
       if (bc === null) {
         result.textContent = 'Could not converge. Check inputs.';
       } else {

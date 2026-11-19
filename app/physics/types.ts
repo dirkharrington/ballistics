@@ -70,3 +70,13 @@ export interface TrajectoryResult {
   readonly densityAltitudeMeters: number;
   readonly dragModel: EffectiveDragModel;   // FEAT-3. 'custom' when customDragTable was applied, else 'G7' if params.dragModel === 'G7', else 'G1'
 }
+
+/** Inputs for worker-side G1 BC back-calculation (PERF-17). */
+export interface SolveBCParams {
+  readonly weightG: number;
+  readonly mvMps: number;
+  readonly measuredDropCm: number;
+  readonly rangeM: number;
+  readonly altM: number;
+  readonly tempC: number;
+}
