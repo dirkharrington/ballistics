@@ -5,8 +5,9 @@ const html = readFileSync(resolve(__dirname, '../app/index.html'), 'utf-8');
 
 const REQUIRED_PRELOADS = [
   '/fonts/rajdhani-400.woff2',
+  '/fonts/rajdhani-600.woff2',
   '/fonts/share-tech-mono-400.woff2',
-  '/fonts/orbitron-900.woff2',
+  '/fonts/orbitron.woff2',
 ];
 
 describe('index.html aria-live regions', () => {
