@@ -1753,7 +1753,7 @@ Three loading/caching inefficiencies penalize both first visits and repeat-visit
 
 ---
 
-### PERF-25 · CSS compositor & paint hygiene · FE · Size XS [Should Have]
+### ~~PERF-25 · CSS compositor & paint hygiene · FE · Size XS~~ ✅ Done
 
 Audit of `app/ballistics.css` revealed four concrete layout/paint inefficiencies:
 1. `body::before` (`app/ballistics.css:138-151`) renders a full-viewport `position: fixed; z-index: 9999` `repeating-linear-gradient` scanline overlay without layer promotion or containment, forcing full-viewport alpha compositing/repainting over scrolling panels and animating canvases on lower-end GPUs.

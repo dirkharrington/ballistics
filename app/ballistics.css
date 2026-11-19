@@ -148,6 +148,8 @@ body::before {
   );
   pointer-events: none;
   z-index: 9999;
+  contain: strict;
+  will-change: transform;
 }
 
 /* ── header ── */
@@ -288,7 +290,7 @@ header {
   border-radius: var(--radius-sm);
   padding: 12px 14px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.15s, background-color 0.15s;
   position: relative;
   overflow: hidden;
   background: var(--panel);
@@ -298,9 +300,11 @@ header {
   content: '';
   position: absolute;
   left: 0; top: 0; bottom: 0;
-  width: 3px;
+  width: 4px;
   background: var(--bullet-color, var(--dim));
-  transition: width 0.2s;
+  transform: scaleX(0.75);
+  transform-origin: left;
+  transition: transform 0.2s;
 }
 
 .bullet-card:hover { border-color: var(--accent); background: var(--bg3); }
@@ -309,7 +313,7 @@ header {
   border-color: var(--bullet-color, var(--accent));
   background: var(--bg3);
 }
-.bullet-card.active::before { width: 4px; }
+.bullet-card.active::before { transform: scaleX(1); }
 
 .bullet-card .check {
   position: absolute;
@@ -405,7 +409,7 @@ header {
   padding: 12px;
   cursor: pointer;
   border-radius: var(--radius-xs);
-  transition: all 0.15s;
+  transition: color 0.15s, border-color 0.15s, opacity 0.15s, transform 0.15s;
   position: relative;
   overflow: hidden;
 }
@@ -458,7 +462,7 @@ header {
   padding: 14px 20px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: all 0.15s;
+  transition: color 0.15s, border-color 0.15s;
   margin-bottom: -1px;
 }
 
@@ -596,6 +600,13 @@ table {
   font-size: var(--font-md);
 }
 
+#dataTable {
+  table-layout: fixed;
+}
+#dataTable th:first-child {
+  width: 180px;
+}
+
 th {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -727,12 +738,14 @@ tr:hover td { background: var(--bg3); }
 
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .chart-wrap { height: var(--chart-h-md); }
+  .chart-panel { contain-intrinsic-block-size: auto 340px; }
 }
 
 /* ── Small phones (≤ 500 px) ── */
 @media (max-width: 500px) {
   .stats-grid { grid-template-columns: 1fr; }
   .chart-wrap { height: var(--chart-h-sm); }
+  .chart-panel { contain-intrinsic-block-size: auto 320px; }
   .header-status { display: none; }
   header { padding: 10px 12px; gap: 12px; }
   .crosshair { width: 32px; height: 32px; }
@@ -772,7 +785,7 @@ tr:hover td { background: var(--bg3); }
   cursor: pointer;
   border-radius: var(--radius-xs);
   text-transform: uppercase;
-  transition: all 0.15s;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
 }
 .export-btn:hover { border-color: var(--accent); color: var(--accent); }
 
@@ -791,7 +804,7 @@ tr:hover td { background: var(--bg3); }
   cursor: pointer;
   border-radius: var(--radius-xs);
   text-transform: uppercase;
-  transition: all 0.15s;
+  transition: border-color 0.15s, color 0.15s;
   width: 100%;
 }
 .export-toggle:hover { border-color: var(--accent); color: var(--accent); }
@@ -819,7 +832,7 @@ tr:hover td { background: var(--bg3); }
   cursor: pointer;
   width: 100%;
   text-align: left;
-  transition: all 0.15s;
+  transition: color 0.15s, background-color 0.15s;
 }
 .export-csv-btn:hover, .export-json-btn:hover, .export-md-btn:hover {
   color: var(--accent);
@@ -837,7 +850,7 @@ tr:hover td { background: var(--bg3); }
   cursor: pointer;
   border-radius: var(--radius-xs);
   text-transform: uppercase;
-  transition: all 0.15s;
+  transition: border-color 0.15s, color 0.15s;
   width: calc(100% - 24px);
   margin: 0 12px 8px;
   display: block;
@@ -1125,7 +1138,7 @@ tr:hover td { background: var(--bg3); }
   cursor: pointer;
   border-radius: var(--radius-xs);
   text-transform: uppercase;
-  transition: all 0.15s;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
   width: 100%;
   margin: 8px 0;
 }
@@ -1164,7 +1177,7 @@ tr:hover td { background: var(--bg3); }
   cursor: pointer;
   border-radius: var(--radius-xs);
   text-transform: uppercase;
-  transition: all 0.15s;
+  transition: border-color 0.15s, color 0.15s;
   width: 100%;
   margin: 8px 0 0;
   display: block;
@@ -1205,7 +1218,7 @@ tr:hover td { background: var(--bg3); }
   cursor: pointer;
   border-radius: var(--radius-xs);
   text-transform: uppercase;
-  transition: all 0.15s;
+  transition: border-color 0.15s, color 0.15s;
   flex-shrink: 0;
 }
 .preset-load-btn:hover   { border-color: var(--accent); color: var(--accent); }
@@ -1372,9 +1385,18 @@ tr:hover td { background: var(--bg3); }
 #customBulletCancelBtn:hover { color: #c8dde8; border-color: #3a5060; }
 
 @media (prefers-reduced-motion: reduce) {
+  .empty-state .crosshair-big svg {
+    animation: none;
+  }
+  .sidebar,
+  .run-btn,
+  .run-btn::before,
+  .bullet-card,
+  .bullet-card::before,
   .bullet-card--custom,
   .add-bullet-btn,
-  .custom-bullet-form {
+  .custom-bullet-form,
+  .toast {
     transition: none;
   }
 }

@@ -41,3 +41,35 @@ describe('.chart-wrap canvas touch-action (PERF-11)', () => {
     expect(block).toMatch(/touch-action\s*:\s*none/);
   });
 });
+
+describe('CSS compositor & paint hygiene (PERF-25)', () => {
+  test('body::before promotes scanline overlay onto an isolated compositor layer', () => {
+    const block = blockFor('body::before');
+    expect(block).toMatch(/contain\s*:\s*strict/);
+    expect(block).toMatch(/will-change\s*:\s*transform/);
+  });
+
+  test('no rule uses transition: all', () => {
+    expect(css).not.toMatch(/transition\s*:\s*all\b/i);
+  });
+
+  test('.bullet-card::before animates transform instead of layout width', () => {
+    const block = blockFor('.bullet-card::before');
+    expect(block).toMatch(/transition\s*:\s*transform\b/);
+    expect(block).not.toMatch(/transition\s*:\s*width\b/);
+  });
+
+  test('mobile breakpoints override contain-intrinsic-block-size on .chart-panel', () => {
+    expect(css).toMatch(/@media\s*\(max-width:\s*900px\)[\s\S]*?\.chart-panel\s*\{\s*contain-intrinsic-block-size:\s*auto\s+\d+px;/);
+    expect(css).toMatch(/@media\s*\(max-width:\s*500px\)[\s\S]*?\.chart-panel\s*\{\s*contain-intrinsic-block-size:\s*auto\s+\d+px;/);
+  });
+
+  test('#dataTable uses table-layout: fixed', () => {
+    const block = blockFor('#dataTable');
+    expect(block).toMatch(/table-layout\s*:\s*fixed/);
+  });
+
+  test('prefers-reduced-motion disables .empty-state .crosshair-big svg animation', () => {
+    expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.empty-state\s+\.crosshair-big\s+svg[\s\S]*?animation\s*:\s*none/);
+  });
+});
