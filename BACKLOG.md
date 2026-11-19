@@ -1724,7 +1724,7 @@ Two subtle main-thread and waterfall issues remain in `app/ballistics.js`:
 
 ---
 
-### PERF-24 · Defer SW registration & preserve immutable hashed chunks across deploys · FE / DevSecOps · Size S [Should Have]
+### ~~PERF-24 · Defer SW registration & preserve immutable hashed chunks across deploys · FE / DevSecOps · Size S~~ ✅ Done
 
 Three loading/caching inefficiencies penalize both first visits and repeat-visit deploys:
 1. `app/ballistics.js:1490-1496` registers `sw.js` immediately inside `init()` (before `window.load`). On first visit, `handleInstall()` (`app/sw.js:64-70`) immediately fetches every URL in `STATIC_ASSETS_TO_PRECACHE` — including the lazy ~200 KB `vendor-*.js` (Chart.js) chunk and all 7 `.woff2` fonts — directly competing with critical-path CSS, entry JS, and preloaded fonts for mobile bandwidth.

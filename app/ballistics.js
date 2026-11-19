@@ -2,7 +2,7 @@ import { parseDragCsv } from './drag-csv.js';
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
-import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
+import { initDopeCard, renderDopeCard, initBcSolver, initTools } from './tools.js';
 import { TrajectoryInputError } from './physics/errors.ts';
 import { simulateAsync, solveBCAsync, prewarmPhysicsWorker } from './physics/engine-async.ts';
 import {
@@ -1740,13 +1740,21 @@ function init() {
   if (_initListenerController) _initListenerController.abort();
   _initListenerController = new AbortController();
   const { signal } = _initListenerController;
-  // Service Worker registration (requires HTTPS or localhost; see sw.js)
+  // Service Worker registration deferred until window 'load' so SW precache
+  // never competes with critical-path assets on first visit (PERF-24).
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register(
-      import.meta.env.BASE_URL + 'sw.js',
-      { type: 'module', scope: import.meta.env.BASE_URL }
-    )
-      .catch(err => console.warn('SW registration failed:', err));
+    const registerSw = () => {
+      navigator.serviceWorker.register(
+        import.meta.env.BASE_URL + 'sw.js',
+        { type: 'module', scope: import.meta.env.BASE_URL }
+      )
+        .catch(err => console.warn('SW registration failed:', err));
+    };
+    if (document.readyState === 'complete') {
+      registerSw();
+    } else {
+      window.addEventListener('load', registerSw, { once: true, signal });
+    }
   }
 
   // Load saved preferences and URL params; URL takes per-key precedence over localStorage
@@ -1914,7 +1922,8 @@ function init() {
   document.getElementById('latitudeDeg')?.addEventListener('input', _persistInputs, { signal });
   document.getElementById('azimuthDeg')?.addEventListener('input', _persistInputs, { signal });
 
-  // MH-3, SH-2, PERF-17: Tools tab
+  // MH-3, SH-2, PERF-17, PERF-24: Tools tab (unified into main module entry)
+  initTools();
   initDopeCard(simulateAsync);
   initBcSolver(simulateAsync, solveBCAsync);
 

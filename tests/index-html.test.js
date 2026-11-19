@@ -33,3 +33,11 @@ describe('index.html font preloads', () => {
     expect(tag).toContain('crossorigin');
   });
 });
+
+describe('PERF-24: index.html single module script entry', () => {
+  test('contains exactly one <script type="module"> tag', () => {
+    const matches = html.match(/<script\s+type=["']module["'][^>]*>/g) ?? [];
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toContain('ballistics.js');
+  });
+});

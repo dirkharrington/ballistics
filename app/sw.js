@@ -61,10 +61,29 @@ export async function enableNavigationPreload(registration) {
 
 // ── Lifecycle handlers ────────────────────────────────────────────────────────
 
+/** Matches Vite content-hashed immutable assets under /assets/ (PERF-24). */
+export const IMMUTABLE_ASSET_RE = /\/assets\/.+-[A-Za-z0-9_-]{8}\./;
+
+/**
+ * Precache one URL into `cache`. For immutable Vite-hashed assets, reuse any
+ * matching response already stored in a prior cache to avoid re-downloading
+ * unchanged fonts/chunks across deploys (PERF-24).
+ */
+export async function precacheAsset(cache, url) {
+  if (IMMUTABLE_ASSET_RE.test(url)) {
+    const existing = await caches.match(url);
+    if (existing) {
+      await cache.put(url, existing);
+      return;
+    }
+  }
+  await cache.add(url);
+}
+
 export async function handleInstall() {
   const cache = await caches.open(getCacheName());
   await Promise.allSettled(
-    STATIC_ASSETS_TO_PRECACHE.map(url => cache.add(url).catch(() => null)),
+    STATIC_ASSETS_TO_PRECACHE.map(url => precacheAsset(cache, url).catch(() => null)),
   );
   await self.skipWaiting();
 }
