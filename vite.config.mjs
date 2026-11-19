@@ -1,12 +1,40 @@
-import { defineConfig } from 'vite'
+import { defineConfig, minifySync } from 'vite'
 import { createHash } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import yaml from 'js-yaml'
-import { projectBulletCatalog } from './catalog-projection.cjs'
+import * as yaml from 'js-yaml'
+import catalogProjection from './catalog-projection.cjs'
+
+const { projectBulletCatalog } = catalogProjection
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+
+function htmlMinifyPlugin() {
+  return {
+    name: 'html-minify',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        const preserved = []
+        let out = html.replace(/<(script|style|pre|textarea)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, (match) => {
+          const idx = preserved.push(match) - 1
+          return `\u0000__HTML_MINIFY_RAW_${idx}__\u0000`
+        })
+        out = out.replace(/<!--[\s\S]*?-->/g, '')
+        out = out.replace(/(<(?:[^>"']|"[^"]*"|'[^']*')*>)|([^<]+)/g, (_, tag, text) => {
+          if (tag) {
+            return tag
+              .replace(/"[^"]*"|'[^']*'|\s+/g, (tok) => (tok[0] === '"' || tok[0] === "'" ? tok : ' '))
+              .replace(/\s+>$/, '>')
+          }
+          return /^\s+$/.test(text) ? '' : text.replace(/\s+/g, ' ')
+        })
+        return out.replace(/\u0000__HTML_MINIFY_RAW_(\d+)__\u0000/g, (_, idx) => preserved[Number(idx)]).trim()
+      },
+    },
+  }
+}
 
 function serviceWorkerPlugin() {
   let resolvedOutDir;
@@ -38,7 +66,11 @@ function serviceWorkerPlugin() {
       const swOut = swSrc
         .replace("let CACHE_VERSION = 'v1';", `let CACHE_VERSION = '${hash}';`)
         .replace("'__VITE_PRECACHE_MANIFEST__'", manifestJson);
-      writeFileSync(resolve(resolvedOutDir, 'sw.js'), swOut);
+      const minified = minifySync('sw.js', swOut, { compress: true, mangle: true });
+      if (minified.errors?.length) {
+        throw new Error(`Failed to minify sw.js: ${minified.errors.map(e => e.message).join('; ')}`);
+      }
+      writeFileSync(resolve(resolvedOutDir, 'sw.js'), minified.code);
     },
   };
 }
@@ -93,9 +125,13 @@ function physicsTablesPlugin() {
 export default defineConfig({
   base: '/ballistics/',
   root: 'app',
+  css: {
+    transformer: 'lightningcss',
+  },
   build: {
     outDir: '../dist',
     emptyOutDir: true,
+    cssMinify: 'lightningcss',
     // Browser floor is already set by module workers + module SW; lowering gains no browsers.
     // Fallback to 'es2022' if a target browser breaks.
     target: 'esnext',
@@ -123,5 +159,5 @@ export default defineConfig({
   worker: {
     plugins: () => [bulletCatalogPlugin(), physicsTablesPlugin()],
   },
-  plugins: [serviceWorkerPlugin(), bulletCatalogPlugin(), physicsTablesPlugin()],
+  plugins: [htmlMinifyPlugin(), serviceWorkerPlugin(), bulletCatalogPlugin(), physicsTablesPlugin()],
 })

@@ -33,7 +33,8 @@ jobs:
               - 'package-lock.json'
               - 'babel.config.js'
               - 'tsconfig.json'
-              - 'vite.config.js'
+              - 'vite.config.mjs'
+              - 'catalog-projection.cjs'
               - '.github/workflows/ci.yml'
 
   # ── Frontend build & test ────────────────────────────────────────────────────
