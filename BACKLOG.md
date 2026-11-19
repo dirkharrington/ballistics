@@ -1585,7 +1585,7 @@ Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `inte
 
 ---
 
-### PERF-19 · Bounded LRU memoization cache for simulation results · FE · Size XS [Must Have]
+### ~~PERF-19 · Bounded LRU memoization cache for simulation results · FE · Size XS~~ ✅ Done
 
 Every Compute click recomputes every selected bullet from scratch, even when the user only adds or removes one bullet from an existing comparison, re-clicks Compute without changing parameters, or switches between Sweep mode and Trajectory mode (`clearSweep` or repeating a sweep). Because `simulate(bullet, params)` is a pure deterministic function of the physics fields, identical inputs always yield identical trajectories.
 
