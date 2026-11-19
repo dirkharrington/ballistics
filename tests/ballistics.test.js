@@ -1401,6 +1401,25 @@ describe('init', () => {
     delete navigator.serviceWorker;
   });
 
+  test('PERF-24: defers SW registration until window load when document.readyState !== complete', () => {
+    const register = jest.fn().mockResolvedValue({});
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { register }, configurable: true, writable: true,
+    });
+    const origReady = Object.getOwnPropertyDescriptor(document, 'readyState');
+    Object.defineProperty(document, 'readyState', { value: 'interactive', configurable: true });
+    try {
+      mod.init();
+      expect(register).not.toHaveBeenCalled();
+      window.dispatchEvent(new Event('load'));
+      expect(register).toHaveBeenCalledWith('/sw.js', { type: 'module', scope: '/' });
+    } finally {
+      if (origReady) Object.defineProperty(document, 'readyState', origReady);
+      else Object.defineProperty(document, 'readyState', { value: 'complete', configurable: true });
+      delete navigator.serviceWorker;
+    }
+  });
+
   test('logs warning when SW registration rejects', async () => {
     const register = jest.fn().mockRejectedValue(new Error('SW init error'));
     Object.defineProperty(navigator, 'serviceWorker', {

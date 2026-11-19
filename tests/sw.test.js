@@ -204,6 +204,43 @@ describe('handleInstall', () => {
   });
 });
 
+// ── precacheAsset (PERF-24) ───────────────────────────────────────────────────
+describe('PERF-24: precacheAsset', () => {
+  test('reuses already-cached immutable hashed asset without calling cache.add', async () => {
+    const mockCache = { put: jest.fn().mockResolvedValue(undefined), add: jest.fn().mockResolvedValue(undefined) };
+    const cachedResp = new Response('font-bytes', { status: 200 });
+    global.caches.match.mockResolvedValueOnce(cachedResp);
+
+    const url = '/ballistics/assets/rajdhani-400-CurJOxDW.woff2';
+    await sw.precacheAsset(mockCache, url);
+
+    expect(global.caches.match).toHaveBeenCalledWith(url);
+    expect(mockCache.put).toHaveBeenCalledWith(url, cachedResp);
+    expect(mockCache.add).not.toHaveBeenCalled();
+  });
+
+  test('falls back to cache.add for an immutable hashed asset on cache miss', async () => {
+    const mockCache = { put: jest.fn().mockResolvedValue(undefined), add: jest.fn().mockResolvedValue(undefined) };
+    global.caches.match.mockResolvedValueOnce(undefined);
+
+    const url = '/ballistics/assets/index-AbCdEf12.js';
+    await sw.precacheAsset(mockCache, url);
+
+    expect(global.caches.match).toHaveBeenCalledWith(url);
+    expect(mockCache.put).not.toHaveBeenCalled();
+    expect(mockCache.add).toHaveBeenCalledWith(url);
+  });
+
+  test('always calls cache.add for unhashed root URLs', async () => {
+    const mockCache = { put: jest.fn().mockResolvedValue(undefined), add: jest.fn().mockResolvedValue(undefined) };
+
+    await sw.precacheAsset(mockCache, '/ballistics/index.html');
+
+    expect(global.caches.match).not.toHaveBeenCalled();
+    expect(mockCache.add).toHaveBeenCalledWith('/ballistics/index.html');
+  });
+});
+
 // ── enableNavigationPreload ───────────────────────────────────────────────────
 describe('enableNavigationPreload', () => {
   test('returns false when registration is undefined', async () => {

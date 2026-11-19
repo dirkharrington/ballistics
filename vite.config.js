@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import { createHash } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -17,15 +18,19 @@ function serviceWorkerPlugin() {
     },
     writeBundle(_options, bundle) {
       if (!resolvedOutDir) return;
-      const hash = Date.now().toString(36);
 
-      // Collect every hashed asset Vite emitted
+      // Collect hashed assets emitted by Vite, excluding the lazy Chart.js vendor chunk
+      // so first-visit SW install never competes with critical-path assets (PERF-24).
       const hashedAssets = Object.keys(bundle)
         .filter(key => /\.(js|css|woff2?|ttf|eot|png|jpe?g|gif|svg|ico|webp)$/.test(key))
+        .filter(key => !/^assets\/vendor-.*\.js$/.test(key))
+        .sort()
         .map(key => `/ballistics/${key}`);
 
       // Always include un-hashed root-level URLs
       const allAssets = ['/ballistics/', '/ballistics/index.html', '/ballistics/manifest.json', ...hashedAssets];
+      // Deterministic content-derived cache version so identical builds emit byte-identical sw.js
+      const hash = createHash('sha256').update(allAssets.join('\n')).digest('hex').slice(0, 12);
       const manifestJson = allAssets.map(a => JSON.stringify(a)).join(', ');
 
       const swSrc = readFileSync(resolve(__dirname, 'app/sw.js'), 'utf-8');
