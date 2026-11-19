@@ -6547,3 +6547,220 @@ describe('PERF-28: lazy loading & retry on failed chunk import', () => {
     await expect(isoMod._loadDragCsv()).resolves.toHaveProperty('parseDragCsv');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERF-31: Sidebar event delegation, O(1) bullet Map, single-card toggle & boot
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boot', () => {
+  test('renderBulletList attaches single delegated click and keydown listener pair across re-renders', () => {
+    const list = document.getElementById('bulletList');
+    const addSpy = jest.spyOn(list, 'addEventListener');
+    mod._setBullets(mod.getMockBullets());
+
+    mod.renderBulletList();
+    expect(addSpy).toHaveBeenCalledTimes(2);
+    expect(addSpy).toHaveBeenCalledWith('click', expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(addSpy).toHaveBeenCalledWith('keydown', expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+    // Re-rendering on the same #bulletList does not re-attach listeners
+    mod.renderBulletList();
+    expect(addSpy).toHaveBeenCalledTimes(2);
+
+    // Built-in cards have data-builtin-bullet-id and no custom cards do
+    const builtInCard = document.getElementById('card-308-win-168gr');
+    expect(builtInCard.dataset.builtinBulletId).toBe('308-win-168gr');
+    addSpy.mockRestore();
+  });
+
+  test('delegated click on built-in card or child toggles selection; click outside is ignored', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set());
+    mod.renderBulletList();
+
+    const list = document.getElementById('bulletList');
+    // Click outside built-in cards (directly on #bulletList) is ignored
+    list.click();
+    expect(mod._getState().selectedIds.size).toBe(0);
+
+    // Click on child element (.bullet-name) inside built-in card bubbles & toggles
+    const card = document.getElementById('card-308-win-168gr');
+    const nameEl = card.querySelector('.bullet-name');
+    nameEl.click();
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(true);
+    expect(card.classList.contains('active')).toBe(true);
+
+    // Clicking card directly toggles off
+    card.click();
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(false);
+    expect(card.classList.contains('active')).toBe(false);
+  });
+
+  test('delegated keydown handles Enter/Space on built-in cards and ignores other keys or non-card targets', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set());
+    mod.renderBulletList();
+
+    const list = document.getElementById('bulletList');
+    const card = document.getElementById('card-223-rem-55gr');
+
+    // Non-Enter/Space key on built-in card is ignored
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(mod._getState().selectedIds.size).toBe(0);
+
+    // Enter/Space outside built-in card (#bulletList directly) is ignored
+    list.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    list.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(mod._getState().selectedIds.size).toBe(0);
+
+    // Enter toggles on
+    const enterEvt = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    card.dispatchEvent(enterEvt);
+    expect(enterEvt.defaultPrevented).toBe(true);
+    expect(mod._getState().selectedIds.has('223-rem-55gr')).toBe(true);
+
+    // Space toggles off
+    const spaceEvt = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    card.dispatchEvent(spaceEvt);
+    expect(spaceEvt.defaultPrevented).toBe(true);
+    expect(mod._getState().selectedIds.has('223-rem-55gr')).toBe(false);
+  });
+
+  test('custom bullet card click/keydown does not double-toggle via delegated built-in listener', () => {
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([makeCustomRecord()]));
+    mod.init();
+    const customId = 'usr-3f2b8c1e9a4d4e6f';
+    const customCard = document.getElementById('card-' + customId);
+    expect(customCard).not.toBeNull();
+    expect(customCard.hasAttribute('data-builtin-bullet-id')).toBe(false);
+    expect(mod._getState().selectedIds.has(customId)).toBe(false);
+
+    customCard.click();
+    expect(mod._getState().selectedIds.has(customId)).toBe(true);
+
+    customCard.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(mod._getState().selectedIds.has(customId)).toBe(false);
+  });
+
+  test('init() re-wires delegation cleanly across repeat init() and _resetState() cleans up', () => {
+    mod.init();
+    mod.init();
+    const card = document.getElementById('card-308-win-168gr');
+    const wasSelected = mod._getState().selectedIds.has('308-win-168gr');
+    // Single click must toggle exactly once (no duplicate listeners across double init)
+    card.click();
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(!wasSelected);
+
+    // _resetState aborts the delegation controller
+    mod._resetState();
+    card.click();
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(false);
+  });
+
+  test('toggleBullet updates only the target card without touching sibling cards', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set());
+    mod.renderBulletList();
+
+    const targetCard  = document.getElementById('card-308-win-168gr');
+    const siblingCard = document.getElementById('card-223-rem-55gr');
+    const getByIdSpy  = jest.spyOn(document, 'getElementById');
+    const sibClassSpy = jest.spyOn(siblingCard.classList, 'toggle');
+    const sibAttrSpy  = jest.spyOn(siblingCard, 'setAttribute');
+
+    mod.toggleBullet('308-win-168gr');
+
+    expect(targetCard.classList.contains('active')).toBe(true);
+    expect(targetCard.getAttribute('aria-pressed')).toBe('true');
+    expect(sibClassSpy).not.toHaveBeenCalled();
+    expect(sibAttrSpy).not.toHaveBeenCalled();
+    const queriedCardIds = getByIdSpy.mock.calls.map(c => c[0]).filter(id => id.startsWith('card-'));
+    expect(queriedCardIds).toEqual(['card-308-win-168gr']);
+
+    // Missing card DOM element is handled gracefully
+    expect(() => mod.toggleBullet('nonexistent-card-id')).not.toThrow();
+    expect(mod._getState().selectedIds.has('nonexistent-card-id')).toBe(true);
+
+    getByIdSpy.mockRestore();
+    sibClassSpy.mockRestore();
+    sibAttrSpy.mockRestore();
+  });
+
+  test('init() renders initial .active cards in a single DOM pass without post-render card scans', () => {
+    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['308-win-168gr', '65-creedmoor-140gr']));
+    const list = document.getElementById('bulletList');
+    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    let firstHtml = null;
+    Object.defineProperty(list, 'innerHTML', {
+      configurable: true,
+      get() { return innerHtmlDescriptor.get.call(this); },
+      set(val) {
+        if (firstHtml === null) firstHtml = val;
+        innerHtmlDescriptor.set.call(this, val);
+      },
+    });
+    const toggleClassSpy = jest.spyOn(DOMTokenList.prototype, 'toggle');
+
+    try {
+      mod.init();
+      // First DOM write already carries active class and aria-pressed="true" for pre-selected bullets
+      expect(firstHtml).toContain('class="bullet-card active" id="card-308-win-168gr"');
+      expect(firstHtml).toContain('class="bullet-card active" id="card-65-creedmoor-140gr"');
+      expect(firstHtml).toContain('class="bullet-card" id="card-223-rem-55gr"');
+      expect(document.getElementById('card-308-win-168gr').getAttribute('aria-pressed')).toBe('true');
+      expect(document.getElementById('card-223-rem-55gr').getAttribute('aria-pressed')).toBe('false');
+      expect(toggleClassSpy).not.toHaveBeenCalled();
+    } finally {
+      delete list.innerHTML;
+      toggleClassSpy.mockRestore();
+    }
+  });
+
+  test('_bulletById Map index syncs on _setBullets, init, custom bullet CRUD, and _resetState, and is used by computeClientSide and runSweep', async () => {
+    const mocks = mod.getMockBullets();
+    mod._setBullets(mocks);
+    const { _bulletById } = mod._getState();
+    expect(_bulletById).toBeInstanceOf(Map);
+    expect(_bulletById.size).toBe(mocks.length);
+    expect(_bulletById.get('308-win-168gr')).toBe(mocks.find(b => b.id === '308-win-168gr'));
+
+    // computeClientSide and runSweep resolve bullets via Map.prototype.get
+    const mapGetSpy = jest.spyOn(Map.prototype, 'get');
+    await mod.computeClientSide({
+      bulletIds: ['308-win-168gr'],
+      zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 25,
+      windSpeedKph: 0, windDirectionDeg: 90, altitudeMeters: 0,
+      temperatureC: 15, sightHeightMm: 38.1, shootingAngleDegrees: 0, dragModel: 'G1',
+    });
+    expect(mapGetSpy).toHaveBeenCalledWith('308-win-168gr');
+
+    mod._setSelectedIds(new Set(['65-creedmoor-140gr']));
+    await mod.runSweep();
+    expect(mapGetSpy).toHaveBeenCalledWith('65-creedmoor-140gr');
+    mapGetSpy.mockRestore();
+
+    // _resetState clears the index
+    mod._resetState();
+    expect(mod._getState()._bulletById.size).toBe(0);
+
+    // init + custom bullet add & delete keep _bulletById synchronized
+    mod.init();
+    expect(mod._getState()._bulletById.size).toBe(mocks.length);
+
+    mod.openCustomBulletAdd();
+    document.getElementById('cbName').value = 'Map Index Load';
+    document.getElementById('cbShortName').value = 'MIL';
+    document.getElementById('cbBulletWeightGrains').value = '175';
+    document.getElementById('cbBcG1').value = '0.505';
+    document.getElementById('cbBcG7').value = '';
+    document.getElementById('cbBulletDiameterInches').value = '0.308';
+    document.getElementById('cbMuzzleVelocityFps').value = '2600';
+    document.getElementById('customBulletForm').dispatchEvent(new Event('submit'));
+
+    const customId = mod._getState().customRecords[0].id;
+    expect(mod._getState()._bulletById.get(customId)?.name).toBe('Map Index Load');
+
+    mod.requestCustomBulletDelete(customId);
+    mod.requestCustomBulletDelete(customId);
+    expect(mod._getState()._bulletById.has(customId)).toBe(false);
+  });
+});

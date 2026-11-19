@@ -89,7 +89,13 @@ const CUSTOM_DRAG_TABLE_KEY = 'ballistics.customDragTable';
 let _customDragTable = null;
 
 let bullets = [];
+let _bulletById = new Map();
 let selectedIds = new Set();
+
+function _syncBulletIndex(list) {
+  _bulletById = new Map();
+  for (const b of list) _bulletById.set(b.id, b);
+}
 let lastResults = [];
 let charts = {};
 let _chartMeta = {};
@@ -240,7 +246,7 @@ function getMockBullets() {
 // ── Compute trajectories client-side for all selected bullet IDs ──────────────
 async function computeClientSide(req, signal) {
   const promises = req.bulletIds.map(id => {
-    const bullet = bullets.find(b => b.id === id);
+    const bullet = _bulletById.get(id);
     if (!bullet) return null;
     const resolved = bulletForDragModel(bullet, req.dragModel);
     return signal ? simulateAsync(resolved, req, { signal }) : simulateAsync(resolved, req);
@@ -250,15 +256,49 @@ async function computeClientSide(req, signal) {
 }
 
 // ── Bullet list UI ────────────────────────────────────────────────────────────
+let _bulletListDelegatedEl = null;
+let _bulletListDelegationController = null;
+
+function _teardownBulletListDelegation() {
+  if (_bulletListDelegationController) {
+    _bulletListDelegationController.abort();
+    _bulletListDelegationController = null;
+  }
+  _bulletListDelegatedEl = null;
+}
+
+function _ensureBulletListDelegation(list) {
+  if (_bulletListDelegatedEl === list) return;
+  _teardownBulletListDelegation();
+  _bulletListDelegatedEl = list;
+  _bulletListDelegationController = new AbortController();
+  const { signal } = _bulletListDelegationController;
+  list.addEventListener('click', e => {
+    const card = e.target.closest('.bullet-card[data-builtin-bullet-id]');
+    if (card) toggleBullet(card.dataset.builtinBulletId);
+  }, { signal });
+  list.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target.closest('.bullet-card[data-builtin-bullet-id]');
+    if (card) {
+      e.preventDefault();
+      toggleBullet(card.dataset.builtinBulletId);
+    }
+  }, { signal });
+}
+
 function renderBulletList() {
   const list = document.getElementById('bulletList');
   const builtIns = bullets.filter(b => !isCustomBulletId(b.id));
   const customs  = bullets.filter(b =>  isCustomBulletId(b.id));
 
-  list.innerHTML = builtIns.map(b => `
-    <div class="bullet-card" id="card-${escapeHtml(b.id)}"
+  list.innerHTML = builtIns.map(b => {
+    const isActive = selectedIds.has(b.id);
+    return `
+    <div class="bullet-card${isActive ? ' active' : ''}" id="card-${escapeHtml(b.id)}"
+         data-builtin-bullet-id="${escapeHtml(b.id)}"
          role="button" tabindex="0"
-         aria-pressed="${selectedIds.has(b.id) ? 'true' : 'false'}"
+         aria-pressed="${isActive ? 'true' : 'false'}"
          style="--bullet-color:${colorFor(b)}">
       <div class="bullet-name">${escapeHtml(b.name)}</div>
       <div class="bullet-specs">
@@ -266,20 +306,10 @@ function renderBulletList() {
       </div>
       <div class="check" aria-hidden="true"></div>
     </div>
-  `).join('');
-  builtIns.forEach(b => {
-    const card = document.getElementById('card-' + b.id);
-    /* istanbul ignore else -- card is always present after innerHTML is set */
-    if (card) {
-      card.addEventListener('click', () => toggleBullet(b.id));
-      card.addEventListener('keydown', e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          toggleBullet(b.id);
-        }
-      });
-    }
-  });
+  `;
+  }).join('');
+
+  _ensureBulletListDelegation(list);
 
   // Append custom group (always rendered, even with 0 customs)
   renderCustomBulletGroup(list, customs, {
@@ -294,10 +324,24 @@ function renderBulletList() {
   syncSelectAllCheckbox();
 }
 
+function _syncSingleBulletCard(id) {
+  const card = document.getElementById('card-' + id);
+  if (card) {
+    const isActive = selectedIds.has(id);
+    card.classList.toggle('active', isActive);
+    card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  }
+  syncSelectAllCheckbox();
+  syncRunButton();
+  // UX-1: sync delete guards and reset any pending delete confirmation
+  syncCustomDeleteGuards(document.getElementById('bulletList'), selectedIds);
+  pendingDeleteId = null;
+}
+
 function toggleBullet(id) {
   if (selectedIds.has(id)) selectedIds.delete(id);
   else selectedIds.add(id);
-  updateBulletCards();
+  _syncSingleBulletCard(id);
   savePrefs();
   syncUrl();
   updateSweepButtonVisibility();
@@ -1363,7 +1407,7 @@ async function runSweep() {
   };
 
   const requests = buildSweepRequests(base, sweepParam, bulletId);
-  const bullet   = bullets.find(b => b.id === bulletId);
+  const bullet   = _bulletById.get(bulletId);
 
   if (!bullet) { if (btn) btn.querySelector('span').textContent = 'SWEEP'; return; }
 
@@ -1591,6 +1635,7 @@ function init() {
   if (_initListenerController) _initListenerController.abort();
   _initListenerController = new AbortController();
   const { signal } = _initListenerController;
+  signal.addEventListener('abort', _teardownBulletListDelegation, { once: true });
   // Service Worker registration deferred until window 'load' so SW precache
   // never competes with critical-path assets on first visit (PERF-24).
   if ('serviceWorker' in navigator) {
@@ -1635,17 +1680,14 @@ function init() {
     }
   }
   bullets = mergeCatalog(getMockBullets(), customRecords);
-  renderBulletList();
-
-  // Update custom form panel availability
-  _syncCustomPanelAvailability();
+  _syncBulletIndex(bullets);
 
   // Restore bullet selection: URL params take precedence over saved prefs
+  // Resolved before renderBulletList() so .active cards render in a single DOM pass (PERF-31).
   {
-    const validIds = new Set(bullets.map(b => b.id));
     let usedUrlBullets = false;
     if (fromUrl.bulletIds !== null) {
-      const filtered = fromUrl.bulletIds.filter(id => validIds.has(id));
+      const filtered = fromUrl.bulletIds.filter(id => _bulletById.has(id));
       if (filtered.length > 0) {
         selectedIds = new Set(filtered);
         usedUrlBullets = true;
@@ -1653,17 +1695,24 @@ function init() {
     }
     if (!usedUrlBullets) {
       if (merged.selectedIds !== null) {
-        selectedIds = new Set(merged.selectedIds.filter(id => validIds.has(id)));
+        selectedIds = new Set(merged.selectedIds.filter(id => _bulletById.has(id)));
       } else {
         // First visit: select only built-in bullets[0] (not custom)
+        selectedIds = new Set();
         const firstBuiltIn = getMockBullets()[0];
         /* istanbul ignore next -- getMockBullets() always returns ≥1 bullet in tests */
         if (firstBuiltIn) selectedIds.add(firstBuiltIn.id);
       }
     }
   }
-  updateBulletCards();
+  renderBulletList();
+
+  // Update custom form panel availability
+  _syncCustomPanelAvailability();
+
+  syncSelectAllCheckbox();
   syncRunButton();
+  syncCustomDeleteGuards(document.getElementById('bulletList'), selectedIds);
 
   // Persist parameter changes automatically and sync URL (debounced, PERF-23)
   const paramInputIds = ['zeroRange','maxRange','windSpeed','windDir','altitude','temperature','step','sightHeight','shootingAngle','dragModel'];
@@ -2124,6 +2173,7 @@ export function requestCustomBulletDelete(id) {
 
   customRecords  = next;
   bullets        = mergeCatalog(getMockBullets(), customRecords);
+  _syncBulletIndex(bullets);
   pendingDeleteId = null;
 
   // Close form if editing this bullet
@@ -2234,6 +2284,7 @@ function _handleCustomBulletSubmit() {
 
   customRecords  = next;
   bullets        = mergeCatalog(getMockBullets(), customRecords);
+  _syncBulletIndex(bullets);
   closeCustomBulletForm();
   renderBulletList();
   updateBulletCards();
@@ -2243,7 +2294,7 @@ function _handleCustomBulletSubmit() {
 // ── State helpers (for test access) ──────────────────────────────────────────
 function _getState()     {
   return {
-    bullets, selectedIds, lastResults, lastReq, charts, crosshairIndex, crosshairPinned,
+    bullets, _bulletById, selectedIds, lastResults, lastReq, charts, crosshairIndex, crosshairPinned,
     customRecords, customStorageStatus, editingCustomId, pendingDeleteId,
   };
 }
@@ -2251,7 +2302,8 @@ function _resetState()   {
   _cancelCrosshairRaf();
   _cancelTableChunkRaf();
   _persistInputs.cancel();
-  bullets = []; selectedIds = new Set(); lastResults = []; charts = {}; _chartMeta = {};
+  _teardownBulletListDelegation();
+  bullets = []; _syncBulletIndex(bullets); selectedIds = new Set(); lastResults = []; charts = {}; _chartMeta = {};
   crosshairIndex = null; crosshairPinned = false;
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
   _tableDirty = false; _dopeDirty = false; _pendingDopeReq = null; _cachedTableRows = null;
@@ -2268,7 +2320,7 @@ function _resetState()   {
   if (_simAbortController) { _simAbortController.abort(); _simAbortController = null; }
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
 }
-function _setBullets(b)              { bullets = b; }
+function _setBullets(b)              { bullets = b; _syncBulletIndex(bullets); }
 function _setSelectedIds(s)          { selectedIds = s; }
 function _setCharts(c)               { charts = c; }
 function _setLastResults(r)          { lastResults = r; }
