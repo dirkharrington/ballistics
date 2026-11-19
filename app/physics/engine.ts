@@ -129,6 +129,78 @@ export function toDragTable(points: readonly DragPoint[]): DragTable {
 }
 
 /**
+ * Flat typed-array drag table for zero-allocation O(1)-amortized RK4 lookups (PERF-15).
+ * @internal
+ */
+export interface CompiledDragTable {
+  readonly v: Float64Array;
+  readonly f: Float64Array;
+  readonly dv: Float64Array;
+  readonly df: Float64Array;
+  readonly last: number;
+}
+
+/** @internal */
+export function compileDragTable(table: DragTable): CompiledDragTable {
+  const n = table.length;
+  const v  = new Float64Array(n);
+  const f  = new Float64Array(n);
+  const dv = new Float64Array(n);
+  const df = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    v[i] = table[i]![0];
+    f[i] = table[i]![1];
+    if (i > 0) {
+      dv[i] = v[i]! - v[i - 1]!;
+      df[i] = f[i]! - f[i - 1]!;
+    }
+  }
+  return { v, f, dv, df, last: n - 1 };
+}
+
+const G1_COMPILED = compileDragTable(G1_TABLE);
+const G7_COMPILED = compileDragTable(G7_TABLE);
+const _compiledCache = new WeakMap<DragTable, CompiledDragTable>([
+  [G1_TABLE, G1_COMPILED],
+  [G7_TABLE, G7_COMPILED],
+]);
+
+function getCompiledDragTable(table: DragTable): CompiledDragTable {
+  let compiled = _compiledCache.get(table);
+  if (!compiled) {
+    compiled = compileDragTable(table);
+    _compiledCache.set(table, compiled);
+  }
+  return compiled;
+}
+
+/**
+ * Updates a local bracket index in O(1) amortized time for monotonic speed trajectories.
+ * Returns smallest i in [1, ct.last] with ct.v[i] >= v (clamped to [1, ct.last]).
+ * @internal
+ */
+export function findBracket(v: number, ct: CompiledDragTable, idx: number): number {
+  const vArr = ct.v;
+  if (v <= vArr[0]!) return 1;
+  if (v >= vArr[ct.last]!) return ct.last;
+  while (idx > 1 && v <= vArr[idx - 1]!) idx--;
+  while (idx < ct.last && v > vArr[idx]!) idx++;
+  return idx;
+}
+
+/**
+ * Evaluates piecewise-linear drag at speed v using pre-found bracket idx.
+ * Uses the exact same arithmetic order as interpolateDragTable for bit-identical results.
+ * @internal
+ */
+export function evalCompiledDrag(v: number, ct: CompiledDragTable, idx: number): number {
+  if (v <= ct.v[0]!) return ct.f[0]!;
+  if (v >= ct.v[ct.last]!) return ct.f[ct.last]!;
+  const t = (v - ct.v[idx - 1]!) / ct.dv[idx]!;
+  return ct.f[idx - 1]! + t * ct.df[idx]!;
+}
+
+/**
  * Interpolates the drag coefficient for speed |v| from a drag table.
  * Precondition: table v-values (column 0) are strictly ascending.
  * @internal
@@ -188,28 +260,50 @@ export function findZeroAngleFps(
   mvFps: number, bc: number, rho: number, zeroFt: number,
   sightHtFt: number, dragTable: DragTable = G1_TABLE
 ): number {
-  const deriv = (vx: number, vy: number, vel: number): [number, number] => {
-    const drag = interpolateDragTable(Math.abs(vel), dragTable) * rho / bc;
-    return [-(vx / vel) * drag, -(vy / vel) * drag - G_FPS2];
-  };
+  const ct = getCompiledDragTable(dragTable);
+  const rhoOverBc = rho / bc;
+  const halfDt  = 0.5 * DT_S;
+  const sixthDt = DT_S / 6;
+  const startIdx = findBracket(mvFps, ct, ct.last);
   let lo = -0.05, hi = 0.05;
   for (let i = 0; i < 64; i++) {
     const mid = (lo + hi) / 2;
     let vx = mvFps * Math.cos(mid), vy = mvFps * Math.sin(mid);
     let x = 0, y = 0;
+    let idx = startIdx;
     while (x < zeroFt) {
-      const vel = Math.hypot(vx, vy);
-      if (vel < 50) break;
-      const [ax1, ay1] = deriv(vx, vy, vel);
-      const vx2 = vx + 0.5*DT_S*ax1, vy2 = vy + 0.5*DT_S*ay1;
-      const [ax2, ay2] = deriv(vx2, vy2, Math.hypot(vx2, vy2));
-      const vx3 = vx + 0.5*DT_S*ax2, vy3 = vy + 0.5*DT_S*ay2;
-      const [ax3, ay3] = deriv(vx3, vy3, Math.hypot(vx3, vy3));
-      const vx4 = vx +    DT_S*ax3, vy4 = vy +    DT_S*ay3;
-      const [ax4, ay4] = deriv(vx4, vy4, Math.hypot(vx4, vy4));
-      vx += (DT_S/6)*(ax1 + 2*ax2 + 2*ax3 + ax4);
-      vy += (DT_S/6)*(ay1 + 2*ay2 + 2*ay3 + ay4);
-      x  += vx * DT_S; y += vy * DT_S;
+      const v1 = Math.sqrt(vx * vx + vy * vy);
+      if (v1 < 50) break;
+      idx = findBracket(v1, ct, idx);
+      const d1  = evalCompiledDrag(v1, ct, idx) * rhoOverBc;
+      const ax1 = -(vx / v1) * d1;
+      const ay1 = -(vy / v1) * d1 - G_FPS2;
+
+      const vx2 = vx + halfDt * ax1, vy2 = vy + halfDt * ay1;
+      const v2  = Math.sqrt(vx2 * vx2 + vy2 * vy2);
+      const i2  = findBracket(v2, ct, idx);
+      const d2  = evalCompiledDrag(v2, ct, i2) * rhoOverBc;
+      const ax2 = -(vx2 / v2) * d2;
+      const ay2 = -(vy2 / v2) * d2 - G_FPS2;
+
+      const vx3 = vx + halfDt * ax2, vy3 = vy + halfDt * ay2;
+      const v3  = Math.sqrt(vx3 * vx3 + vy3 * vy3);
+      const i3  = findBracket(v3, ct, i2);
+      const d3  = evalCompiledDrag(v3, ct, i3) * rhoOverBc;
+      const ax3 = -(vx3 / v3) * d3;
+      const ay3 = -(vy3 / v3) * d3 - G_FPS2;
+
+      const vx4 = vx + DT_S * ax3, vy4 = vy + DT_S * ay3;
+      const v4  = Math.sqrt(vx4 * vx4 + vy4 * vy4);
+      const i4  = findBracket(v4, ct, i3);
+      const d4  = evalCompiledDrag(v4, ct, i4) * rhoOverBc;
+      const ax4 = -(vx4 / v4) * d4;
+      const ay4 = -(vy4 / v4) * d4 - G_FPS2;
+
+      vx += sixthDt * (ax1 + 2 * ax2 + 2 * ax3 + ax4);
+      vy += sixthDt * (ay1 + 2 * ay2 + 2 * ay3 + ay4);
+      x  += vx * DT_S;
+      y  += vy * DT_S;
     }
     if (y < sightHtFt) lo = mid; else hi = mid;
   }
@@ -223,10 +317,12 @@ export function integrateTrajectoryFps(
   cosAngle: number = 1, dragTable: DragTable = G1_TABLE,
   extras: PointExtras = {}
 ): { points: TrajectoryPoint[]; maxOrdIn: number; maxOrdRangeYd: number; supersonicLimYd: number } {
-  const deriv = (vx: number, vy: number, vel: number): [number, number] => {
-    const drag = interpolateDragTable(Math.abs(vel), dragTable) * rho / bc;
-    return [-(vx / vel) * drag, -(vy / vel) * drag - G_FPS2];
-  };
+  const ct = getCompiledDragTable(dragTable);
+  const rhoOverBc     = rho / bc;
+  const halfDt        = 0.5 * DT_S;
+  const sixthDt       = DT_S / 6;
+  const tanAngle      = Math.tan(angle);
+  const halfMassOverG = 0.5 * (wLbs / G_FPS2);
   const sg = extras.stabilityFactor ?? null;
   const ck = extras.coriolisK ?? null;
   let vx = mvFps * Math.cos(angle), vy = mvFps * Math.sin(angle);
@@ -235,16 +331,17 @@ export function integrateTrajectoryFps(
   let nextYd = 0;
   let maxOrdIn = 0, maxOrdRangeYd = 0, supersonicLimYd = maxRangeYd;
   let supersonicLogged = false;
-  const mvHorizFps = mvFps * Math.cos(angle);
+  const mvHorizFps = vx;
   const windFps    = windMph * MPH_TO_FPS;
+  let idx = findBracket(mvFps, ct, ct.last);
 
   while ((x / 3) <= maxRangeYd + stepYd) {
     const rangeYd = x / 3;
-    const vel     = Math.hypot(vx, vy);
+    const vel     = Math.sqrt(vx * vx + vy * vy);
 
     if (rangeYd >= nextYd - 0.01) {
-      const dropIn    = (y - x * Math.tan(angle)) * 12 * cosAngle;
-      const energy    = 0.5 * (wLbs / G_FPS2) * vel * vel;
+      const dropIn    = (y - x * tanAngle) * 12 * cosAngle;
+      const energy    = halfMassOverG * vel * vel;
       const vacuumTof = x / mvHorizFps;
       const windDrift = windFps * (t - vacuumTof) * 12;
       const point: TrajectoryPoint = {
@@ -270,15 +367,34 @@ export function integrateTrajectoryFps(
       supersonicLogged = true;
     }
 
-    const [ax1, ay1] = deriv(vx, vy, vel);
-    const vx2 = vx + 0.5*DT_S*ax1, vy2 = vy + 0.5*DT_S*ay1;
-    const [ax2, ay2] = deriv(vx2, vy2, Math.hypot(vx2, vy2));
-    const vx3 = vx + 0.5*DT_S*ax2, vy3 = vy + 0.5*DT_S*ay2;
-    const [ax3, ay3] = deriv(vx3, vy3, Math.hypot(vx3, vy3));
-    const vx4 = vx +    DT_S*ax3, vy4 = vy +    DT_S*ay3;
-    const [ax4, ay4] = deriv(vx4, vy4, Math.hypot(vx4, vy4));
-    vx += (DT_S/6)*(ax1 + 2*ax2 + 2*ax3 + ax4);
-    vy += (DT_S/6)*(ay1 + 2*ay2 + 2*ay3 + ay4);
+    idx = findBracket(vel, ct, idx);
+    const d1  = evalCompiledDrag(vel, ct, idx) * rhoOverBc;
+    const ax1 = -(vx / vel) * d1;
+    const ay1 = -(vy / vel) * d1 - G_FPS2;
+
+    const vx2 = vx + halfDt * ax1, vy2 = vy + halfDt * ay1;
+    const v2  = Math.sqrt(vx2 * vx2 + vy2 * vy2);
+    const i2  = findBracket(v2, ct, idx);
+    const d2  = evalCompiledDrag(v2, ct, i2) * rhoOverBc;
+    const ax2 = -(vx2 / v2) * d2;
+    const ay2 = -(vy2 / v2) * d2 - G_FPS2;
+
+    const vx3 = vx + halfDt * ax2, vy3 = vy + halfDt * ay2;
+    const v3  = Math.sqrt(vx3 * vx3 + vy3 * vy3);
+    const i3  = findBracket(v3, ct, i2);
+    const d3  = evalCompiledDrag(v3, ct, i3) * rhoOverBc;
+    const ax3 = -(vx3 / v3) * d3;
+    const ay3 = -(vy3 / v3) * d3 - G_FPS2;
+
+    const vx4 = vx + DT_S * ax3, vy4 = vy + DT_S * ay3;
+    const v4  = Math.sqrt(vx4 * vx4 + vy4 * vy4);
+    const i4  = findBracket(v4, ct, i3);
+    const d4  = evalCompiledDrag(v4, ct, i4) * rhoOverBc;
+    const ax4 = -(vx4 / v4) * d4;
+    const ay4 = -(vy4 / v4) * d4 - G_FPS2;
+
+    vx += sixthDt * (ax1 + 2 * ax2 + 2 * ax3 + ax4);
+    vy += sixthDt * (ay1 + 2 * ay2 + 2 * ay3 + ay4);
     x  += vx * DT_S; y += vy * DT_S; t += DT_S;
     if (vel < MIN_VEL_FPS) break;
   }

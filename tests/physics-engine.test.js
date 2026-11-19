@@ -1300,3 +1300,34 @@ describe('FEAT-3 test 10: dragModel field on results', () => {
     expect(simulate(B308, COND_A).dragModel).toBe('G1');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERF-15: Compiled Float64Array drag lookup & zero-alloc RK4 hot loop
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-15: compileDragTable, findBracket, evalCompiledDrag', () => {
+  const { compileDragTable, findBracket, evalCompiledDrag } = require('../app/physics/engine.ts');
+
+  test('matches interpolateDragTable bit-identically across decreasing, increasing, and clamped speeds', () => {
+    const ct = compileDragTable(G1_TABLE);
+    let idx = ct.last;
+    // Decreasing sweep (normal flight)
+    for (let v = 4500; v >= -10; v -= 37) {
+      const speed = Math.max(0, v);
+      idx = findBracket(speed, ct, idx);
+      expect(Object.is(evalCompiledDrag(speed, ct, idx), interpolateDragTable(speed, G1_TABLE))).toBe(true);
+    }
+    // Increasing sweep (e.g. downhill acceleration or upward stage)
+    idx = 1;
+    for (let v = 0; v <= 4200; v += 73) {
+      idx = findBracket(v, ct, idx);
+      expect(Object.is(evalCompiledDrag(v, ct, idx), interpolateDragTable(v, G1_TABLE))).toBe(true);
+    }
+  });
+
+  test('custom table compilation caches per DragTable reference without error', () => {
+    const customTable = [[0, 0.12], [1125, 0.2], [3500, 0.09]];
+    const r1 = findZeroAngleFps(2600, 0.45, 1.0, 300, 0.125, customTable);
+    const r2 = findZeroAngleFps(2600, 0.45, 1.0, 300, 0.125, customTable);
+    expect(r1).toBe(r2);
+  });
+});
