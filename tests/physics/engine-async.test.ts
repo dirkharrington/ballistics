@@ -1,4 +1,4 @@
-import { simulateAsync, solveBCAsync, _resetForTest, prewarmPhysicsWorker } from '../../app/physics/engine-async.ts';
+import { simulateAsync, solveBCAsync, _resetForTest, _getMaxPoolSize, prewarmPhysicsWorker } from '../../app/physics/engine-async.ts';
 import { TrajectoryInputError } from '../../app/physics/engine.ts';
 import { createPhysicsWorker } from '../../app/physics/create-physics-worker.ts';
 
@@ -33,8 +33,12 @@ describe('_getWorker — lazy creation', () => {
     expect(workerCtor).toHaveBeenCalledTimes(1);
   });
 
-  test('reuses existing Worker on subsequent calls', () => {
-    simulateAsync({} as any, {} as any);
+  test('reuses existing idle Worker on sequential calls', async () => {
+    const p1 = simulateAsync({} as any, {} as any);
+    const { id } = workerInst.postMessage.mock.calls[0][0] as { id: number };
+    workerInst._emit({ id, result: {} });
+    await p1;
+
     simulateAsync({} as any, {} as any);
     expect(workerCtor).toHaveBeenCalledTimes(1);
   });
@@ -181,5 +185,119 @@ describe('PERF-17: solveBCAsync', () => {
     const msg2 = workerInst.postMessage.mock.calls[1][0] as { id: number };
     workerInst._emit({ id: msg2.id, bc: null });
     await expect(promiseNull).resolves.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-18: bounded worker pool & AbortSignal cancellation', () => {
+  const bullet = { id: 'x', bulletWeightGrams: 9, muzzleVelocityMps: 850, ballisticCoefficient: 0.45 } as any;
+  const params = { zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 50, windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15 } as any;
+
+  test('fans out concurrent jobs across up to POOL_SIZE workers and drains FIFO queue', async () => {
+    const origHc = Object.getOwnPropertyDescriptor(navigator, 'hardwareConcurrency');
+    Object.defineProperty(navigator, 'hardwareConcurrency', { value: 8, configurable: true });
+    const spawned: MockWorker[] = [];
+    workerCtor.mockImplementation(() => {
+      const w = new MockWorker();
+      spawned.push(w);
+      return w;
+    });
+
+    try {
+      expect(_getMaxPoolSize()).toBe(4);
+      // Launch 5 concurrent jobs — pool caps at 4 workers, 5th queues until one finishes
+      const promises = Array.from({ length: 5 }, (_, i) =>
+        simulateAsync({ ...bullet, id: `b${i}` }, params),
+      );
+      expect(spawned).toHaveLength(4);
+      expect(spawned[0].postMessage).toHaveBeenCalledTimes(1);
+      expect(spawned[3].postMessage).toHaveBeenCalledTimes(1);
+
+      // Complete worker 0 → 5th job immediately dispatches onto worker 0
+      const id0 = (spawned[0].postMessage.mock.calls[0][0] as { id: number }).id;
+      spawned[0]._emit({ id: id0, result: { bullet: { id: 'b0' } } });
+      expect(spawned[0].postMessage).toHaveBeenCalledTimes(2);
+
+      // Complete remaining 4 jobs
+      for (const [wIdx, callIdx, bId] of [[1, 0, 'b1'], [2, 0, 'b2'], [3, 0, 'b3'], [0, 1, 'b4']] as const) {
+        const msgId = (spawned[wIdx].postMessage.mock.calls[callIdx][0] as { id: number }).id;
+        spawned[wIdx]._emit({ id: msgId, result: { bullet: { id: bId } } });
+      }
+      const results = await Promise.all(promises);
+      expect(results.map((r: any) => r.bullet.id)).toEqual(['b0', 'b1', 'b2', 'b3', 'b4']);
+    } finally {
+      if (origHc) Object.defineProperty(navigator, 'hardwareConcurrency', origHc);
+    }
+  });
+
+  test('_getMaxPoolSize falls back cleanly when hardwareConcurrency is 0/undefined', () => {
+    const origHc = Object.getOwnPropertyDescriptor(navigator, 'hardwareConcurrency');
+    Object.defineProperty(navigator, 'hardwareConcurrency', { value: 0, configurable: true });
+    try {
+      expect(_getMaxPoolSize()).toBe(2);
+    } finally {
+      if (origHc) Object.defineProperty(navigator, 'hardwareConcurrency', origHc);
+    }
+  });
+
+  test('pre-aborted signal rejects immediately without spawning a worker', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    await expect(simulateAsync(bullet, params, { signal: ac.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(workerCtor).not.toHaveBeenCalled();
+  });
+
+  test('aborting a queued task prevents postMessage from ever firing for it', async () => {
+    const origHc = Object.getOwnPropertyDescriptor(navigator, 'hardwareConcurrency');
+    Object.defineProperty(navigator, 'hardwareConcurrency', { value: 1, configurable: true });
+    try {
+      const p1 = simulateAsync(bullet, params);
+      const ac = new AbortController();
+      const p2 = simulateAsync(bullet, params, { signal: ac.signal });
+      expect(workerInst.postMessage).toHaveBeenCalledTimes(1);
+
+      ac.abort();
+      await expect(p2).rejects.toMatchObject({ name: 'AbortError' });
+
+      // Finish p1 — p2 must NOT be dispatched
+      const id1 = (workerInst.postMessage.mock.calls[0][0] as { id: number }).id;
+      workerInst._emit({ id: id1, result: { ok: 1 } });
+      await expect(p1).resolves.toEqual({ ok: 1 });
+      expect(workerInst.postMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      if (origHc) Object.defineProperty(navigator, 'hardwareConcurrency', origHc);
+    }
+  });
+
+  test('aborting an in-flight task rejects with AbortError and discards late worker reply', async () => {
+    const ac = new AbortController();
+    const p1 = simulateAsync(bullet, params, { signal: ac.signal });
+    const id1 = (workerInst.postMessage.mock.calls[0][0] as { id: number }).id;
+    ac.abort();
+    await expect(p1).rejects.toMatchObject({ name: 'AbortError' });
+
+    // Late reply arrives — slot frees up and no crash occurs
+    workerInst._emit({ id: id1, result: { stale: true } });
+    // Next call reuses the freed slot
+    const p2 = simulateAsync(bullet, params);
+    expect(workerCtor).toHaveBeenCalledTimes(1);
+    const id2 = (workerInst.postMessage.mock.calls[1][0] as { id: number }).id;
+    workerInst._emit({ id: id2, result: { fresh: true } });
+    await expect(p2).resolves.toEqual({ fresh: true });
+  });
+
+  test('_resetForTest cleans up abort listeners on both queued and in-flight tasks', () => {
+    const origHc = Object.getOwnPropertyDescriptor(navigator, 'hardwareConcurrency');
+    Object.defineProperty(navigator, 'hardwareConcurrency', { value: 1, configurable: true });
+    try {
+      const ac1 = new AbortController();
+      const ac2 = new AbortController();
+      void simulateAsync(bullet, params, { signal: ac1.signal });
+      void simulateAsync(bullet, params, { signal: ac2.signal });
+      _resetForTest();
+      expect(() => { ac1.abort(); ac2.abort(); }).not.toThrow();
+    } finally {
+      if (origHc) Object.defineProperty(navigator, 'hardwareConcurrency', origHc);
+    }
   });
 });

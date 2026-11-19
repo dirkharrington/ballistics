@@ -1558,7 +1558,7 @@ Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `inte
 
 ---
 
-### PERF-18 · Bounded Web Worker pool & stale-run cancellation in `engine-async.ts` · FE · Size M [Must Have]
+### ~~PERF-18 · Bounded Web Worker pool & stale-run cancellation in `engine-async.ts` · FE · Size M~~ ✅ Done
 
 `app/physics/engine-async.ts` maintains a single `_worker` instance. When `computeClientSide()` (`app/ballistics.js:144`) dispatches 5 selected bullets via `Promise.all(...)` or `runSweep()` (`app/ballistics.js:1295`) dispatches 5 sweep runs, all 5 tasks queue sequentially on a single CPU core. Additionally, rapid re-clicks or parameter changes have no cancellation mechanism, so stale work continues occupying workers and can overwrite newer UI state if not guarded.
 
