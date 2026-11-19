@@ -1331,3 +1331,70 @@ describe('PERF-15: compileDragTable, findBracket, evalCompiledDrag', () => {
     expect(r1).toBe(r2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERF-16: Fast safeguarded secant/bisection zero-angle solver
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-16: findZeroAngleFps safeguarded secant solver', () => {
+  test('agrees with 64-pass bisection across a broad parameter sweep', () => {
+    function refBisection(mvFps, bc, rho, zeroFt, sightHtFt) {
+      let lo = -0.05, hi = 0.05;
+      for (let i = 0; i < 64; i++) {
+        const mid = (lo + hi) / 2;
+        let vx = mvFps * Math.cos(mid), vy = mvFps * Math.sin(mid), x = 0, y = 0;
+        while (x < zeroFt) {
+          const v1 = Math.sqrt(vx * vx + vy * vy);
+          if (v1 < 50) break;
+          const d1 = interpolateDragTable(v1, G1_TABLE) * rho / bc;
+          const ax1 = -(vx / v1) * d1, ay1 = -(vy / v1) * d1 - 32.174;
+          const vx2 = vx + 0.00025 * ax1, vy2 = vy + 0.00025 * ay1;
+          const v2 = Math.sqrt(vx2 * vx2 + vy2 * vy2);
+          const d2 = interpolateDragTable(v2, G1_TABLE) * rho / bc;
+          const ax2 = -(vx2 / v2) * d2, ay2 = -(vy2 / v2) * d2 - 32.174;
+          const vx3 = vx + 0.00025 * ax2, vy3 = vy + 0.00025 * ay2;
+          const v3 = Math.sqrt(vx3 * vx3 + vy3 * vy3);
+          const d3 = interpolateDragTable(v3, G1_TABLE) * rho / bc;
+          const ax3 = -(vx3 / v3) * d3, ay3 = -(vy3 / v3) * d3 - 32.174;
+          const vx4 = vx + 0.0005 * ax3, vy4 = vy + 0.0005 * ay3;
+          const v4 = Math.sqrt(vx4 * vx4 + vy4 * vy4);
+          const d4 = interpolateDragTable(v4, G1_TABLE) * rho / bc;
+          const ax4 = -(vx4 / v4) * d4, ay4 = -(vy4 / v4) * d4 - 32.174;
+          vx += (0.0005 / 6) * (ax1 + 2 * ax2 + 2 * ax3 + ax4);
+          vy += (0.0005 / 6) * (ay1 + 2 * ay2 + 2 * ay3 + ay4);
+          x += vx * 0.0005; y += vy * 0.0005;
+        }
+        if (y < sightHtFt) lo = mid; else hi = mid;
+      }
+      return (lo + hi) / 2;
+    }
+
+    const cases = [
+      [2650, 0.475, 1.0,  328.084, 0.125],
+      [3200, 0.243, 0.85, 656.168, 0.125],
+      [2950, 0.587, 1.05, 984.252, 0.0],
+      [1050, 0.150, 1.0,  164.042, 0.25],
+      [2650, 0.475, 1.0, 3280.84,  0.125],
+    ];
+    for (const [mv, bc, rho, zFt, sh] of cases) {
+      const fast = findZeroAngleFps(mv, bc, rho, zFt, sh, G1_TABLE);
+      const ref  = refBisection(mv, bc, rho, zFt, sh);
+      expect(Math.abs(fast - ref)).toBeLessThan(1e-9);
+    }
+  });
+
+  test('clamps to lo (-0.05) when root lies below lower bracket and hi (+0.05) when above upper bracket', () => {
+    // Very negative sightHtFt → even at -0.05 rad y > sightHtFt → fLo >= 0 → returns -0.05
+    expect(findZeroAngleFps(2650, 0.475, 1.0, 328, -50, G1_TABLE)).toBe(-0.05);
+    // Huge positive sightHtFt → even at +0.05 rad y < sightHtFt → fHi < 0 → returns +0.05
+    expect(findZeroAngleFps(2650, 0.475, 1.0, 328,  50, G1_TABLE)).toBe(0.05);
+  });
+
+  test('terminates via bracket tolerance (hi - lo <= 1e-13) across a discrete DT_S step jump', () => {
+    // Ultra-slow bullet stops via vel < 50 on low angles while crossing zeroFt on higher angles,
+    // creating a sharp step discontinuity where |fMid| never lands <= 1e-9.
+    const angle = findZeroAngleFps(55, 0.02, 1.0, 0.03, 0.0, G1_TABLE);
+    expect(Number.isFinite(angle)).toBe(true);
+    expect(angle).toBeGreaterThanOrEqual(-0.05);
+    expect(angle).toBeLessThanOrEqual(0.05);
+  });
+});

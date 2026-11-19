@@ -1505,7 +1505,7 @@ Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `inte
 
 ---
 
-### PERF-16 · Fast bracketed secant/Brent zero-angle solver in `findZeroAngleFps` · FE · Size S [Must Have]
+### ~~PERF-16 · Fast bracketed secant/Brent zero-angle solver in `findZeroAngleFps` · FE · Size S~~ ✅ Done
 
 `findZeroAngleFps` (`app/physics/engine.ts:196`) unconditionally runs **64 full RK4 integrations** from `x = 0` to `zeroFt` on every `simulate()` call. Because IEEE-754 float64 only has 53 bits of significand, iterations 53–64 make zero progress (`mid === lo || mid === hi`), and for a typical 100 m–300 m zero the zero-finder accounts for 50–70% of total simulation CPU time. Moreover, `f(θ) = y(θ; zeroFt) - sightHtFt` is smooth, strictly monotonic, and nearly linear over `[-0.05, 0.05]`, so a safeguarded secant/Illinois regula-falsi solver converges to sub-picoradian accuracy in 5–9 iterations instead of 64.
 
