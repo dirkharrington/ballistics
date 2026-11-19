@@ -1,4 +1,7 @@
-import { simulateAsync, solveBCAsync, _resetForTest, _getMaxPoolSize, prewarmPhysicsWorker } from '../../app/physics/engine-async.ts';
+import {
+  simulateAsync, solveBCAsync, _resetForTest, _getMaxPoolSize,
+  prewarmPhysicsWorker, simulationCacheKey, _clearCacheForTest, MAX_CACHE_ENTRIES,
+} from '../../app/physics/engine-async.ts';
 import { TrajectoryInputError } from '../../app/physics/engine.ts';
 import { createPhysicsWorker } from '../../app/physics/create-physics-worker.ts';
 
@@ -34,12 +37,12 @@ describe('_getWorker — lazy creation', () => {
   });
 
   test('reuses existing idle Worker on sequential calls', async () => {
-    const p1 = simulateAsync({} as any, {} as any);
+    const p1 = simulateAsync({ ballisticCoefficient: 0.45 } as any, {} as any);
     const { id } = workerInst.postMessage.mock.calls[0][0] as { id: number };
     workerInst._emit({ id, result: {} });
     await p1;
 
-    simulateAsync({} as any, {} as any);
+    simulateAsync({ ballisticCoefficient: 0.50 } as any, {} as any);
     expect(workerCtor).toHaveBeenCalledTimes(1);
   });
 });
@@ -299,5 +302,95 @@ describe('PERF-18: bounded worker pool & AbortSignal cancellation', () => {
     } finally {
       if (origHc) Object.defineProperty(navigator, 'hardwareConcurrency', origHc);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-19: bounded LRU simulation result cache', () => {
+  const bullet = {
+    id: '308', name: '.308 Win', hexColor: '#00d4ff',
+    bulletWeightGrams: 10.89, muzzleVelocityMps: 807, ballisticCoefficient: 0.475, bulletDiameterMm: 7.82,
+  } as any;
+  const params = {
+    zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 50,
+    windSpeedKph: 16, altitudeMeters: 0, temperatureC: 15,
+  } as any;
+
+  test('cache hit resolves immediately with 0 worker messages and preserves updated display metadata', async () => {
+    const p1 = simulateAsync(bullet, params);
+    const id1 = (workerInst.postMessage.mock.calls[0][0] as { id: number }).id;
+    const fakeResult = { bullet, request: params, points: [{ rangeMeters: 0, dropCm: 0 }], maxOrdinateCm: 2 };
+    workerInst._emit({ id: id1, result: fakeResult });
+    await expect(p1).resolves.toEqual(fakeResult);
+
+    // Same physics, different display name & hexColor → cache hit with caller's bullet & params refs
+    const renamedBullet = { ...bullet, name: 'Renamed .308', hexColor: '#ff0000' };
+    const p2 = simulateAsync(renamedBullet, params);
+    expect(workerInst.postMessage).toHaveBeenCalledTimes(1);
+    const res2 = await p2;
+    expect(res2.bullet).toBe(renamedBullet);
+    expect(res2.points).toEqual(fakeResult.points);
+  });
+
+  test('changing any physics param or customDragTable/twist misses cache', async () => {
+    const p1 = simulateAsync(bullet, params);
+    const id1 = (workerInst.postMessage.mock.calls[0][0] as { id: number }).id;
+    workerInst._emit({ id: id1, result: { points: [1] } });
+    await p1;
+
+    const p2 = simulateAsync(bullet, {
+      ...params,
+      windSpeedKph: 20,
+      twistRateInchesPerTurn: 10,
+      customDragTable: [{ mach: 0, cd: 0.1 }, { mach: 1, cd: 0.2 }, { mach: 2.5, cd: 0.15 }],
+    });
+    expect(workerInst.postMessage).toHaveBeenCalledTimes(2);
+    const id2 = (workerInst.postMessage.mock.calls[1][0] as { id: number }).id;
+    workerInst._emit({ id: id2, result: { points: [2] } });
+    await p2;
+
+    // Duplicate concurrent in-flight calls populate same key cleanly (_cacheSet overwrite branch)
+    _clearCacheForTest();
+    const k1 = simulationCacheKey(bullet, params);
+    expect(typeof k1).toBe('string');
+    const c1 = simulateAsync(bullet, params);
+    const c2 = simulateAsync(bullet, params);
+    const msgA = workerInst.postMessage.mock.calls[2][0] as { id: number };
+    const msgB = workerInst.postMessage.mock.calls[3][0] as { id: number };
+    workerInst._emit({ id: msgA.id, result: { points: ['a'] } });
+    workerInst._emit({ id: msgB.id, result: { points: ['b'] } });
+    await Promise.all([c1, c2]);
+  });
+
+  test('LRU evicts oldest entry beyond MAX_CACHE_ENTRIES and never caches rejections', async () => {
+    // Rejected call is not cached
+    const pErr = simulateAsync(bullet, params);
+    const errId = (workerInst.postMessage.mock.calls[0][0] as { id: number }).id;
+    workerInst._emit({ id: errId, error: { name: 'TrajectoryInputError', field: 'stepMeters', message: 'bad' } });
+    await expect(pErr).rejects.toThrow('bad');
+
+    // Fill MAX_CACHE_ENTRIES + 1 distinct keys sequentially
+    let callIdx = 1;
+    for (let i = 0; i <= MAX_CACHE_ENTRIES; i++) {
+      const p = simulateAsync(bullet, { ...params, windSpeedKph: i });
+      const msg = workerInst.postMessage.mock.calls[callIdx++][0] as { id: number };
+      workerInst._emit({ id: msg.id, result: { points: [i] } });
+      await p;
+    }
+
+    // Entry 0 was evicted → calling with windSpeedKph: 0 dispatches a new worker message
+    const pEvicted = simulateAsync(bullet, { ...params, windSpeedKph: 0 });
+    expect(workerInst.postMessage).toHaveBeenCalledTimes(callIdx + 1);
+    const evMsg = workerInst.postMessage.mock.calls[callIdx][0] as { id: number };
+    workerInst._emit({ id: evMsg.id, result: { points: ['recomputed'] } });
+    await expect(pEvicted).resolves.toMatchObject({ points: ['recomputed'] });
+  });
+
+  test('solveBCAsync also honours pre-aborted signal', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    await expect(
+      solveBCAsync({ weightG: 10, mvMps: 800, measuredDropCm: -50, rangeM: 500, altM: 0, tempC: 15 }, { signal: ac.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
   });
 });

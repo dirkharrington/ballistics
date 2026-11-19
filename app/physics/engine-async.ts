@@ -54,11 +54,57 @@ interface QueuedTask {
 }
 
 const MAX_POOL_CAP = 4;
+export const MAX_CACHE_ENTRIES = 64;
 
 let _pool: WorkerSlot[] = [];
 let _queue: QueuedTask[] = [];
 let _nextId = 1;
 const _pending = new Map<number, QueuedTask>();
+const _cache = new Map<string, TrajectoryResult>();
+
+/**
+ * Canonical physics-only cache key for simulateAsync() (PERF-19).
+ * Excludes display-only metadata (name, hexColor, description, bulletIds).
+ */
+export function simulationCacheKey(bullet: Bullet, params: TrajectoryParams): string {
+  const twist = params.twistRateInchesPerTurn ?? null;
+  const custom = params.customDragTable && params.customDragTable.length > 0
+    ? params.customDragTable.map(p => [p.mach, p.cd])
+    : null;
+  return JSON.stringify([
+    bullet.bulletWeightGrams,
+    bullet.muzzleVelocityMps,
+    bullet.ballisticCoefficient,
+    twist != null ? bullet.bulletDiameterMm : null,
+    params.zeroRangeMeters,
+    params.maxRangeMeters,
+    params.stepMeters,
+    params.windSpeedKph,
+    params.windDirectionDeg ?? 90,
+    params.altitudeMeters,
+    params.temperatureC,
+    params.sightHeightMm ?? 38.1,
+    params.shootingAngleDegrees ?? 0,
+    params.dragModel ?? 'G1',
+    twist,
+    params.latitudeDeg ?? null,
+    params.azimuthDeg ?? null,
+    custom,
+  ]);
+}
+
+function _cacheSet(key: string, result: TrajectoryResult): void {
+  if (_cache.has(key)) _cache.delete(key);
+  _cache.set(key, result);
+  if (_cache.size > MAX_CACHE_ENTRIES) {
+    const oldest = _cache.keys().next().value!;
+    _cache.delete(oldest);
+  }
+}
+
+export function _clearCacheForTest(): void {
+  _cache.clear();
+}
 
 export function _getMaxPoolSize(): number {
   const hc = navigator.hardwareConcurrency || 2;
@@ -160,6 +206,7 @@ export function _resetForTest(): void {
   _pool = [];
   _queue = [];
   _pending.clear();
+  _cache.clear();
   _nextId = 1;
 }
 
@@ -168,7 +215,21 @@ export function simulateAsync(
   params: TrajectoryParams,
   options?: SimulateAsyncOptions,
 ): Promise<TrajectoryResult> {
-  return _enqueue<TrajectoryResult>(id => ({ id, bullet, params }), options?.signal);
+  if (options?.signal?.aborted) {
+    return Promise.reject(new DOMException('Simulation aborted', 'AbortError'));
+  }
+  const key = simulationCacheKey(bullet, params);
+  const cached = _cache.get(key);
+  if (cached) {
+    _cache.delete(key);
+    _cache.set(key, cached);
+    return Promise.resolve({ ...cached, bullet, request: params });
+  }
+  return _enqueue<TrajectoryResult>(id => ({ id, bullet, params }), options?.signal)
+    .then(result => {
+      _cacheSet(key, result);
+      return result;
+    });
 }
 
 /**
