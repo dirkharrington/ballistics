@@ -1,0 +1,263 @@
+// ── Export & import helpers (lazy-loaded on demand via ballistics.js) ─────────
+
+/** Bullet-level numeric fields copied from imported JSON. */
+export const BULLET_NUMERIC_FIELDS = [
+  'muzzleVelocityMps', 'ballisticCoefficient', 'bulletWeightGrams',
+  'bulletDiameterMm', 'muzzleEnergyJoules',
+];
+
+/** Result-level numeric fields copied from imported JSON. */
+export const RESULT_NUMERIC_FIELDS = [
+  'supersonicLimitMeters', 'maxOrdinateCm', 'maxOrdinateRangeMeters', 'densityAltitudeMeters',
+];
+
+/** Point-level numeric fields copied from imported JSON. */
+export const POINT_NUMERIC_FIELDS = [
+  'rangeMeters', 'dropCm', 'velocityMps', 'energyJoules', 'windDriftCm',
+  'timeOfFlightSec', 'spinDriftCm', 'coriolisDeflectionCm',
+];
+
+const MAX_IMPORT_BYTES   = 5 * 1024 * 1024;
+const MAX_IMPORT_RESULTS = 10;
+const MAX_IMPORT_POINTS  = 2000;
+const MAX_BULLET_STR_LEN = 200;
+
+/**
+ * Escape a CSV cell per RFC 4180 and neutralize spreadsheet formula triggers.
+ * @param {unknown} str
+ * @returns {string}
+ */
+export function csvCell(str) {
+  const s = String(str).replace(/"/g, '""');
+  // Prevent formula injection in spreadsheet apps (Excel, Google Sheets)
+  return /^[=+\-@\t\r]/.test(s) ? `"'${s}"` : `"${s}"`;
+}
+
+/**
+ * Trigger a browser download for a Blob and immediately revoke its object URL.
+ * @param {Blob} blob
+ * @param {string} filename
+ */
+export function _downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Export trajectory data in simplified UX-2 CSV format (Distance, Velocity, Energy, Drop, Bullet).
+ * @param {object[]} results
+ */
+export function exportTrajectoryCSV(results) {
+  if (!results.length) return;
+  const rows = ['Distance (m),Velocity (m/s),Energy (J),Drop (m),Bullet'];
+  results.forEach(r => {
+    r.points.forEach(p => {
+      rows.push(`${p.rangeMeters},${p.velocityMps},${p.energyJoules},${p.dropCm / 100},${csvCell(r.bullet.name)}`);
+    });
+  });
+  _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), `trajectory-${Date.now()}.csv`);
+}
+
+/**
+ * Export full trajectory table with MOA and MRAD scope adjustments as CSV.
+ * @param {object[]} results
+ * @param {Function} computeAdjustments
+ */
+export function exportCSV(results, computeAdjustments) {
+  if (!results.length) return;
+  const rows = ['Round,Range (m),Drop (cm),Velocity (m/s),Energy (J),Wind Drift (cm),Time (s),MOA,MRAD'];
+  results.forEach(r => {
+    r.points.forEach(p => {
+      const adj = computeAdjustments(p.dropCm, p.rangeMeters);
+      rows.push(`${csvCell(r.bullet.name)},${p.rangeMeters},${p.dropCm},${p.velocityMps},${p.energyJoules},${p.windDriftCm},${p.timeOfFlightSec},${adj.moa},${adj.mrad}`);
+    });
+  });
+  _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), 'trajectory.csv');
+}
+
+/**
+ * Export raw trajectory results as formatted JSON.
+ * @param {object[]} results
+ */
+export function exportJSON(results) {
+  if (!results.length) return;
+  _downloadBlob(
+    new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' }),
+    'trajectory.json',
+  );
+}
+
+/**
+ * Export trajectory results as Markdown tables.
+ * @param {object[]} results
+ * @param {{ computeAdjustments: Function, escapeHtml: Function }} deps
+ */
+export function exportMarkdown(results, { computeAdjustments, escapeHtml }) {
+  if (!results.length) return;
+  const lines = [];
+  results.forEach(r => {
+    lines.push(`## ${escapeHtml(r.bullet.name)}\n`);
+    lines.push('| Range (m) | Drop (cm) | Velocity (m/s) | Energy (J) | Wind Drift (cm) | MOA | MRAD |');
+    lines.push('|----------:|----------:|---------------:|-----------:|----------------:|----:|-----:|');
+    r.points.forEach(p => {
+      const adj = computeAdjustments(p.dropCm, p.rangeMeters);
+      lines.push(`| ${p.rangeMeters} | ${p.dropCm} | ${p.velocityMps} | ${p.energyJoules} | ${p.windDriftCm} | ${adj.moa} | ${adj.mrad} |`);
+    });
+    lines.push('');
+  });
+  _downloadBlob(new Blob([lines.join('\n')], { type: 'text/markdown' }), 'trajectory.md');
+}
+
+/**
+ * Download a chart canvas as a PNG image.
+ * @param {string} chartId
+ */
+export function exportPNG(chartId) {
+  const canvas = document.getElementById(chartId);
+  if (!canvas) return;
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = chartId + '.png';
+  a.click();
+}
+
+function _copyFiniteFields(src, fieldNames, labelPrefix) {
+  const out = {};
+  for (const field of fieldNames) {
+    if (src[field] !== undefined) {
+      if (!Number.isFinite(src[field])) {
+        return { error: `Import failed: ${labelPrefix}${field} must be a finite number.` };
+      }
+      out[field] = src[field];
+    }
+  }
+  return { fields: out };
+}
+
+function _sanitizeBullet(rawBullet, hexColorRe) {
+  if (typeof rawBullet !== 'object') {
+    return { error: 'Import failed: bullet must be an object.' };
+  }
+  if (typeof rawBullet.id !== 'string' || rawBullet.id.length > MAX_BULLET_STR_LEN) {
+    return { error: 'Import failed: bullet.id must be a string of at most 200 characters.' };
+  }
+  if (typeof rawBullet.name !== 'string' || rawBullet.name.length > MAX_BULLET_STR_LEN) {
+    return { error: 'Import failed: bullet.name must be a string of at most 200 characters.' };
+  }
+
+  const bullet = { id: rawBullet.id, name: rawBullet.name };
+  if (typeof rawBullet.hexColor === 'string' && hexColorRe.test(rawBullet.hexColor)) {
+    bullet.hexColor = rawBullet.hexColor;
+  }
+
+  const numeric = _copyFiniteFields(rawBullet, BULLET_NUMERIC_FIELDS, 'bullet.');
+  if (numeric.error) return { error: numeric.error };
+  Object.assign(bullet, numeric.fields);
+  return { bullet };
+}
+
+function _sanitizeResult(item, hexColorRe) {
+  if (!item || typeof item !== 'object' || !item.bullet || !item.points) {
+    return { error: 'Import failed: each result must have a "bullet" and "points" property.' };
+  }
+  if (!Array.isArray(item.points)) {
+    return { error: 'Import failed: each result "points" must be an array.' };
+  }
+  if (item.points.length > MAX_IMPORT_POINTS) {
+    return { error: 'Import failed: a result contains more than 2000 points.' };
+  }
+
+  const bulletRes = _sanitizeBullet(item.bullet, hexColorRe);
+  if (bulletRes.error) return { error: bulletRes.error };
+
+  const resultNumeric = _copyFiniteFields(item, RESULT_NUMERIC_FIELDS, '');
+  if (resultNumeric.error) return { error: resultNumeric.error };
+
+  const points = [];
+  for (const pt of item.points) {
+    if (!pt || typeof pt !== 'object') {
+      return { error: 'Import failed: each point must be an object.' };
+    }
+    const pointNumeric = _copyFiniteFields(pt, POINT_NUMERIC_FIELDS, 'point.');
+    if (pointNumeric.error) return { error: pointNumeric.error };
+    points.push(pointNumeric.fields);
+  }
+
+  return {
+    result: {
+      bullet: bulletRes.bullet,
+      points,
+      ...resultNumeric.fields,
+    },
+  };
+}
+
+function _validateImportedPayload(parsed, hexColorRe) {
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return { error: 'Import failed: JSON must be a non-empty array of trajectory results.' };
+  }
+  if (parsed.length > MAX_IMPORT_RESULTS) {
+    return { error: 'Import failed: file contains more than 10 results.' };
+  }
+
+  const sanitized = [];
+  for (const item of parsed) {
+    const res = _sanitizeResult(item, hexColorRe);
+    if (res.error) return { error: res.error };
+    sanitized.push(res.result);
+  }
+  return { results: sanitized };
+}
+
+/**
+ * Read, validate, and sanitize an imported JSON trajectory file, then invoke `onImported`.
+ * @param {File|null|undefined} file
+ * @param {{ hexColorRe: RegExp, setError: Function, onImported: Function }} deps
+ * @returns {Promise<void>}
+ */
+export function importResultsFromFile(file, { hexColorRe, setError, onImported }) {
+  if (!file) return Promise.resolve();
+  if (file.size > MAX_IMPORT_BYTES) {
+    setError('Import failed: file exceeds 5 MB limit.');
+    return Promise.resolve();
+  }
+
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        let parsed;
+        try {
+          parsed = JSON.parse(e.target.result);
+        } catch (_) {
+          setError('Import failed: file is not valid JSON.');
+          return;
+        }
+
+        const validated = _validateImportedPayload(parsed, hexColorRe);
+        if (validated.error) {
+          setError(validated.error);
+          return;
+        }
+
+        setError(null);
+        try {
+          await onImported(validated.results);
+        } catch (_) {
+          setError('Import failed: could not render the imported data.');
+        }
+      } finally {
+        resolve();
+      }
+    };
+    reader.onerror = () => {
+      setError('Import failed: could not read file.');
+      resolve();
+    };
+    reader.readAsText(file);
+  });
+}

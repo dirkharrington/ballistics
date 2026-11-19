@@ -14,6 +14,10 @@ global.console.warn = jest.fn();
 // ── Suppress jsdom's unimplemented HTMLCanvasElement.getContext ───────────────
 HTMLCanvasElement.prototype.getContext = jest.fn(() => ({}));
 
+async function flushMicrotasks(ticks = 6) {
+  for (let i = 0; i < ticks; i++) await Promise.resolve();
+}
+
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 function buildDOM() {
   document.body.innerHTML = `
@@ -291,29 +295,6 @@ describe('computeAdjustments', () => {
     const adj = mod.computeAdjustments(-30, 500);
     expect(adj.moa).toBe(Math.round(adj.moa * 10) / 10);
     expect(adj.mrad).toBe(Math.round(adj.mrad * 10) / 10);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// csvCell
-// ─────────────────────────────────────────────────────────────────────────────
-describe('csvCell', () => {
-  test('wraps value in double quotes', () => {
-    expect(mod.csvCell('hello')).toBe('"hello"');
-  });
-
-  test('doubles internal double quotes', () => {
-    expect(mod.csvCell('say "hi"')).toBe('"say ""hi"""');
-  });
-
-  test('prefixes formula-injection triggers with apostrophe', () => {
-    for (const prefix of ['=', '+', '-', '@']) {
-      expect(mod.csvCell(`${prefix}BAD`)).toMatch(/^"'/);
-    }
-  });
-
-  test('safe strings are not prefixed', () => {
-    expect(mod.csvCell('.308 Win')).toBe('".308 Win"');
   });
 });
 
@@ -633,9 +614,9 @@ describe('switchTab', () => {
     expect(tabData.classList.contains('active')).toBe(true);
   });
 
-  test('switching to tools activates toolsPanel', () => {
+  test('switching to tools activates toolsPanel', async () => {
     const el = document.getElementById('tab-tools');
-    mod.switchTab('tools', el);
+    await mod.switchTab('tools', el);
     expect(document.getElementById('toolsPanel').classList.contains('active')).toBe(true);
     expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(false);
     expect(document.getElementById('dataPanel').classList.contains('active')).toBe(false);
@@ -2164,20 +2145,20 @@ describe('exportCSV', () => {
     delete HTMLAnchorElement.prototype.click;
   });
 
-  test('returns early without creating a Blob when lastResults is empty', () => {
+  test('returns early without creating a Blob when lastResults is empty', async () => {
     mod._resetState();
-    mod.exportCSV();
+    await mod.exportCSV();
     expect(createObjectURL).not.toHaveBeenCalled();
   });
 
-  test('builds CSV rows and triggers download when results are present', () => {
+  test('builds CSV rows and triggers download when results are present', async () => {
     const bullet = mod.getMockBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
     mod._setLastResults([result]);
-    mod.exportCSV();
+    await mod.exportCSV();
 
     expect(global.Blob).toHaveBeenCalledTimes(1);
     const csvContent = global.Blob.mock.calls[0][0][0];
@@ -2188,34 +2169,6 @@ describe('exportCSV', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
     expect(anchorClick).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// _downloadBlob
-// ─────────────────────────────────────────────────────────────────────────────
-describe('_downloadBlob', () => {
-  let createObjectURL, revokeObjectURL, anchorClick;
-
-  beforeEach(() => {
-    createObjectURL = jest.fn(() => 'blob:mock-url');
-    revokeObjectURL = jest.fn();
-    global.URL.createObjectURL = createObjectURL;
-    global.URL.revokeObjectURL = revokeObjectURL;
-    anchorClick = jest.fn();
-    HTMLAnchorElement.prototype.click = anchorClick;
-  });
-
-  afterEach(() => {
-    delete HTMLAnchorElement.prototype.click;
-  });
-
-  test('creates an anchor with the given filename and revokes the URL after click', () => {
-    const blob = new Blob(['test'], { type: 'text/plain' });
-    mod._downloadBlob(blob, 'test.txt');
-    expect(createObjectURL).toHaveBeenCalledWith(blob);
-    expect(anchorClick).toHaveBeenCalledTimes(1);
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
   });
 });
 
@@ -2239,20 +2192,20 @@ describe('exportJSON', () => {
     delete HTMLAnchorElement.prototype.click;
   });
 
-  test('returns early without creating a Blob when lastResults is empty', () => {
+  test('returns early without creating a Blob when lastResults is empty', async () => {
     mod._resetState();
-    mod.exportJSON();
+    await mod.exportJSON();
     expect(createObjectURL).not.toHaveBeenCalled();
   });
 
-  test('creates a JSON blob with all result data and triggers download', () => {
+  test('creates a JSON blob with all result data and triggers download', async () => {
     const bullet = mod.getMockBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
     mod._setLastResults([result]);
-    mod.exportJSON();
+    await mod.exportJSON();
 
     expect(global.Blob).toHaveBeenCalledTimes(1);
     const jsonContent = global.Blob.mock.calls[0][0][0];
@@ -2360,19 +2313,19 @@ describe('importResultsFromFile', () => {
     expect(errorEl.textContent).toMatch(/bullet.*points/i);
   });
 
-  test('returns early without reading when file is falsy', () => {
+  test('returns early without reading when file is falsy', async () => {
     const FileReaderSpy = jest.fn();
     global.FileReader = FileReaderSpy;
-    mod.importResultsFromFile(null);
+    await mod.importResultsFromFile(null);
     expect(FileReaderSpy).not.toHaveBeenCalled();
   });
 
   // ── Security: file size limit ──────────────────────────────────────────────
-  test('rejects file larger than 5 MB without reading', () => {
+  test('rejects file larger than 5 MB without reading', async () => {
     const FileReaderSpy = jest.fn();
     global.FileReader = FileReaderSpy;
     const bigFile = { size: 6 * 1024 * 1024 };
-    mod.importResultsFromFile(bigFile);
+    await mod.importResultsFromFile(bigFile);
     expect(FileReaderSpy).not.toHaveBeenCalled();
     const errorEl = document.getElementById('simulationError');
     expect(errorEl.hasAttribute('hidden')).toBe(false);
@@ -2697,6 +2650,7 @@ describe('importJsonBtn / importJsonFile wiring', () => {
     const fileInput = document.getElementById('importJsonFile');
     Object.defineProperty(fileInput, 'files', { value: [new File([json], 'trajectory.json')], configurable: true });
     fileInput.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
 
     expect(document.getElementById('resultsContainer').style.display).not.toBe('none');
   });
@@ -2722,20 +2676,20 @@ describe('exportMarkdown', () => {
     delete HTMLAnchorElement.prototype.click;
   });
 
-  test('returns early without creating a Blob when lastResults is empty', () => {
+  test('returns early without creating a Blob when lastResults is empty', async () => {
     mod._resetState();
-    mod.exportMarkdown();
+    await mod.exportMarkdown();
     expect(createObjectURL).not.toHaveBeenCalled();
   });
 
-  test('creates Markdown with table headers and bullet name heading', () => {
+  test('creates Markdown with table headers and bullet name heading', async () => {
     const bullet = mod.getMockBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
     });
     mod._setLastResults([result]);
-    mod.exportMarkdown();
+    await mod.exportMarkdown();
 
     expect(global.Blob).toHaveBeenCalledTimes(1);
     const md = global.Blob.mock.calls[0][0][0];
@@ -2799,18 +2753,18 @@ describe('exportPNG', () => {
     delete HTMLAnchorElement.prototype.click;
   });
 
-  test('returns early when the canvas element is not in the DOM', () => {
-    mod.exportPNG('chart-does-not-exist');
+  test('returns early when the canvas element is not in the DOM', async () => {
+    await mod.exportPNG('chart-does-not-exist');
     expect(toDataURL).not.toHaveBeenCalled();
     expect(anchorClick).not.toHaveBeenCalled();
   });
 
-  test('calls toDataURL and triggers download when canvas exists', () => {
+  test('calls toDataURL and triggers download when canvas exists', async () => {
     const canvas = document.createElement('canvas');
     canvas.id = 'test-chart-png';
     document.body.appendChild(canvas);
 
-    mod.exportPNG('test-chart-png');
+    await mod.exportPNG('test-chart-png');
 
     expect(toDataURL).toHaveBeenCalledWith('image/png');
     expect(anchorClick).toHaveBeenCalledTimes(1);
@@ -2933,6 +2887,7 @@ describe('dragTableFile change event — FileReader paths', () => {
       get: () => [{ name: fileName }],
     });
     fileInput.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
 
     // Invoke the onload callback with the CSV text
     capturedOnload({ target: { result: csvText } });
@@ -3028,6 +2983,7 @@ describe('dragTableFile change event — FileReader paths', () => {
       get: () => [{ name: 'err.csv', size: 100 }],
     });
     fileInput.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
     capturedOnerror();
 
     expect(document.getElementById('dragTableHelp').textContent).toMatch(/error reading file/i);
@@ -3219,6 +3175,7 @@ describe('export button click handler', () => {
     const btn = document.querySelector('.export-btn');
     expect(btn).not.toBeNull();
     btn.click();
+    await flushMicrotasks();
 
     // exportPNG looks up the canvas by the chart id stored in data-chart-id
     expect(toDataURL).toHaveBeenCalledWith('image/png');
@@ -3412,6 +3369,7 @@ describe('tab click listeners wired by init()', () => {
     global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
     await mod.init();
     document.getElementById('tab-tools').click();
+    await flushMicrotasks();
     expect(document.getElementById('toolsPanel').classList.contains('active')).toBe(true);
     expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(false);
   });
@@ -4808,7 +4766,7 @@ describe('MH-3: renderResults calls renderDopeCard', () => {
       maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
     };
     await mod.renderResults([result], { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.switchTab('tools', document.getElementById('tab-tools'));
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
     const html = document.getElementById('dopeTable').innerHTML;
     // dopeTable should have content (thead + tbody)
     expect(html).toContain('<thead>');
@@ -5300,6 +5258,8 @@ describe('MH-1: adjustment chart callbacks', () => {
       const btn = document.querySelector('[data-chart-id="adjustChart"]');
       expect(btn).not.toBeNull();
       btn.click();
+      await flushMicrotasks();
+      expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledWith('image/png');
     } finally {
       delete HTMLCanvasElement.prototype.toDataURL;
     }
@@ -5347,6 +5307,8 @@ describe('MH-4: sweep export button', () => {
       const btn = document.querySelector('.export-btn');
       expect(btn).not.toBeNull();
       btn.click();
+      await flushMicrotasks();
+      expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledWith('image/png');
     } finally {
       delete HTMLCanvasElement.prototype.toDataURL;
     }
@@ -5373,13 +5335,13 @@ describe('exportTrajectoryCSV', () => {
     delete HTMLAnchorElement.prototype.click;
   });
 
-  test('returns early without creating a Blob when lastResults is empty', () => {
+  test('returns early without creating a Blob when lastResults is empty', async () => {
     mod._resetState();
-    mod.exportTrajectoryCSV();
+    await mod.exportTrajectoryCSV();
     expect(createObjectURL).not.toHaveBeenCalled();
   });
 
-  test('single bullet: produces correct CSV header', () => {
+  test('single bullet: produces correct CSV header', async () => {
     const result = {
       bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
       points: [
@@ -5388,13 +5350,13 @@ describe('exportTrajectoryCSV', () => {
       ],
     };
     mod._setLastResults([result]);
-    mod.exportTrajectoryCSV();
+    await mod.exportTrajectoryCSV();
 
     const csv = global.Blob.mock.calls[0][0][0];
     expect(csv).toContain('Distance (m),Velocity (m/s),Energy (J),Drop (m),Bullet');
   });
 
-  test('single bullet: produces correct data rows with Drop converted from cm to m', () => {
+  test('single bullet: produces correct data rows with Drop converted from cm to m', async () => {
     const result = {
       bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
       points: [
@@ -5403,7 +5365,7 @@ describe('exportTrajectoryCSV', () => {
       ],
     };
     mod._setLastResults([result]);
-    mod.exportTrajectoryCSV();
+    await mod.exportTrajectoryCSV();
 
     const csv = global.Blob.mock.calls[0][0][0];
     // dropCm -3.5 → -0.035 m
@@ -5414,7 +5376,7 @@ describe('exportTrajectoryCSV', () => {
     expect(anchorClick).toHaveBeenCalledTimes(1);
   });
 
-  test('two bullets in compare mode: rows present for both, distinguished by Bullet column', () => {
+  test('two bullets in compare mode: rows present for both, distinguished by Bullet column', async () => {
     const results = [
       {
         bullet: { id: '308-win-168gr', name: '.308 Win' },
@@ -5426,7 +5388,7 @@ describe('exportTrajectoryCSV', () => {
       },
     ];
     mod._setLastResults(results);
-    mod.exportTrajectoryCSV();
+    await mod.exportTrajectoryCSV();
 
     const csv = global.Blob.mock.calls[0][0][0];
     expect(csv).toContain('".308 Win"');
@@ -5436,49 +5398,49 @@ describe('exportTrajectoryCSV', () => {
     expect(lines.length).toBe(3);
   });
 
-  test('bullet name containing a comma is wrapped in double-quotes (RFC 4180)', () => {
+  test('bullet name containing a comma is wrapped in double-quotes (RFC 4180)', async () => {
     const result = {
       bullet: { id: 'custom', name: 'Sierra, 168gr' },
       points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
     };
     mod._setLastResults([result]);
-    mod.exportTrajectoryCSV();
+    await mod.exportTrajectoryCSV();
 
     const csv = global.Blob.mock.calls[0][0][0];
     expect(csv).toContain('"Sierra, 168gr"');
   });
 
-  test('bullet name containing double-quotes has them doubled (RFC 4180)', () => {
+  test('bullet name containing double-quotes has them doubled (RFC 4180)', async () => {
     const result = {
       bullet: { id: 'custom', name: 'Match "King" 168gr' },
       points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
     };
     mod._setLastResults([result]);
-    mod.exportTrajectoryCSV();
+    await mod.exportTrajectoryCSV();
 
     const csv = global.Blob.mock.calls[0][0][0];
     expect(csv).toContain('"Match ""King"" 168gr"');
   });
 
-  test('Blob is created with text/csv MIME type', () => {
+  test('Blob is created with text/csv MIME type', async () => {
     const result = {
       bullet: { id: '308-win-168gr', name: '.308 Win' },
       points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
     };
     mod._setLastResults([result]);
-    mod.exportTrajectoryCSV();
+    await mod.exportTrajectoryCSV();
 
     const blobArgs = global.Blob.mock.calls[0];
     expect(blobArgs[1]).toEqual({ type: 'text/csv' });
   });
 
-  test('formula-injection trigger in bullet name is prefixed with apostrophe', () => {
+  test('formula-injection trigger in bullet name is prefixed with apostrophe', async () => {
     const result = {
       bullet: { id: 'custom', name: '=HYPERLINK("x")' },
       points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
     };
     mod._setLastResults([result]);
-    mod.exportTrajectoryCSV();
+    await mod.exportTrajectoryCSV();
 
     const csv = global.Blob.mock.calls[0][0][0];
     expect(csv).toContain('"\'=HYPERLINK(""x"")"');
@@ -5524,15 +5486,16 @@ describe('exportCsvBtn click listener via init', () => {
     delete HTMLAnchorElement.prototype.click;
   });
 
-  test('clicking exportCsvBtn triggers exportTrajectoryCSV when lastResults are set', () => {
+  test('clicking exportCsvBtn triggers exportTrajectoryCSV when lastResults are set', async () => {
     const result = {
       bullet: { id: '308-win-168gr', name: '.308 Win' },
       points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
     };
     mod._setLastResults([result]);
-    mod.init();
+    await mod.init();
 
     document.getElementById('exportCsvBtn').dispatchEvent(new MouseEvent('click'));
+    await flushMicrotasks();
 
     expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
@@ -6150,17 +6113,22 @@ describe('PERF-22: Lazy hidden-tab table/DOPE rendering, cached sort rows & chun
     expect(document.getElementById('dopeTable').innerHTML).toBe('');
 
     // Activate Data Table tab → flushes renderTable once
-    mod.switchTab('data', document.getElementById('tab-data'));
+    await mod.switchTab('data', document.getElementById('tab-data'));
     expect(document.querySelectorAll('#tableBody tr')).toHaveLength(3);
 
     // Switching away and back does NOT re-render when clean
     document.getElementById('tableBody').innerHTML = '<tr id="sentinel"></tr>';
-    mod.switchTab('charts', document.getElementById('tab-charts'));
-    mod.switchTab('data', document.getElementById('tab-data'));
+    await mod.switchTab('charts', document.getElementById('tab-charts'));
+    await mod.switchTab('data', document.getElementById('tab-data'));
     expect(document.getElementById('sentinel')).not.toBeNull();
 
     // Activate Tools tab → flushes renderDopeCard once
-    mod.switchTab('tools', document.getElementById('tab-tools'));
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    expect(document.getElementById('dopeTable').innerHTML).toContain('.308 Win');
+
+    // Switching away and back to Tools tab does NOT re-initialize or fail when clean
+    await mod.switchTab('charts', document.getElementById('tab-charts'));
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
     expect(document.getElementById('dopeTable').innerHTML).toContain('.308 Win');
   });
 
@@ -6434,5 +6402,148 @@ describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSw
     mod._resetState(); // aborts sweep controller
     sweepResolvers.forEach(r => r({ bullet: mod.getMockBullets()[0], request: {}, points: [] }));
     await ps1;
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERF-28: Lazy-loaded io.js, tools.js, and drag-csv.js chunks
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-28: lazy loading & retry on failed chunk import', () => {
+  test('init() defers Tools initialization until tools tab activates, then initializes once', async () => {
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    await mod.init();
+    expect(document.getElementById('dopeDistanceRow').innerHTML).toBe('');
+
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    expect(document.getElementById('dopeDistanceRow').querySelectorAll('input').length).toBeGreaterThan(0);
+
+    // Calling switchTab('tools') again does not wipe or re-init user edits
+    document.getElementById('dopeDistanceRow').innerHTML = '<div id="toolsSentinel"></div>';
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    expect(document.getElementById('toolsSentinel')).not.toBeNull();
+  });
+
+  test('_loadIo rejects cleanly, displays error banner, and retries on next call', async () => {
+    let fail = true;
+    let isoMod;
+    document.body.innerHTML = '';
+    jest.isolateModules(() => {
+      jest.doMock('../app/physics/engine-async.ts', () => ({
+        simulateAsync: jest.fn(),
+        solveBCAsync: jest.fn(),
+        prewarmPhysicsWorker: jest.fn(),
+      }));
+      jest.doMock('../app/io.js', () => {
+        if (fail) throw new Error('io chunk offline');
+        return jest.requireActual('../app/io.js');
+      });
+      isoMod = require('../app/ballistics.js');
+    });
+    buildDOM();
+    isoMod._resetState();
+
+    await isoMod.exportCSV();
+    expect(document.getElementById('simulationError').textContent).toContain("Couldn't load export/import tools");
+
+    fail = false;
+    await expect(isoMod._loadIo()).resolves.toBeDefined();
+    // Memoized second call returns same module promise
+    await expect(isoMod._loadIo()).resolves.toBeDefined();
+  });
+
+  test('_loadTools evicts failed promise and retries cleanly in switchTab and renderResults', async () => {
+    let fail = true;
+    let initCalls = 0;
+    let isoMod;
+    document.body.innerHTML = '';
+    jest.isolateModules(() => {
+      jest.doMock('../app/physics/engine-async.ts', () => ({
+        simulateAsync: jest.fn(),
+        solveBCAsync: jest.fn(),
+        prewarmPhysicsWorker: jest.fn(),
+      }));
+      jest.doMock('../app/tools.js', () => {
+        if (fail) throw new Error('tools chunk offline');
+        const actual = jest.requireActual('../app/tools.js');
+        return {
+          ...actual,
+          initTools: (...args) => { initCalls++; return actual.initTools(...args); },
+        };
+      });
+      isoMod = require('../app/ballistics.js');
+    });
+    buildDOM();
+    isoMod._resetState();
+
+    const sampleRes = [{
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: 100, dropCm: -4, velocityMps: 760, energyJoules: 3150, windDriftCm: 2, timeOfFlightSec: 0.13 },
+      ],
+      maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
+    }];
+
+    // Render while on Charts tab (sets _dopeDirty = true)
+    await isoMod.renderResults(sampleRes, { zeroRangeMeters: 100, windSpeedKph: 0 });
+
+    // First switch to Tools fails -> error banner shown, _toolsInitialized stays false
+    await isoMod.switchTab('tools', document.getElementById('tab-tools'));
+    expect(document.getElementById('simulationError').textContent).toContain("Couldn't load the tools module");
+    expect(initCalls).toBe(0);
+
+    // renderResults while #toolsPanel is active also catches tools load error gracefully
+    await isoMod.renderResults(sampleRes, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(document.getElementById('simulationError').textContent).toContain("Couldn't load the tools module");
+
+    // Retry succeeds: initializes Tools once and flushes dirty DOPE table
+    fail = false;
+    await isoMod.switchTab('tools', document.getElementById('tab-tools'));
+    expect(initCalls).toBe(1);
+    expect(document.getElementById('dopeTable').innerHTML).toContain('.308 Win');
+
+    // Second switch does not re-init
+    await isoMod.switchTab('tools', document.getElementById('tab-tools'));
+    expect(initCalls).toBe(1);
+  });
+
+  test('_loadDragCsv evicts failed promise, reports on #dragTableHelp, and retries cleanly', async () => {
+    let fail = true;
+    let isoMod;
+    document.body.innerHTML = '';
+    jest.isolateModules(() => {
+      jest.doMock('../app/physics/engine-async.ts', () => ({
+        simulateAsync: jest.fn(),
+        solveBCAsync: jest.fn(),
+        prewarmPhysicsWorker: jest.fn(),
+      }));
+      jest.doMock('../app/drag-csv.js', () => {
+        if (fail) throw new Error('drag-csv chunk offline');
+        return jest.requireActual('../app/drag-csv.js');
+      });
+      isoMod = require('../app/ballistics.js');
+    });
+    buildDOM();
+    isoMod._resetState();
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', result: isoMod.getMockBullets(), id: 1 }),
+    });
+    await isoMod.init();
+
+    const fileInput = document.getElementById('dragTableFile');
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      get: () => [{ name: 'test.csv', size: 32 }],
+    });
+
+    fileInput.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    expect(document.getElementById('dragTableHelp').textContent).toContain("Couldn't load CSV parser");
+
+    fail = false;
+    await expect(isoMod._loadDragCsv()).resolves.toHaveProperty('parseDragCsv');
   });
 });
