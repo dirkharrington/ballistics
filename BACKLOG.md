@@ -2060,7 +2060,7 @@ Four build-output and build-speed inefficiencies remain in `vite.config.js`:
 
 ---
 
-### PERF-35 · Eliminate duplicate `npm ci` + `npm run build` in CI GitHub Pages deploy pipeline · DevSecOps / CI · Size XS
+### ~~PERF-35 · Eliminate duplicate `npm ci` + `npm run build` in CI GitHub Pages deploy pipeline · DevSecOps / CI · Size XS~~ ✅ Done
 
 On every push to `main`, `.github/workflows/ci.yml:188-228` runs `pages-build` (`needs: [frontend-build]`), which boots a brand-new `ubuntu-24.04` runner and repeats `actions/checkout`, `actions/setup-node`, `~/.npm` cache restore, `npm ci`, and `npm run build` solely to upload `dist/` via `actions/upload-pages-artifact` — even though `frontend-build` (which has the exact same unprivileged `contents: read` permissions) just completed `npm run build` and `npm test -- --ci` seconds earlier.
 
