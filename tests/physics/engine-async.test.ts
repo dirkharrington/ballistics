@@ -1,4 +1,4 @@
-import { simulateAsync, _resetForTest, prewarmPhysicsWorker } from '../../app/physics/engine-async.ts';
+import { simulateAsync, solveBCAsync, _resetForTest, prewarmPhysicsWorker } from '../../app/physics/engine-async.ts';
 import { TrajectoryInputError } from '../../app/physics/engine.ts';
 import { createPhysicsWorker } from '../../app/physics/create-physics-worker.ts';
 
@@ -162,5 +162,24 @@ describe('pagehide teardown', () => {
     const fakeResult = { bullet, request: params, points: [], maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0 };
     newWorkerInst._emit({ id, result: fakeResult });
     await expect(promise2).resolves.toEqual(fakeResult);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-17: solveBCAsync', () => {
+  test('sends a single solveBC worker message and resolves with numeric BC or null', async () => {
+    const bcParams = { weightG: 10.89, mvMps: 807, measuredDropCm: -150, rangeM: 500, altM: 0, tempC: 15 };
+    const promise = solveBCAsync(bcParams);
+    expect(workerInst.postMessage).toHaveBeenCalledTimes(1);
+    const msg = workerInst.postMessage.mock.calls[0][0] as { type: string; id: number; bcParams: unknown };
+    expect(msg.type).toBe('solveBC');
+    expect(msg.bcParams).toBe(bcParams);
+    workerInst._emit({ id: msg.id, bc: 0.4752 });
+    await expect(promise).resolves.toBe(0.4752);
+
+    const promiseNull = solveBCAsync(bcParams);
+    const msg2 = workerInst.postMessage.mock.calls[1][0] as { id: number };
+    workerInst._emit({ id: msg2.id, bc: null });
+    await expect(promiseNull).resolves.toBeNull();
   });
 });

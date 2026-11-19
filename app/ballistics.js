@@ -4,7 +4,7 @@ import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { initDopeCard, renderDopeCard, initBcSolver } from './tools.js';
 import { TrajectoryInputError } from './physics/errors.ts';
-import { simulateAsync, prewarmPhysicsWorker } from './physics/engine-async.ts';
+import { simulateAsync, solveBCAsync, prewarmPhysicsWorker } from './physics/engine-async.ts';
 import {
   loadCustomBullets, saveCustomBullets, mergeCatalog, isCustomBulletId,
   renderCustomBulletGroup, syncCustomDeleteGuards, upsertCustomBullet,
@@ -1895,9 +1895,9 @@ function init() {
   document.getElementById('latitudeDeg')?.addEventListener('input', _persistInputs, { signal });
   document.getElementById('azimuthDeg')?.addEventListener('input', _persistInputs, { signal });
 
-  // MH-3, SH-2: Tools tab
+  // MH-3, SH-2, PERF-17: Tools tab
   initDopeCard(simulateAsync);
-  initBcSolver(simulateAsync);
+  initBcSolver(simulateAsync, solveBCAsync);
 
   // WA-12: Load custom drag table from localStorage on startup
   try {

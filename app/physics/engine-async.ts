@@ -1,6 +1,6 @@
 import { createPhysicsWorker } from './create-physics-worker.ts';
 import { TrajectoryInputError } from './errors.ts';
-import type { Bullet, TrajectoryParams, TrajectoryResult } from './types.ts';
+import type { Bullet, TrajectoryParams, TrajectoryResult, SolveBCParams } from './types.ts';
 
 interface WorkerRequest {
   id: number;
@@ -8,9 +8,20 @@ interface WorkerRequest {
   params: TrajectoryParams;
 }
 
+interface WorkerSolveBCRequest {
+  type: 'solveBC';
+  id: number;
+  bcParams: SolveBCParams;
+}
+
 interface WorkerSuccessResponse {
   id: number;
   result: TrajectoryResult;
+}
+
+interface WorkerSolveBCResponse {
+  id: number;
+  bc: number | null;
 }
 
 interface WorkerErrorResponse {
@@ -22,14 +33,16 @@ interface WorkerErrorResponse {
   };
 }
 
+type WorkerResponse = WorkerSuccessResponse | WorkerSolveBCResponse | WorkerErrorResponse;
+
 let _worker: Worker | null = null;
 let _nextId = 1;
-const _pending = new Map<number, { resolve: (r: TrajectoryResult) => void; reject: (e: unknown) => void }>();
+const _pending = new Map<number, { resolve: (r: any) => void; reject: (e: unknown) => void }>();
 
 function _getWorker(): Worker {
   if (!_worker) {
     _worker = createPhysicsWorker();
-    _worker.addEventListener('message', (evt: MessageEvent<WorkerSuccessResponse | WorkerErrorResponse>) => {
+    _worker.addEventListener('message', (evt: MessageEvent<WorkerResponse>) => {
       const { id } = evt.data;
       const pending = _pending.get(id);
       if (!pending) return;
@@ -38,6 +51,8 @@ function _getWorker(): Worker {
         const e = new TrajectoryInputError(evt.data.error.field, '');
         Object.defineProperty(e, 'message', { value: evt.data.error.message });
         pending.reject(e);
+      } else if ('bc' in evt.data) {
+        pending.resolve(evt.data.bc);
       } else {
         pending.resolve(evt.data.result);
       }
@@ -58,6 +73,17 @@ export function simulateAsync(bullet: Bullet, params: TrajectoryParams): Promise
     const id = _nextId++;
     _pending.set(id, { resolve, reject });
     _getWorker().postMessage({ id, bullet, params } satisfies WorkerRequest);
+  });
+}
+
+/**
+ * Run the G1 BC back-calculator inside the physics worker in a single round-trip (PERF-17).
+ */
+export function solveBCAsync(bcParams: SolveBCParams): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    const id = _nextId++;
+    _pending.set(id, { resolve, reject });
+    _getWorker().postMessage({ type: 'solveBC', id, bcParams } satisfies WorkerSolveBCRequest);
   });
 }
 
