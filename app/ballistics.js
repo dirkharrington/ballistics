@@ -966,25 +966,13 @@ function renderStatCards(results, container) {
  * Build a Chart.js config for one trajectory chart panel.
  *
  * @param {{ id: string, title: string, subtitle: string, yLabel: string,
- *           key: string, refLine?: { value: number, label: string, color: string } }} def
- *   Chart panel definition (id, axis labels, optional reference line).
+ *           key: string, annotations?: Array<object> }} def
+ *   Chart panel definition (id, axis labels, optional annotation overlays).
  * @param {object[]} datasets  Pre-built Chart.js dataset array.
  * @param {object[]} results   Simulation results used by hover/click callbacks.
  * @returns {object} Chart.js config ready for `new Chart(ctx, config)`.
  */
 function buildChartConfig(def, datasets, results) {
-  const annotations = {};
-  if (def.refLine) {
-    annotations.refLine = {
-      type: 'line', yMin: def.refLine.value, yMax: def.refLine.value,
-      borderColor: def.refLine.color, borderWidth: 1, borderDash: [4, 4],
-      label: {
-        content: def.refLine.label, enabled: true, position: 'start',
-        backgroundColor: 'transparent', color: def.refLine.color,
-        font: { family: 'Share Tech Mono', size: 9 }
-      }
-    };
-  }
   const getResults = () => _chartMeta[def.id]?.results ?? results;
   return {
     type: 'line',
@@ -1175,8 +1163,7 @@ async function renderResults(rawResults, req) {
 
   const chartDefs = [
     { id: 'dropChart',     title: 'BULLET DROP',         subtitle: `zeroed at ${req.zeroRangeMeters} m`, yLabel: 'Drop (cm)',       key: 'dropCm',       annotations: [...dropAnns] },
-    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: 'm/s downrange',                      yLabel: 'Velocity (m/s)', key: 'velocityMps',  annotations: [...sonicAnn],
-      refLine: { value: 343, label: 'Transonic', color: 'rgba(255,100,0,0.4)' } },
+    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: 'm/s downrange',                      yLabel: 'Velocity (m/s)', key: 'velocityMps',  annotations: [...sonicAnn] },
     { id: 'energyChart',   title: 'KINETIC ENERGY',      subtitle: 'joules downrange',                   yLabel: 'Energy (J)',      key: 'energyJoules', annotations: [...sonicAnn] },
     { id: 'windChart',     title: 'WIND DRIFT',           subtitle: windChartSubtitle(req), yLabel: 'Drift (cm)',     key: 'windDriftCm',  annotations: [...sonicAnn] }
   ];

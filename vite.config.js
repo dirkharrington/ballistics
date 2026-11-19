@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
+import { projectBulletCatalog } from './catalog-projection.cjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -55,7 +56,7 @@ function bulletCatalogPlugin() {
         const raw = readFileSync(
           resolve(__dirname, 'app/data/bullets.yaml'), 'utf-8')
         const data = yaml.load(raw)
-        return `export default ${JSON.stringify(data.app.bullets)};`
+        return `export default ${JSON.stringify(projectBulletCatalog(data.app.bullets))};`
       }
     }
   }

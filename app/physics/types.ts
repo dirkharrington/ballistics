@@ -14,17 +14,17 @@ export interface DragPoint {
   readonly cd: number;   // [0.001, 2]
 }
 
-/** A projectile. Catalog entries (bullets.yaml → virtual:bullet-catalog) always include every field. */
+/** A projectile. Catalog entries (bullets.yaml → virtual:bullet-catalog) omit prose fields (caliber, description). */
 export interface Bullet {
   readonly id: string;                   // kebab-case catalog id, or 'custom' / 'bc-solve'
   readonly name: string;
-  readonly caliber: string;
+  readonly caliber?: string;             // optional; set to 'Custom' on custom / bc-solve bullets, omitted from catalog
   readonly bulletWeightGrams: number;    // engine input; > 0
   readonly muzzleVelocityMps: number;    // engine input; > 0
   readonly ballisticCoefficient: number; // engine input; > 0 (G1- or G7-referenced, matching dragModel)
   readonly bulletDiameterMm: number;     // engine input when twistRateInchesPerTurn is set; [1, 30]
   readonly muzzleEnergyJoules: number;   // not read by the engine
-  readonly description?: string;         // catalog only; absent on custom / bc-solve bullets
+  readonly description?: string;         // optional; omitted from virtual:bullet-catalog and custom bullets
   readonly hexColor?: string;            // catalog only; '#RRGGBB'
 }
 

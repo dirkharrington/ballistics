@@ -845,12 +845,6 @@ describe('buildChartConfig', () => {
     maxOrdinateCm: 8.1, maxOrdinateRangeMeters: 68, supersonicLimitMeters: 823
   }];
 
-  const velocityDef = {
-    id: 'velocityChart', title: 'VELOCITY RETENTION', subtitle: 'm/s downrange',
-    yLabel: 'Velocity (m/s)', key: 'velocityMps',
-    refLine: { value: 343, label: 'Transonic', color: 'rgba(255,100,0,0.4)' }
-  };
-
   const dropDef = {
     id: 'dropChart', title: 'BULLET DROP', subtitle: 'zeroed at 100 m',
     yLabel: 'Drop (cm)', key: 'dropCm'
@@ -876,27 +870,6 @@ describe('buildChartConfig', () => {
   test('uses def.yLabel for y-axis title', () => {
     const config = mod.buildChartConfig(dropDef, datasets, sampleResults);
     expect(config.options.scales.y.title.text).toBe('Drop (cm)');
-  });
-
-  test('injects refLine annotation when def.refLine is present (velocityChart)', () => {
-    const config = mod.buildChartConfig(velocityDef, datasets, sampleResults);
-    // annotations are nested inside options.plugins in Chart.js annotation plugin,
-    // but here we verify the config is deterministic — the annotation object exists
-    // by checking the returned config has non-empty plugins options block
-    expect(config.options.plugins).toBeDefined();
-    // The annotations key lives at options level when annotation plugin is used.
-    // Since the annotation plugin is not mocked here we verify indirectly: the
-    // refLine branch ran without error and the config type is still 'line'.
-    expect(config.type).toBe('line');
-  });
-
-  test('no annotation key is set when def.refLine is absent (dropChart)', () => {
-    const config = mod.buildChartConfig(dropDef, datasets, sampleResults);
-    // Without refLine the annotations object should be empty (no keys)
-    // The function builds annotations locally; absence of refLine → {} annotations
-    // We verify via a second call with refLine that the two configs differ
-    const configWithRef = mod.buildChartConfig(velocityDef, datasets, sampleResults);
-    expect(JSON.stringify(config)).not.toBe(JSON.stringify(configWithRef));
   });
 
   test('onHover callback is a function', () => {
@@ -962,14 +935,6 @@ describe('renderResults', () => {
     mod.switchTab('data', document.getElementById('tab-data'));
     const rows = document.querySelectorAll('#tableBody tr');
     expect(rows.length).toBe(3);
-  });
-
-  test('handles refLine present (velocityChart)', async () => {
-    // The velocity chart def has refLine — this covers the if(def.refLine) branch
-    await mod.renderResults(results, req);
-    const calls = MockChart.mock.calls;
-    const velocityCall = calls.find(args => args[1]?.type === 'line');
-    expect(velocityCall).toBeDefined();
   });
 
   test('handles result with bullet having unknown color ID (fallback)', async () => {
