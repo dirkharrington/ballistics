@@ -159,6 +159,14 @@ let lastReq      = null;
 // Input persistence cache & debouncer (PERF-23)
 let _lastSavedPrefs = new Map();
 const _persistInputs = debounce(() => { savePrefs(); syncUrl(); }, 200);
+// Stale-run cancellation controller (PERF-18)
+let _simAbortController = null;
+
+function _nextSimSignal() {
+  if (_simAbortController) _simAbortController.abort();
+  _simAbortController = new AbortController();
+  return _simAbortController.signal;
+}
 
 // ── Custom drag table helpers ─────────────────────────────────────────────────
 function _updateDragTableStatus(fileName, rowCount) {
@@ -195,11 +203,12 @@ function getMockBullets() {
 
 
 // ── Compute trajectories client-side for all selected bullet IDs ──────────────
-async function computeClientSide(req) {
+async function computeClientSide(req, signal) {
   const promises = req.bulletIds.map(id => {
     const bullet = bullets.find(b => b.id === id);
     if (!bullet) return null;
-    return simulateAsync(bulletForDragModel(bullet, req.dragModel), req);
+    const resolved = bulletForDragModel(bullet, req.dragModel);
+    return signal ? simulateAsync(resolved, req, { signal }) : simulateAsync(resolved, req);
   });
   const results = await Promise.all(promises.filter(Boolean));
   return results;
@@ -353,9 +362,12 @@ async function runSimulation() {
   };
   lastReq = req;
 
+  const signal = _nextSimSignal();
   try {
-    const results = await computeClientSide(req);
+    const results = await computeClientSide(req, signal);
+    if (signal.aborted) return;
     requestAnimationFrame(() => {
+      if (signal.aborted) return;
       renderResults(results, req);
       lastResults = results;
       updateSweepButtonVisibility();
@@ -367,6 +379,7 @@ async function runSimulation() {
       _setSimStatus(`Trajectories ready. ${results.length} result${results.length === 1 ? '' : 's'} computed.`);
     });
   } catch (err) {
+    if (err?.name === 'AbortError') return;
     btn.classList.remove('loading');
     btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
     if (err instanceof TrajectoryInputError) {
@@ -658,15 +671,18 @@ async function runCustom() {
     ballisticCoefficient: bc, bulletDiameterMm: dia,
     muzzleEnergyJoules: Math.round(0.5 * (weight / 1000) * mv * mv),
   };
+  const signal = _nextSimSignal();
   let result;
   try {
-    result = await simulateAsync(bullet, req);
+    result = await simulateAsync(bullet, req, { signal });
   } catch (err) {
+    if (err?.name === 'AbortError') return;
     if (err instanceof TrajectoryInputError) {
       return showCustomError(err.message);
     }
     throw err;
   }
+  if (signal.aborted) return;
   lastResults = [result];
   lastReq = req;
   renderResults([result], req);
@@ -1508,15 +1524,18 @@ async function runSweep() {
   if (!bullet) { if (btn) btn.querySelector('span').textContent = 'SWEEP'; return; }
 
   _warmChart();
+  const signal = _nextSimSignal();
   let results;
   try {
-    results = await Promise.all(requests.map(r => simulateAsync(bulletForDragModel(bullet, r.dragModel), r)));
+    results = await Promise.all(requests.map(r => simulateAsync(bulletForDragModel(bullet, r.dragModel), r, { signal })));
   } catch (err) {
+    if (err?.name === 'AbortError') return;
     if (btn) btn.querySelector('span').textContent = 'SWEEP';
     /* istanbul ignore else -- simulate only throws TrajectoryInputError */
     if (err instanceof TrajectoryInputError) console.warn('[sweep]', err.message);
     return;
   }
+  if (signal.aborted) return;
 
   sweepResults = results;
   sweepMode    = true;
@@ -2379,6 +2398,7 @@ function _resetState()   {
   editingCustomId = null; pendingDeleteId = null;
   _chartModPromise = null;
   _lastSavedPrefs = new Map();
+  if (_simAbortController) { _simAbortController.abort(); _simAbortController = null; }
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
 }
 function _setBullets(b)              { bullets = b; }

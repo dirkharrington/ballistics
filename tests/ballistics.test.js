@@ -6363,3 +6363,92 @@ describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js wa
     expect(MockChart).not.toHaveBeenCalled();
   });
 });
+
+describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSweep', () => {
+  test('rapid double runSimulation aborts first run and renders only the second', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    const b0 = mod.getMockBullets()[0];
+
+    let firstResolve;
+    simulateAsync
+      .mockImplementationOnce((_b, _p, opts) => new Promise((res, rej) => {
+        firstResolve = res;
+        opts?.signal?.addEventListener('abort', () => rej(new DOMException('Aborted', 'AbortError')));
+      }))
+      .mockResolvedValueOnce({
+        bullet: { ...b0, name: 'Second Run' },
+        request: {},
+        points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+        maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+      });
+
+    const p1 = mod.runSimulation();
+    const p2 = mod.runSimulation();
+    await Promise.all([p1, p2]);
+    jest.runAllTimers();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.getElementById('chartContainer').innerHTML).toContain('Second Run');
+    expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(true);
+    expect(typeof firstResolve).toBe('function');
+  });
+
+  test('runSimulation skips render if aborted after compute resolves (before rAF and after resolve)', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+    const b0 = mod.getMockBullets()[0];
+
+    // Case 1: aborted before compute resolves (mock resolves anyway ignoring signal)
+    let resolve1;
+    simulateAsync.mockImplementationOnce(() => new Promise(r => { resolve1 = r; }));
+    const p1 = mod.runSimulation();
+    // Second run aborts first run's signal
+    const p2 = mod.runSimulation();
+    resolve1({
+      bullet: { ...b0, name: 'StaleResolved' },
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+    });
+    await Promise.all([p1, p2]);
+    jest.runAllTimers();
+    expect(document.getElementById('chartContainer').innerHTML).not.toContain('StaleResolved');
+
+    // Case 2: aborted while rAF is queued
+    const p3 = mod.runSimulation();
+    await p3; // rAF is now queued
+    const p4 = mod.runSimulation(); // aborts p3's signal before p3's rAF fires
+    await p4;
+    jest.runAllTimers();
+  });
+
+  test('runCustom and runSweep silently exit on AbortError or post-resolve abort', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    // runCustom AbortError
+    simulateAsync.mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'));
+    await expect(mod.runCustom()).resolves.toBeUndefined();
+
+    // runCustom post-resolve abort
+    let resCustom;
+    simulateAsync.mockImplementationOnce(() => new Promise(r => { resCustom = r; }));
+    const pc = mod.runCustom();
+    const ps = mod.runSweep(); // aborts custom run
+    resCustom({ bullet: mod.getMockBullets()[0], request: {}, points: [] });
+    await Promise.all([pc, ps]);
+
+    // runSweep AbortError
+    simulateAsync.mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'));
+    await expect(mod.runSweep()).resolves.toBeUndefined();
+
+    // runSweep post-resolve abort (all 5 sweep promises resolve after abort)
+    const sweepResolvers = [];
+    simulateAsync.mockImplementation(() => new Promise(r => { sweepResolvers.push(r); }));
+    const ps1 = mod.runSweep();
+    mod._resetState(); // aborts sweep controller
+    sweepResolvers.forEach(r => r({ bullet: mod.getMockBullets()[0], request: {}, points: [] }));
+    await ps1;
+  });
+});
