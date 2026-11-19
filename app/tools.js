@@ -65,16 +65,20 @@ function interpolateAt(points, distMeters, field) {
   if (distMeters <= points[0].rangeMeters) return points[0][field] ?? null;
   const last = points[points.length - 1];
   if (distMeters >= last.rangeMeters) return last[field] ?? null;
-  for (let i = 1; i < points.length; i++) {
-    if (distMeters <= points[i].rangeMeters) {
-      const t  = (distMeters - points[i - 1].rangeMeters) / (points[i].rangeMeters - points[i - 1].rangeMeters);
-      const v0 = points[i - 1][field];
-      const v1 = points[i][field];
-      if (v0 == null || v1 == null) return null;
-      return Math.round((v0 + t * (v1 - v0)) * 10) / 10;
-    }
+  // Lower-bound binary search: find smallest i in [1, n-1] with points[i].rangeMeters >= distMeters.
+  let lo = 1, hi = points.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].rangeMeters < distMeters) lo = mid + 1;
+    else hi = mid;
   }
-  return null;
+  const p0 = points[lo - 1];
+  const p1 = points[lo];
+  const t  = (distMeters - p0.rangeMeters) / (p1.rangeMeters - p0.rangeMeters);
+  const v0 = p0[field];
+  const v1 = p1[field];
+  if (v0 == null || v1 == null) return null;
+  return Math.round((v0 + t * (v1 - v0)) * 10) / 10;
 }
 
 // ── DOPE Card (MH-3) ──────────────────────────────────────────────────────────

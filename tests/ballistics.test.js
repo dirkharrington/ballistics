@@ -956,10 +956,11 @@ describe('renderResults', () => {
     expect(document.getElementById('chartContainer').innerHTML).toContain('807');
   });
 
-  test('renders table rows', async () => {
+  test('renders table rows when Data Table tab is activated', async () => {
     await mod.renderResults(results, req);
+    mod.switchTab('data', document.getElementById('tab-data'));
     const rows = document.querySelectorAll('#tableBody tr');
-    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBe(3);
   });
 
   test('handles refLine present (velocityChart)', async () => {
@@ -2081,14 +2082,18 @@ describe('chart interaction callbacks', () => {
     const opts = await renderAndGetCallbacks();
     opts.onHover({}, [{ index: 1 }]);
     expect(mod._getState().crosshairIndex).toBe(1);
+    jest.runOnlyPendingTimers();
     expect(document.getElementById('rangeReadout').style.display).toBe('block');
   });
 
   test('onHover with no elements clears crosshairIndex and hides readout', async () => {
     const opts = await renderAndGetCallbacks();
     opts.onHover({}, [{ index: 0 }]);
+    jest.runOnlyPendingTimers();
     opts.onHover({}, []);
+    jest.runOnlyPendingTimers();
     expect(mod._getState().crosshairIndex).toBeNull();
+    expect(document.getElementById('rangeReadout').style.display).toBe('none');
   });
 
   test('onHover does nothing when crosshairPinned is true', async () => {
@@ -2627,7 +2632,8 @@ describe('importResultsFromFile', () => {
       bullet: { id: 'x', name: 'X' },
       points: [pt],
     }]);
-    // Force renderResults to throw by removing the tableBody element
+    // Force renderResults to throw by activating dataPanel and removing tableBody
+    document.getElementById('dataPanel').classList.add('active');
     document.getElementById('tableBody').remove();
     makeFileReaderMock(payload);
     const file = { size: payload.length };
@@ -3683,10 +3689,11 @@ describe('init with saved preferences', () => {
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.init();
 
-    // Dispatch input event and verify localStorage was updated directly
+    // Dispatch input event and advance debounce timer to verify localStorage update
     const input = document.getElementById('zeroRange');
     input.value = '150';
     input.dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(200);
     expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('150');
   });
 
@@ -3705,6 +3712,7 @@ describe('init with saved preferences', () => {
     const el = document.getElementById('sightHeight');
     el.value = '55';
     el.dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(200);
     expect(localStorage.getItem(mod.PREF_KEYS.sightHeight)).toBe('55');
   });
 
@@ -3715,6 +3723,7 @@ describe('init with saved preferences', () => {
     const el = document.getElementById('windDir');
     el.value = '180';
     el.dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(200);
     expect(localStorage.getItem(mod.PREF_KEYS.windDir)).toBe('180');
   });
 
@@ -3796,6 +3805,7 @@ describe('G7 drag model — preferences', () => {
     const el = document.getElementById('dragModel');
     el.value = 'G7';
     el.dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(200);
     expect(localStorage.getItem(mod.PREF_KEYS.dragModel)).toBe('G7');
   });
 });
@@ -4190,6 +4200,7 @@ describe('init() with URL params (FE-1)', () => {
     const input = document.getElementById('zeroRange');
     input.value = '300';
     input.dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(200);
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
@@ -4232,6 +4243,7 @@ describe('init() with URL params (FE-1)', () => {
     const spy = jest.spyOn(history, 'replaceState');
     document.getElementById('latitudeDeg').value = '55';
     document.getElementById('latitudeDeg').dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(200);
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
@@ -4798,7 +4810,7 @@ describe('SH-1 FE: spin drift dashed series on wind chart', () => {
 // MH-3: renderDopeCard called from renderResults
 // ─────────────────────────────────────────────────────────────────────────────
 describe('MH-3: renderResults calls renderDopeCard', () => {
-  test('dopeTable is populated after renderResults', async () => {
+  test('dopeTable is populated after renderResults when Tools tab activates', async () => {
     const result = {
       bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
                 muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
@@ -4811,6 +4823,7 @@ describe('MH-3: renderResults calls renderDopeCard', () => {
       maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
     };
     await mod.renderResults([result], { zeroRangeMeters: 100, windSpeedKph: 0 });
+    mod.switchTab('tools', document.getElementById('tab-tools'));
     const html = document.getElementById('dopeTable').innerHTML;
     // dopeTable should have content (thead + tbody)
     expect(html).toContain('<thead>');
@@ -4830,6 +4843,7 @@ describe('MH-3: renderResults calls renderDopeCard', () => {
       ],
       maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
     };
+    document.getElementById('toolsPanel').classList.add('active');
     await mod.renderResults([result], { zeroRangeMeters: 100, windSpeedKph: 0 });
     const html = document.getElementById('dopeTable').innerHTML;
     expect(html).toContain('-1');
@@ -5945,5 +5959,406 @@ describe('UX-9: theme toggle', () => {
     document.getElementById('themeToggle').click();
     // No attribute means current === null, || 'dark' fires, next = 'light'
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sprint 12 — Track C (PERF-20, PERF-21, PERF-22, PERF-23)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-20: Crosshair hover rAF coalescing & index-change guard', () => {
+  const sampleResults = [{
+    bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+              muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+    request: {},
+    points: [
+      { rangeMeters: 0,   dropCm: 0,   velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
+      { rangeMeters: 100, dropCm: -5,  velocityMps: 760, energyJoules: 3150, windDriftCm: 2, timeOfFlightSec: 0.13 },
+      { rangeMeters: 200, dropCm: -20, velocityMps: 710, energyJoules: 2750, windDriftCm: 6, timeOfFlightSec: 0.27 },
+    ],
+    maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
+  }];
+
+  test('consecutive onHover events at the same index are no-ops (0 rAF / 0 chart.update)', async () => {
+    await mod.renderResults(sampleResults, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const opts = MockChart.mock.calls[0][1].options;
+    opts.onHover({}, [{ index: 1 }]);
+    jest.runOnlyPendingTimers();
+    mockChartUpdate.mockClear();
+
+    const rafSpy = jest.spyOn(global, 'requestAnimationFrame');
+    opts.onHover({}, [{ index: 1 }]);
+    opts.onHover({}, [{ index: 1 }]);
+    expect(rafSpy).not.toHaveBeenCalled();
+    expect(mockChartUpdate).not.toHaveBeenCalled();
+    rafSpy.mockRestore();
+  });
+
+  test('rapid onHover events with different indices coalesce into 1 rAF with latest index', async () => {
+    await mod.renderResults(sampleResults, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const opts = MockChart.mock.calls[0][1].options;
+    mockChartUpdate.mockClear();
+    const rafSpy = jest.spyOn(global, 'requestAnimationFrame');
+
+    opts.onHover({}, [{ index: 0 }]);
+    opts.onHover({}, [{ index: 1 }]);
+    opts.onHover({}, [{ index: 2 }]);
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+    expect(mockChartUpdate).not.toHaveBeenCalled();
+
+    jest.runOnlyPendingTimers();
+    expect(document.getElementById('readoutRange').textContent).toBe('200 m');
+    // 4 sibling charts updated once each (source chart excluded)
+    expect(mockChartUpdate).toHaveBeenCalledTimes(4);
+    rafSpy.mockRestore();
+  });
+
+  test('resetCrosshairState cancels a pending hover rAF', async () => {
+    await mod.renderResults(sampleResults, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const opts = MockChart.mock.calls[0][1].options;
+    const cancelSpy = jest.spyOn(global, 'cancelAnimationFrame');
+    mockChartUpdate.mockClear();
+
+    opts.onHover({}, [{ index: 1 }]);
+    mod.resetCrosshairState();
+    expect(cancelSpy).toHaveBeenCalled();
+    jest.runOnlyPendingTimers();
+    expect(mockChartUpdate).not.toHaveBeenCalled();
+    cancelSpy.mockRestore();
+  });
+
+  test('buildChartConfig callbacks fall back to passed results when not in _chartMeta', () => {
+    const cfg = mod.buildChartConfig(
+      { id: 'standaloneChart', yLabel: 'Drop (cm)' },
+      [{ label: '.308', data: [{ x: 0, y: 0 }] }],
+      sampleResults,
+    );
+    cfg.options.onHover({}, [{ index: 1 }]);
+    jest.runOnlyPendingTimers();
+    expect(document.getElementById('readoutRange').textContent).toBe('100 m');
+  });
+});
+
+describe('PERF-21: Chart.js fast path, decimation, instance reuse & single-pass MOA/MRAD', () => {
+  function makePoints(count) {
+    return Array.from({ length: count }, (_, i) => ({
+      rangeMeters: i * 10,
+      dropCm: -(i * 0.5),
+      velocityMps: 800 - i,
+      energyJoules: 3500 - i * 2,
+      windDriftCm: i * 0.1,
+      timeOfFlightSec: i * 0.01,
+    }));
+  }
+
+  function makeResult(count = 3, name = '.308 Win') {
+    return [{
+      bullet: { id: '308-win-168gr', name, muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: makePoints(count),
+      maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
+    }];
+  }
+
+  test('registers Decimation and does NOT register unused CategoryScale', async () => {
+    const chartMock = require('chart.js');
+    chartMock.Chart.register.mockClear();
+    await mod._loadChart();
+    expect(chartMock.Chart.register).toHaveBeenCalledTimes(1);
+    const registered = chartMock.Chart.register.mock.calls[0];
+    expect(registered).toContain(chartMock.Decimation);
+    expect(registered).not.toContain(chartMock.CategoryScale);
+  });
+
+  test('configs set parsing: false, normalized: true, and LTTB decimation', async () => {
+    await mod.renderResults(makeResult(3), { zeroRangeMeters: 100, windSpeedKph: 0 });
+    for (let i = 0; i < 5; i++) {
+      const cfg = MockChart.mock.calls[i][1];
+      expect(cfg.options.parsing).toBe(false);
+      expect(cfg.options.normalized).toBe(true);
+      expect(cfg.options.plugins.decimation).toEqual({
+        enabled: true, algorithm: 'lttb', samples: 250, threshold: 250,
+      });
+    }
+  });
+
+  test('disables animation when prefers-reduced-motion: reduce matches', async () => {
+    const origMM = window.matchMedia;
+    window.matchMedia = jest.fn(() => ({ matches: true }));
+    try {
+      await mod.renderResults(makeResult(3), { zeroRangeMeters: 100, windSpeedKph: 0 });
+      expect(MockChart.mock.calls[0][1].options.animation).toBe(false);
+      expect(MockChart.mock.calls[4][1].options.animation).toBe(false);
+    } finally {
+      window.matchMedia = origMM;
+    }
+  });
+
+  test('disables animation for >1000 plotted points and sets tension: 0 for >200 points', async () => {
+    await mod.renderResults(makeResult(1005), { zeroRangeMeters: 100, windSpeedKph: 0 });
+    const dropCfg = MockChart.mock.calls[0][1];
+    const adjCfg  = MockChart.mock.calls[4][1];
+    expect(dropCfg.options.animation).toBe(false);
+    expect(dropCfg.data.datasets[0].tension).toBe(0);
+    expect(adjCfg.options.animation).toBe(false);
+    expect(adjCfg.data.datasets[0].tension).toBe(0);
+  });
+
+  test('two consecutive renderResults reuse existing Chart instances without destroy()', async () => {
+    await mod.renderResults(makeResult(3, 'Run 1'), { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(MockChart).toHaveBeenCalledTimes(5);
+    MockChart.mockClear();
+    mockChartDestroy.mockClear();
+    mockChartUpdate.mockClear();
+
+    // Second render with updated params + high point count (exercises animation=false branch on reuse too)
+    await mod.renderResults(makeResult(3, 'Run 2'), { zeroRangeMeters: 200, windSpeedKph: 16 });
+    expect(MockChart).not.toHaveBeenCalled();
+    expect(mockChartDestroy).not.toHaveBeenCalled();
+    expect(mockChartUpdate).toHaveBeenCalledTimes(5);
+    expect(document.getElementById('chartContainer').innerHTML).toContain('Run 2');
+    expect(document.getElementById('dropChart').closest('.chart-panel').querySelector('.chart-subtitle').textContent).toBe('zeroed at 200 m');
+
+    // Third render with >1000 points updates existing charts with 'none' animation mode
+    mockChartUpdate.mockClear();
+    await mod.renderResults(makeResult(1005, 'Run 3'), { zeroRangeMeters: 300, windSpeedKph: 0 });
+    expect(MockChart).not.toHaveBeenCalled();
+    expect(mockChartUpdate).toHaveBeenCalledWith('none');
+  });
+
+  test('transitioning from sweep mode back to trajectory mode destroys sweep charts and rebuilds', async () => {
+    const sweepData = [makeResult(2)[0], makeResult(2)[0]];
+    await mod.renderSweepCharts(sweepData, 'wind');
+    MockChart.mockClear();
+    mockChartDestroy.mockClear();
+
+    await mod.renderResults(makeResult(2), { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(mockChartDestroy).toHaveBeenCalledTimes(3);
+    expect(MockChart).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe('PERF-22: Lazy hidden-tab table/DOPE rendering, cached sort rows & chunked table', () => {
+  function makeResults(pointCount) {
+    return [{
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: Array.from({ length: pointCount }, (_, i) => ({
+        rangeMeters: i * 10,
+        dropCm: -(i * 0.5),
+        velocityMps: 800 - i,
+        energyJoules: 3500 - i * 2,
+        windDriftCm: i * 0.1,
+        timeOfFlightSec: +(i * 0.01).toFixed(4),
+      })),
+      maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
+    }];
+  }
+
+  test('renderResults while on Charts tab defers #tableBody and #dopeTable until tabs activate', async () => {
+    document.getElementById('tableBody').innerHTML = '';
+    document.getElementById('dopeTable').innerHTML = '';
+
+    await mod.renderResults(makeResults(3), { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(0);
+    expect(document.getElementById('dopeTable').innerHTML).toBe('');
+
+    // Activate Data Table tab → flushes renderTable once
+    mod.switchTab('data', document.getElementById('tab-data'));
+    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(3);
+
+    // Switching away and back does NOT re-render when clean
+    document.getElementById('tableBody').innerHTML = '<tr id="sentinel"></tr>';
+    mod.switchTab('charts', document.getElementById('tab-charts'));
+    mod.switchTab('data', document.getElementById('tab-data'));
+    expect(document.getElementById('sentinel')).not.toBeNull();
+
+    // Activate Tools tab → flushes renderDopeCard once
+    mod.switchTab('tools', document.getElementById('tab-tools'));
+    expect(document.getElementById('dopeTable').innerHTML).toContain('.308 Win');
+  });
+
+  test('renderResults while Data Table tab is already active renders table immediately', async () => {
+    document.getElementById('dataPanel').classList.add('active');
+    await mod.renderResults(makeResults(4), { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(4);
+  });
+
+  test('onSortHeaderClick reuses cached row records without rebuilding', () => {
+    const res = makeResults(5);
+    mod.renderTable(res);
+    // Second sort call uses _cachedTableRows directly
+    mod.onSortHeaderClick('range');
+    mod.onSortHeaderClick('range');
+    const firstRange = document.querySelector('#tableBody tr td:nth-child(2)').textContent;
+    expect(firstRange).toBe('40');
+  });
+
+  test('large tables (>TABLE_CHUNK_THRESHOLD) stream chunks via rAF and cancel on re-sort', () => {
+    const count = mod.TABLE_CHUNK_THRESHOLD + 300; // 800 rows → initial 250 + 3 rAF chunks
+    const res = makeResults(count);
+    mod.renderTable(res);
+    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(mod.TABLE_CHUNK_SIZE);
+
+    // Re-sorting mid-stream cancels the pending chunk rAF and restarts cleanly
+    const cancelSpy = jest.spyOn(global, 'cancelAnimationFrame');
+    mod.onSortHeaderClick('range');
+    expect(cancelSpy).toHaveBeenCalled();
+    cancelSpy.mockRestore();
+
+    // Drain all rAF chunks
+    jest.runAllTimers();
+    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(count);
+  });
+
+  test('renderTable formats absent spinDriftCm and coriolisDeflectionCm as 0.0 when columns are shown', () => {
+    const res = [{
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [
+        { rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
+        { rangeMeters: 500, dropCm: -80, velocityMps: 550, energyJoules: 1650, windDriftCm: 10, timeOfFlightSec: 0.72,
+          spinDriftCm: 4.2, coriolisDeflectionCm: -1.5 },
+      ],
+    }];
+    mod.renderTable(res);
+    const firstRowText = document.querySelector('#tableBody tr').textContent;
+    expect(firstRowText).toContain('0.0 cm');
+    expect(firstRowText).toContain('+0.0 cm');
+  });
+});
+
+describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js warm-up/recovery', () => {
+  test('rapid input events coalesce into a single savePrefs + syncUrl after 200 ms', () => {
+    mod.init();
+    const setSpy = jest.spyOn(Storage.prototype, 'setItem');
+    const urlSpy = jest.spyOn(history, 'replaceState');
+    const input  = document.getElementById('zeroRange');
+
+    for (const v of ['110', '120', '130', '140', '150']) {
+      input.value = v;
+      input.dispatchEvent(new Event('input'));
+    }
+    expect(urlSpy).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(199);
+    expect(urlSpy).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    expect(urlSpy).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('150');
+
+    setSpy.mockRestore();
+    urlSpy.mockRestore();
+  });
+
+  test('savePrefs skips localStorage.setItem for unchanged keys on repeat calls', () => {
+    const setSpy = jest.spyOn(Storage.prototype, 'setItem');
+    mod.savePrefs();
+    const firstCount = setSpy.mock.calls.length;
+    expect(firstCount).toBeGreaterThan(0);
+
+    setSpy.mockClear();
+    mod.savePrefs();
+    expect(setSpy).not.toHaveBeenCalled();
+
+    // Changing one input writes only that key
+    document.getElementById('zeroRange').value = '250';
+    mod.savePrefs();
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(setSpy).toHaveBeenCalledWith(mod.PREF_KEYS.zero, '250');
+    setSpy.mockRestore();
+  });
+
+  test('pagehide flushes pending debounced input persistence immediately', () => {
+    mod.init();
+    const input = document.getElementById('zeroRange');
+    input.value = '275';
+    input.dispatchEvent(new Event('input'));
+    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBeNull();
+
+    window.dispatchEvent(new Event('pagehide'));
+    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('275');
+  });
+
+  test('debounce utility cancel() suppresses pending invocation and flush() is a no-op when idle', () => {
+    const fn = jest.fn();
+    const d = mod.debounce(fn, 100);
+    d.flush(); // idle no-op
+    d.cancel(); // idle no-op
+    d();
+    d.cancel();
+    jest.advanceTimersByTime(200);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  test('_loadChart resets cached promise on rejection so retry succeeds', async () => {
+    const chartMock = require('chart.js');
+    chartMock.Chart.register.mockClear();
+    chartMock.Chart.register.mockImplementationOnce(() => { throw new Error('chunk error'); });
+
+    await expect(mod._loadChart()).rejects.toThrow('chunk error');
+    const loaded = await mod._loadChart();
+    expect(loaded.Chart).toBe(MockChart);
+    expect(chartMock.Chart.register).toHaveBeenCalledTimes(2);
+  });
+
+  test('runSimulation warms Chart.js before worker promise settles', async () => {
+    const chartMock = require('chart.js');
+    chartMock.Chart.register.mockClear();
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getMockBullets());
+
+    let resolveSim;
+    simulateAsync.mockImplementationOnce(() => new Promise(r => { resolveSim = r; }));
+
+    const simPromise = mod.runSimulation();
+    // Flush microtasks so dynamic import resolves while simulateAsync is still pending
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(chartMock.Chart.register).toHaveBeenCalledTimes(1);
+
+    resolveSim({
+      bullet: mod.getMockBullets()[0],
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+    });
+    await simPromise;
+    jest.runAllTimers();
+  });
+
+  test('_warmChart swallows rejection without unhandled promise error', async () => {
+    const chartMock = require('chart.js');
+    chartMock.Chart.register.mockImplementationOnce(() => { throw new Error('offline'); });
+    await mod._warmChart();
+    // Retry still works because _loadChart cleared _chartModPromise
+    await expect(mod._loadChart()).resolves.toBeDefined();
+  });
+
+  test('renderResults shows error banner and still renders active Data Table when Chart.js fails to load', async () => {
+    const chartMock = require('chart.js');
+    chartMock.Chart.register.mockImplementationOnce(() => { throw new Error('offline chunk'); });
+    document.getElementById('dataPanel').classList.add('active');
+    const res = [{
+      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
+    }];
+    await mod.renderResults(res, { zeroRangeMeters: 100, windSpeedKph: 0 });
+    expect(document.getElementById('simulationError').textContent).toContain("Couldn't load the chart library");
+    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(1);
+  });
+
+  test('renderSweepCharts shows error banner and exits cleanly when Chart.js fails to load', async () => {
+    const chartMock = require('chart.js');
+    chartMock.Chart.register.mockImplementationOnce(() => { throw new Error('offline sweep'); });
+    await mod.renderSweepCharts([], 'wind');
+    expect(document.getElementById('simulationError').textContent).toContain("Couldn't load the chart library");
+    expect(MockChart).not.toHaveBeenCalled();
   });
 });

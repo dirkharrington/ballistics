@@ -1162,3 +1162,622 @@ The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter fo
 - **UX-7 · Print-friendly DOPE card** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts.
 - **DX-2 · Named session saves** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts.
 - **SEC-3 · Content Security Policy header audit** — GitHub Pages does not support custom headers; evaluate `<meta http-equiv="Content-Security-Policy">` or Cloudflare Pages migration. 3 pts.
+
+
+---
+
+## Sprint 11 — Release Prep (3.0.0)
+
+**Sprint Goal:** By end of sprint the repo is tagged v3.0.0 with a published GitHub Release, a user-readable root `CHANGELOG.md` documenting all changes since the original Java/REST API baseline, the `contracts/` directory contains only current-era documents, and all project documentation accurately reflects the pure-browser SPA.
+
+Merge order: REL-1 first (reduces noise in subsequent diffs). REL-2, REL-3, REL-4, and REL-5 are independent of each other and can run in parallel once REL-1 has landed on main. REL-4 must have REL-2 merged before the GitHub Release is created with release notes.
+
+---
+
+### REL-1 · Delete stale backend/WASM contracts · DX · Size S [Must Have]
+
+The `contracts/` directory carries 28 artefacts from the deleted Java/Spring Boot backend and Rust/WASM engine. They describe interfaces that have not existed since Sprint 5 (SPA-3, PR #92), confuse new contributors about what the project does today, and add surface area to `git grep` and editor indexing. The opening paragraph of `contracts/CHANGELOG.md` still names "springdoc" and the REST API as the subject of that file, which is misleading.
+
+**Work items:**
+
+1. Delete each of the following files from `contracts/` (run from the repo root):
+   ```
+   git rm contracts/adr-004-wasm-engine.md
+   git rm contracts/adr-006-ballistics-engine-crate.md
+   git rm contracts/adr-007-rust-backend-framework.md
+   git rm contracts/api-hardening.md
+   git rm contracts/be-ballistics-engine-extraction.md
+   git rm contracts/be-cacheable-key-fix.md
+   git rm contracts/be-jsonrpc-contract.md
+   git rm contracts/be-jsonrpc.md
+   git rm contracts/be-modern-idioms.md
+   git rm contracts/be-rk4-stepper-dedup.md
+   git rm contracts/be-spring-boot-upgrade.md
+   git rm contracts/ci-pipeline.md
+   git rm contracts/compare-request-fields.md
+   git rm contracts/density-altitude.md
+   git rm contracts/engine-parity.md
+   git rm contracts/physics-tables-bean.md
+   git rm contracts/rate-limit-config.md
+   git rm contracts/spin-drift.md
+   git rm contracts/trajectory-service.md
+   git rm contracts/wa9-simd.md
+   git rm contracts/wa10-shared-crate.md
+   git rm contracts/wa11-rust-backend.md
+   git rm contracts/wa12-custom-drag.md
+   git rm contracts/wa13-coriolis.md
+   git rm contracts/wasm-build-pipeline.md
+   git rm contracts/wasm-engine.md
+   git rm contracts/wasm-integration.md
+   git rm contracts/wasm-sprint3-overview.md
+   ```
+   Notes: `density-altitude.md` and `spin-drift.md` are the original Java BE versions; the TS implementations are in `feat1-spin-drift-ts.md` and engine.ts. `wa12-custom-drag.md` and `wa13-coriolis.md` referenced Java/WASM sections that were put on hold in FEAT-3 / FEAT-2 and were never implemented; the TS contracts (`feat3-custom-drag-ts.md`, `feat2-coriolis-ts.md`) supersede them.
+2. Replace the opening two paragraphs of `contracts/CHANGELOG.md` (the lines referencing "springdoc" and "REST API spec") with:
+   ```
+   # Contracts changelog — pure-browser SPA
+
+   This file tracks internal interface contract changes. All physics runs in
+   the browser; there is no server-side API.
+   ```
+3. Verify no CI workflow or script references the deleted paths: `git grep -r 'adr-004\|be-jsonrpc\|wasm-integration\|rate-limit-config\|trajectory-service\|spin-drift\.md\|density-altitude\.md' -- .github/` should return nothing.
+
+**Acceptance:**
+
+- `ls contracts/ | wc -l` returns 24. The surviving files are exactly: `CHANGELOG.md`, `adr-sprint9-performance.md`, `catalog-expansion.md`, `custom-round-library.md`, `fe-esm-migration.md`, `fe-prefs-map-loop.md`, `fe-runSimulation-error-handling.md`, `fe-sprint-notes.md`, `feat1-spin-drift-ts.md`, `feat2-coriolis-ts.md`, `feat3-custom-drag-ts.md`, `perf1-web-worker.md`, `perf6-font-audit.md`, `perf8-binary-search.md`, `perf9-chart-memoize.md`, `perf12-sw-nav-preload.md`, `spa1-ts-engine.md`, `spa2-remove-api-calls.md`, `spa3-delete-backend.md`, `spa4-flatten-layout.md`, `spa5-github-pages.md`, `table-sort.md`, `url-state.md`, `ux1-custom-bullet-catalog.md`.
+- `contracts/CHANGELOG.md` contains no reference to "springdoc" or "REST API spec".
+- CI passes with no broken references.
+- `npm test` passes at 100/100/100/100 (no code changes).
+
+---
+
+### REL-2 · Write root CHANGELOG.md in Keep a Changelog format · DX · Size M [Must Have]
+
+No user-readable `CHANGELOG.md` exists at the repo root. GitHub's auto-generated release notes are just PR titles and are not meaningful to a user or deployer. The app has gone through three distinct eras (Java/REST API baseline → SPA migration → physics completeness) and anyone who deployed or integrated the old API needs an explicit migration guide. This file will also serve as the body of the GitHub Release created in REL-4.
+
+**Work items:**
+
+1. Create `CHANGELOG.md` at the repo root. Begin with the two-line link header required by Keep a Changelog:
+   ```markdown
+   # Changelog
+
+   All notable changes are documented here following [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and [SemVer](https://semver.org/).
+   ```
+   Add an `## [Unreleased]` section immediately below (empty body).
+2. Add `## [3.0.0] — 2026-11-18` with the following subsections. Use `git log --oneline` and `BACKLOG.md` to verify PR numbers and merge dates where needed.
+   - **Added:** Gyroscopic spin drift (Litz simplified formula, twist rate input; displayed in wind drift chart and data table, PR #139). Coriolis deflection (first-order formula; latitude input; PR #147). Custom drag table CSV upload — overrides G1/G7 drag for the custom round (PR #144 / #145). Density altitude in simulation stat cards (PR #141). Light/dark mode toggle with `localStorage` persistence and `prefers-color-scheme` on first load (PR #137). Re-import previously exported trajectory JSON (PR #138). Keyboard-navigable bullet selector: `role="checkbox"`, `tabindex="0"`, Enter/Space activation, `:focus-visible` ring (PR #140). Screen-reader `aria-live` announcements for simulation lifecycle (PR #136). Select-all / deselect-all bullet checkbox with indeterminate state (PR #113). Trajectory CSV export with all columns including spin drift and Coriolis (PR #113). Custom bullet catalog — add, edit, delete, persist to `localStorage` (PR #113). Web Worker physics engine — simulation no longer blocks the UI thread (PR #99). Service Worker navigation preload (PR #125 via PERF-12 stack). Lazy Chart.js dynamic import — chart library not in initial bundle (PR #106). Vite chunk split: `vendor` (Chart.js) and `physics` chunks with stable hashes (PERF-13 stack). `content-visibility: auto` on chart panels for off-screen rendering savings (PERF-13 stack). Passive touch listeners on chart canvases with `touch-action: none` (PERF-13 stack). Warm-up of physics Web Worker on `requestIdleCallback` (PR #135). VS Code workspace settings and extension recommendations (PR #131). Sticky "Compute Trajectories" button in sidebar (PR #133). Tooltip truncation and "N more" footer with many bullets selected (PR #134).
+   - **Changed:** Physics engine moved from Java/Spring Boot + Rust/WASM to TypeScript running fully in the browser — no server required. Build output moved from `target/classes/static/` to `dist/`. Source layout flattened from Maven convention (`src/main/resources/static/`) to `app/`. Service Worker precache list is now generated from the full Vite asset manifest (no manual list). Vite upgraded to 8.x with `esnext` build target. Node.js 24 LTS in CI. `actions/cache` upgraded to v6; `actions/setup-node` upgraded to v7. First-visit default changed from all bullets selected to only the first bullet selected.
+   - **Removed:** Java/Spring Boot REST API (`POST /api/rpc`, `POST /api/trajectories/custom`, `GET /api/trajectories/compare/stream`, `POST /api/trajectories/compare`, `GET /api/bullets`). Rust/wasm-pack build pipeline. Docker / docker-compose infrastructure. Maven build (`pom.xml`, `mvnw`). `src/main/java/` and `src/test/java/`. `engine/` Rust workspace. `monitoring/` (Grafana/Prometheus dashboards). `node/` (bundled Node.js binary for `frontend-maven-plugin`). `#statusPill` online/offline indicator and retry timer. WASM loader, Web Worker dispatch layer. `simulateBulletJS` JS fallback. Font weights Rajdhani 300, 500, 700 (unused — saves ~38 KB from precache).
+   - **Security:** Pinned `minimatch` to 11.0.8 (GHSA-g3hv-75wg-m249), `glob` to 14.0.6 (GHSA-3g3m-2fjr-6pw4), `deepmerge` to 4.3.1 (GHSA-gcqx-w48m-w2h4) via npm `overrides` — all test-only transitive dependencies not reachable in the browser bundle (PR #146). All GitHub Actions pinned to full commit SHAs. CodeQL JavaScript SAST and Trivy filesystem scan added to CI.
+3. After the version section add a `## Migration notes` section:
+   ```markdown
+   ## Migration notes — upgrading from 1.x (REST API) to 3.0.0
+
+   The REST API endpoints **no longer exist**. The application is a static site
+   with no server-side component.
+
+   - **Calling the API programmatically:** use `simulate(bullet, params)` from
+     `app/physics/engine.ts` directly in your own TypeScript/JavaScript project,
+     or copy the engine file (MIT-licensed). The function signature is documented
+     in `app/physics/types.ts`.
+   - **Hosting the Java/Spring Boot server:** the server can be decommissioned.
+     Deploy the contents of `dist/` to any static host (GitHub Pages, Netlify,
+     nginx, CDN). Run `npm run build` to produce `dist/`.
+   - **JSON exports from 1.x:** results exported before the SPA migration may
+     contain `spinDriftCm: null`, `coriolisDeflectionCm: null`, or
+     `densityAltitudeMeters: null`. The import feature treats `null` as `0` and
+     renders correctly.
+   - **URL state:** existing bookmarked URLs using the `?` state parameter
+     continue to work — the URL state format is backward-compatible.
+   ```
+4. Add a bare link at the bottom of the file: `[3.0.0]: https://github.com/dirkharrington/ballistics/releases/tag/v3.0.0`
+
+**Acceptance:**
+
+- `CHANGELOG.md` exists at the repo root and passes `npx markdownlint CHANGELOG.md --config '{"MD013": false}'` (long lines expected in migration notes).
+- File contains `## [Unreleased]`, `## [3.0.0]`, and `## Migration notes` sections.
+- Each of the four subsections (Added, Changed, Removed, Security) under `[3.0.0]` is non-empty.
+- Migration notes section names the three REST API endpoint paths explicitly.
+- `npm test` passes at 100/100/100/100 (no code changes).
+
+---
+
+### REL-3 · Fix BACKLOG.md hygiene and README accuracy · DX · Size XS [Must Have]
+
+`BACKLOG.md` has 15 stories marked done but missing PR numbers (`PR #TBD` or no PR annotation at all), and done-story headings use at least five different formats (`✅ Done`, `✓ Done`, `DONE`, `— DONE`, `~~strikethrough~~ ✅ Done (PR #N)`) making the file inconsistent. `README.md` has two factual inaccuracies: the Tech Stack table says "Vite 6" (the app uses Vite 8), and the Architecture section says `simulate()` "runs synchronously on the main thread" (PERF-1 moved it to a Web Worker in PR #99). Three Sprint 10 features (spin drift, Coriolis deflection, custom drag table) and two Sprint 9 test files are absent from the README.
+
+**Work items:**
+
+1. In `BACKLOG.md`, fill in all missing PR numbers using the table below. For each story, replace `PR #TBD` with the actual PR number, or append `(PR #N)` after the done marker where none exists:
+
+   | Story | PR |
+   |---|---|
+   | SPA-2 | #89 |
+   | SPA-3 | #92 |
+   | PERF-1 | #99 |
+   | UX-3 | #113 |
+   | UX-1 | #113 |
+   | UX-2 | #113 |
+   | FEAT-2 | #147 |
+   | UX-4 | #148 |
+   | UX-5 | #141 |
+   | UX-8 | #134 |
+   | UX-9 | #137 |
+   | UX-10 | #133 |
+   | ACC-1 | #140 |
+   | ACC-2 | #136 |
+   | DM-1 | #138 |
+   | PERF-14 | #135 |
+
+2. Normalize all done-story heading formats to: `### ~~STORY-ID · Title · Role · Size~~ ✅ Done (PR #N)`. Stories delivered together in one PR (e.g. UX-3, UX-1, UX-2 in PR #113) may each note the shared PR number. Existing entries that already match this pattern do not need to change.
+
+3. In `README.md`, make the following targeted edits:
+   - In the Tech Stack table, change `Vite 6` to `Vite 8`.
+   - In the Architecture section **Physics pipeline** paragraph, replace "runs synchronously on the main thread. All inputs come from" with "runs in a dedicated Web Worker (`app/physics/engine.worker.ts`), keeping the UI thread responsive. All inputs come from".
+   - In the Features table, insert three new rows after the "CSV / PNG export" row:
+     ```
+     | **Spin drift** | Litz simplified formula; displayed in wind drift chart and data table when twist rate is set |
+     | **Coriolis deflection** | First-order formula; displayed when latitude is set |
+     | **Custom drag table** | Upload a Mach,CD CSV for the custom round; overrides G1/G7 drag |
+     ```
+   - In the Test suites table, insert two rows after the `drag-csv.test.js` row:
+     ```
+     | `tests/fonts.test.js` | Font file existence, orphan check, preload and CSS consistency |
+     | `tests/index-html.test.js` | Preload tag presence and href consistency with built CSS |
+     ```
+   - In the Project Structure tree under `physics/`, add `engine.worker.ts` and `engine-async.ts` as siblings of `engine.ts`.
+
+**Acceptance:**
+
+- `grep -c 'PR #TBD' BACKLOG.md` returns `0`.
+- `grep -ic 'vite 6' README.md` returns `0`.
+- `grep -ic 'synchronously on the main thread' README.md` returns `0`.
+- README Features table contains rows for "Spin drift", "Coriolis deflection", and "Custom drag table".
+- `npm test` passes at 100/100/100/100 (no code changes).
+
+---
+
+### REL-4 · Bump version to 3.0.0 and create GitHub Release · DevSecOps · Size XS [Must Have]
+
+`package.json` still declares `"version": "1.0.0"`. There is no git tag or GitHub Release for the current state of the project. The 3.0.0 release represents a complete architectural rewrite (SPA migration from Java/REST) and two full feature sprints (Sprint 9 performance, Sprint 10 physics). Anyone checking `package.json` or the repository releases page cannot determine what version is running in production.
+
+**Work items:**
+
+1. In `package.json`, change `"version": "1.0.0"` to `"version": "3.0.0"`. Commit: `git commit -m "chore(release): bump version to 3.0.0"`.
+2. Create and push an annotated tag:
+   ```
+   git tag -a v3.0.0 -m "Release 3.0.0 — pure-browser SPA"
+   git push origin v3.0.0
+   ```
+3. Create the GitHub Release from the tag, using the root `CHANGELOG.md` as the release body (requires REL-2 merged first). If running in parallel with REL-2, use `--generate-notes` and edit the body after REL-2 lands:
+   ```
+   gh release create v3.0.0 \
+     --title "v3.0.0 — Pure-Browser SPA" \
+     --notes-file CHANGELOG.md \
+     --latest
+   ```
+4. Verify the GitHub Pages deploy CI workflow triggers on the resulting push to `main`. Confirm the deployed app at the GitHub Pages URL loads successfully after the release commit lands.
+
+**Acceptance:**
+
+- `node -e "console.log(require('./package.json').version)"` prints `3.0.0`.
+- `git tag -l 'v3.0.0'` returns `v3.0.0`.
+- The GitHub Releases page shows v3.0.0 as the latest release with a non-empty description.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** REL-2 (`CHANGELOG.md`) should merge before the GitHub Release body is finalized.
+
+---
+
+### REL-5 · Add explicit job-level CI permissions and dismiss remaining code scanning alert · DevSecOps · Size XS [Must Have]
+
+The CI workflow has a workflow-level `permissions: contents: read` block but the `changes` and `frontend-build` jobs do not declare their own `permissions:` blocks; they silently inherit whatever the workflow-level sets. Principle of least privilege requires every job to explicitly state what it needs so a future workflow expansion cannot accidentally broaden a job's access. Additionally, one code scanning alert for GHSA-gcqx-w48m-w2h4 (deepmerge, Prototype Pollution) has been open since the Dependabot alert was dismissed in PR #146; the GitHub code scanning alert was not separately closed, leaving the Security dashboard partially red.
+
+**Work items:**
+
+1. In `.github/workflows/ci.yml`, add `permissions: contents: read` as an explicit block to the `changes` job, immediately after the `runs-on:` line.
+2. Add the same `permissions: contents: read` block to the `frontend-build` job immediately after `timeout-minutes:`. The `actions/upload-artifact` step uses the GITHUB_TOKEN internally and does not require a declared permission beyond `contents: read`.
+3. Navigate to the repository's **Security → Code scanning → Alerts** page. Find the open alert for GHSA-gcqx-w48m-w2h4 (deepmerge, Prototype Pollution). Dismiss it with:
+   - Reason: "Used in tests only"
+   - Note: "deepmerge is a transitive Jest dependency and is never included in the browser bundle (dist/). No upstream patch is available. Risk is tolerable in the test-only scope. Dependabot alert dismissed in PR #146."
+4. Navigate to **Security → Dependabot alerts**. Confirm all alerts are closed. If any remain open, assess whether they are dev-only transitive dependencies and dismiss with rationale, or pin via npm `overrides` in `package.json` if a patched version exists.
+
+**Acceptance:**
+
+- In `.github/workflows/ci.yml`, both the `changes` job and the `frontend-build` job have an explicit `permissions:` block with at least `contents: read`.
+- `git grep 'permissions:' .github/workflows/ci.yml` returns a line inside the `changes` job and a line inside the `frontend-build` job in addition to the existing workflow-level block.
+- The GitHub Code scanning alerts page shows zero open alerts.
+- The GitHub Dependabot alerts page shows zero open alerts.
+- CI passes on the PR (`npm test` 100/100/100/100 and all checks green).
+
+---
+
+### REL-6 · Arrow-key roving tabindex in bullet list (from icebox) · FE · Size XS [Should Have — stretch]
+
+ACC-1 (PR #140) made bullet cards reachable by Tab and activatable with Enter/Space, but left roving tabindex as an explicit out-of-scope follow-on. Users navigating the bullet list with keyboard currently must Tab through every card in sequence; there is no way to jump down with the arrow keys, which is the standard interaction pattern for a list of `role="checkbox"` items. The pattern and CSS are already established by ACC-1, making this a contained follow-on.
+
+**Work items:**
+
+1. In `app/ballistics.js` `renderBulletList()`, after attaching the existing click and keydown listeners to each card, also attach an `ArrowDown` / `ArrowUp` keydown handler:
+   - Set `tabindex="-1"` on every card during the initial render (all cards unreachable by Tab by default).
+   - Set `tabindex="0"` only on the currently focused card. Track the focused index in a module-level variable `_focusedBulletIdx` (initialise to 0).
+   - `ArrowDown`: move `_focusedBulletIdx` to `Math.min(idx + 1, cards.length - 1)`, call `cards[_focusedBulletIdx].focus()`. Call `e.preventDefault()` to stop the page from scrolling.
+   - `ArrowUp`: move `_focusedBulletIdx` to `Math.max(idx - 1, 0)`, call `cards[_focusedBulletIdx].focus()`. Call `e.preventDefault()`.
+   - On `focus` of any card, update `_focusedBulletIdx` to that card's index (handles mouse clicks that move focus).
+2. The first card in the list (`tabindex="0"`) must be reachable via Tab from whatever element precedes the bullet list (REL-7 removes the select-all checkbox; the card list becomes the first Tab stop in the bullet-selector region).
+3. Apply the same roving-tabindex pattern to `app/custom-bullets.js` `renderCustomBulletGroup()` if custom bullet cards also received `tabindex="0"` in ACC-1. If the custom bullet group is a separate region, give it its own roving index independent of the built-in list.
+
+**Coverage:** 100% Jest. Tests: (a) initial render sets `tabindex="0"` on first card and `tabindex="-1"` on all others; (b) `ArrowDown` keydown on card 0 focuses card 1 and sets its `tabindex="0"`, resets card 0 to `tabindex="-1"`; (c) `ArrowUp` on card 0 stays on card 0 (no underflow); (d) `ArrowDown` on last card stays on last card (no overflow); (e) `e.preventDefault()` is called on both arrow keys; (f) the first card is the first Tab stop in the bullet-selector region.
+
+**Acceptance:**
+
+- Tab from outside the bullet list reaches the first bullet card.
+- ArrowDown and ArrowUp move focus through the card list; only one card has `tabindex="0"` at any time.
+- Pressing ArrowDown at the last card does not wrap or scroll the page.
+- Mouse click on a card updates `_focusedBulletIdx` so subsequent arrow-key navigation starts from the clicked card.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** ACC-1 (PR #140). Implement after REL-7 (select-all removal).
+
+---
+
+### REL-7 · Remove select-all and enforce 5-munition selection limit · FE · Size S [Must Have]
+
+The select-all / deselect-all checkbox currently allows every bullet in the catalog to be selected simultaneously. With an unbounded selection, the chart and physics worker receive an arbitrary number of trajectories, producing an overcrowded, unreadable chart and unbounded computation cost. The checkbox also adds UI complexity that conflicts with the more intentional per-bullet selection model. This story removes the select-all control entirely and caps simultaneous selection at five munitions; attempting to activate a sixth is silently ignored with a visual cue on the blocked card.
+
+**Work items:**
+
+1. In `app/index.html`, remove the select-all checkbox element and its associated label (search for `selectAll`, `select-all`, or `checkAll` — confirm the exact id/class by reading the file). Remove any wrapping container that becomes empty after the removal.
+2. In `app/ballistics.js`:
+   - Remove the `selectAll` / `checkAll` event listener and handler entirely.
+   - Remove the `updateSelectAllState()` function (or equivalent indeterminate-state updater) if it exists.
+   - In `renderBulletList()` (and `renderCustomBulletGroup()` in `app/custom-bullets.js` if it also has a select-all), remove any code that wires or resets the select-all checkbox state.
+   - In the per-card click/keydown handler (the same handler that toggles bullet selection), add a guard before activating a bullet: if the card is not yet selected AND `selectedBulletIds.size >= 5` (or whatever the existing selection-state structure is — read the code to confirm), do not toggle the selection. Instead, add a CSS class such as `bullet-card--limit-reached` to the card being clicked and remove it after 600 ms (a brief visual shake or dim). Do not throw or log an error.
+   - Export or expose a `MAX_SELECTED_BULLETS = 5` constant at the top of the module for testability.
+3. Update CSS (in `app/index.html` `<style>` or the linked stylesheet) to add a `.bullet-card--limit-reached` rule — a subtle visual response such as a brief shake animation or a red border flash. Keep it accessible: do not rely on color alone; use `animation: shake 0.2s` or similar.
+4. Update `tests/ballistics.test.js`:
+   - Remove any tests that reference the select-all checkbox or `updateSelectAllState`.
+   - Add tests: (a) selecting 5 bullets succeeds; (b) attempting to select a 6th bullet leaves the selection count at 5 and the 6th card unselected; (c) deselecting one of the 5 then selecting a different bullet succeeds (limit is on current count, not cumulative); (d) the `bullet-card--limit-reached` class is added to the blocked card on a blocked click attempt.
+5. Update `BACKLOG.md` in this PR: mark REL-7 Done with its PR number.
+
+**Acceptance:**
+
+- The select-all / deselect-all checkbox is absent from the rendered HTML.
+- Selecting 5 bullets works normally; a 6th click does not change the selection set.
+- After deselecting any bullet, the next click on an unselected bullet succeeds.
+- The blocked card receives the `bullet-card--limit-reached` CSS class momentarily.
+- `grep -c 'selectAll\|checkAll\|select-all' app/index.html` returns 0 (or confirms the element is gone — verify the exact identifier first by reading the file).
+- `npm test` passes at 100/100/100/100.
+
+---
+
+## Sprint 12 — Maximum Performance
+
+**Sprint Goal:** Cut worst-case simulation wall time by an order of magnitude (zero-allocation RK4 hot loop, fast zero-angle convergence, worker-side BC solver, multi-core worker pool, and LRU result memoization), eliminate main-thread frame drops during chart rendering, crosshair scrubbing, table rendering, and input typing, and minimize first-load and repeat-deploy transfer cost.
+
+**Baseline requirement:** Before PERF-15 merges, record baseline numbers on `main` (median of 5 runs):
+1. Engine benchmark: 5-bullet, 2 000 m, 1 m-step `simulate()` wall time and heap allocation delta.
+2. BC back-calculator wall time (`.308 Win 168gr`, 500 m drop) in Chrome DevTools Performance.
+3. Crosshair hover over 5 charts (1 000 m, 10 m step): Scripting + Rendering ms/s and max frame time.
+4. Repeat Compute click (unchanged inputs, then 1 modified param): total click-to-paint latency (INP).
+5. Lighthouse mobile (throttled cold load & repeat-deploy SW update transfer bytes).
+
+**Merge & parallelization plan:**
+- **Track A (Physics Engine — stacked):** `PERF-15 → PERF-16 → PERF-17` (all three touch `app/physics/engine.ts`; merge in sequence).
+- **Track B (Worker Concurrency & Caching — stacked):** `PERF-18 → PERF-19` (both touch `app/physics/engine-async.ts`; can run in parallel with Track A, except PERF-17's worker message type merges cleanly before or after PERF-18).
+- **Track C (UI & Chart Rendering — stacked):** `PERF-20 → PERF-21 → PERF-22 → PERF-23` (all touch `app/ballistics.js`; merge in sequence).
+- **Track D (Loading, SW Caching & CSS — independent):** `PERF-24` and `PERF-25` can run in parallel with Tracks A–C.
+
+---
+
+### PERF-15 · Zero-allocation RK4 hot loop & flat `Float64Array` drag lookup · FE · Size S [Must Have]
+
+Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `integrateTrajectoryFps` (`app/physics/engine.ts:226-283`) invokes a nested `deriv` closure that allocates a 2-element `[ax, ay]` tuple 4 times per step and calls `Math.hypot(vx, vy)` 4 times per step. Over a 2 000 m trajectory plus 64 zero-finding passes (~23 000 RK4 steps per bullet), this creates ~92 000 short-lived array allocations and ~92 000 `Math.hypot` calls per bullet. `Math.hypot` performs IEEE overflow/underflow scaling that is unnecessary for bullet speeds (`0–5 000 fps`, where `vx² + vy² ≤ 2.5×10⁷`). Meanwhile `G1_TABLE` and `G7_TABLE` are arrays of boxed `[v, f]` tuples requiring double indirection and binary search on every drag lookup even though projectile speed decreases monotonically during flight.
+
+**Work items:**
+
+1. In `app/physics/engine.ts`, add an internal compiled table representation:
+   ```ts
+   interface CompiledDragTable {
+     readonly v: Float64Array;
+     readonly f: Float64Array;
+     readonly dv: Float64Array; // dv[i] = v[i] - v[i - 1], length n (dv[0] unused)
+     readonly df: Float64Array; // df[i] = f[i] - f[i - 1]
+     readonly last: number;
+   }
+   ```
+   Pre-compile `G1_COMPILED` and `G7_COMPILED` once at module load; compile custom tables once per `simulate()` call via `compileDragTable(table)`. Keep `interpolateDragTable(v, table)` pure, exported, and unchanged for external callers and existing tests.
+2. Add an internal scalar lookup helper that uses a caller-local bracket index (`idx`) initialized via binary search on the first sample and decremented/incremented locally when `v` crosses a breakpoint (O(1) amortized — >99.8% single-comparison hit rate as speed decays monotonically). Preserve the exact arithmetic `f[lo - 1] + ((v - v[lo - 1]) / dv[lo]) * df[lo]` so output stays bit-identical.
+3. In both `findZeroAngleFps` and `integrateTrajectoryFps`:
+   - Inline the 4 RK4 stage derivatives into scalar locals (`ax1, ay1, … ax4, ay4`) — zero tuple allocations inside the `while` loop.
+   - Replace `Math.hypot(vx, vy)` with `Math.sqrt(vx * vx + vy * vy)` (speed is strictly non-negative and bounded well within float64 normal range; drop the redundant `Math.abs(vel)`).
+   - Precompute loop invariants before the loop: `const rhoOverBc = rho / bc`, `const halfDt = 0.5 * DT_S`, `const sixthDt = DT_S / 6`, `const tanAngle = Math.tan(angle)`, `const halfMassOverG = 0.5 * (wLbs / G_FPS2)`.
+4. Record median wall time of 5 runs of a 5-bullet, 2 000 m, 1 m-step `simulate()` before and after in the PR description.
+
+**Coverage:** 100% Jest. All existing tests plus unit tests for `compileDragTable` and the local-bracket lookup (covering monotonic decrease, brief speed increase on downhill shots, below-min/above-max clamps, and equivalence against `interpolateDragTable`). `tests/fixtures/spa1-golden.json` must pass **without** regeneration.
+
+**Acceptance:**
+
+- Zero array/object allocations occur inside the RK4 `while` loops in `findZeroAngleFps` and `integrateTrajectoryFps`.
+- `Math.hypot` does not appear inside `app/physics/engine.ts`.
+- `tests/fixtures/spa1-golden.json` passes bit-identically without changes.
+- 5-bullet, 2 000 m, 1 m-step `simulate()` median wall time improves by ≥40%.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-16 · Fast bracketed secant/Brent zero-angle solver in `findZeroAngleFps` · FE · Size S [Must Have]
+
+`findZeroAngleFps` (`app/physics/engine.ts:196`) unconditionally runs **64 full RK4 integrations** from `x = 0` to `zeroFt` on every `simulate()` call. Because IEEE-754 float64 only has 53 bits of significand, iterations 53–64 make zero progress (`mid === lo || mid === hi`), and for a typical 100 m–300 m zero the zero-finder accounts for 50–70% of total simulation CPU time. Moreover, `f(θ) = y(θ; zeroFt) - sightHtFt` is smooth, strictly monotonic, and nearly linear over `[-0.05, 0.05]`, so a safeguarded secant/Illinois regula-falsi solver converges to sub-picoradian accuracy in 5–9 iterations instead of 64.
+
+**Work items:**
+
+1. Extract the single-pass zero-range integration into an internal helper `evalHeightAtZero(angle, mvFps, rhoOverBc, zeroFt, table): number`.
+2. In `findZeroAngleFps`:
+   - Start with bracket `[lo, hi] = [-0.05, 0.05]`. Evaluate `fLo` and `fHi` (if the root is outside the bracket, preserve the existing clamped boundary behavior).
+   - At each step (up to 64 max iterations), compute a safeguarded secant candidate `s = hi - fHi * (hi - lo) / (fHi - fLo)` (or Illinois-damped regula falsi). Fall back to bisection `(lo + hi) / 2` whenever `s` is not strictly inside `(lo + 0.1 * (hi - lo), hi - 0.1 * (hi - lo))` or `fHi === fLo`.
+   - Terminate early as soon as `Math.abs(fMid) <= 1e-9` (1 nanometre at zero range) OR `hi - lo <= 1e-13` OR `mid === lo || mid === hi`.
+3. Verify against all cases in `tests/fixtures/spa1-golden.json` (plus extreme inputs: 3 000 m zero, 0 mm sight height, ultra-slow bullet hitting `vel < 50`).
+4. Record median `findZeroAngleFps` iteration count and full `simulate()` wall time before and after in the PR description.
+
+**Coverage:** 100% Jest. Tests: (a) solver converges in ≤12 iterations for standard catalog bullets at 100 m, 300 m, and 1 000 m zero; (b) agrees with 64-pass bisection within `1e-9` rad across a seeded sweep of velocities, BCs, altitudes, and sight heights; (c) handles ultra-slow bullet (`vel < 50`) and out-of-bracket roots via bisection fallback without infinite loops; (d) `spa1-golden.json` passes unchanged.
+
+**Acceptance:**
+
+- Typical zero-angle convergence takes ≤10 RK4 passes (down from 64 — ≥6× reduction in zero-finder work).
+- `tests/fixtures/spa1-golden.json` passes **without** regeneration.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-15.
+
+---
+
+### PERF-17 · Move BC back-calculator solver into physics worker with tight tolerance · FE · Size S [Must Have]
+
+`calcBC` (`app/tools.js:220-255`) executes **64 sequential `await simulateBulletFn(bullet, req)` calls** across the main-thread ↔ Web Worker `postMessage` boundary. Each iteration runs a full `simulate()` (including full zero-angle solve, allocating every 25 m `TrajectoryPoint` object, and structured-cloning the entire `TrajectoryResult` back to the main thread) just to read a single `dropCm` value, even though `calcBC` rounds its final output to 4 decimal places (`0.0001`). Over `[0.001, 1.5]`, 4-decimal precision needs only ~17 bisection iterations (or ~7–10 safeguarded secant iterations); the remaining ~47 full worker round-trips are pure waste.
+
+**Work items:**
+
+1. In `app/physics/engine.ts`, add and export `solveBC(params: SolveBCParams): number | null`:
+   - Precomputes `rho`, `mvFps`, `sightHtFt`, `zeroFt`, and `targetFt` once before the solver loop.
+   - Runs a lightweight trajectory pass that tracks only `dropCm` at `rangeM` (no `TrajectoryPoint[]` array allocation, no spin drift / Coriolis / energy / wind drift math).
+   - Uses safeguarded secant with bisection fallback over `[0.001, 1.5]`, terminating once `hi - lo < 1e-5` or `Math.abs(dropCm - measuredDropCm) < 1e-4` (capped at 40 iterations), returning `Math.round((lo + hi) / 2 * 10000) / 10000`.
+2. In `app/physics/engine.worker.ts` and `app/physics/engine-async.ts`, add a `'solveBC'` worker message type and export `solveBCAsync(params): Promise<number | null>` so the entire BC solve executes in **1 worker round-trip** instead of 64.
+3. In `app/tools.js`, update `initBcSolver` to use `solveBCAsync` when provided (keeping `calcBC(simulateBulletFn, …)` working with early termination at `hi - lo < 1e-5` so existing injected-mock tests remain supported).
+4. Record BC back-calculator wall time before and after (`.308 Win 168gr`, 500 m) in the PR description.
+
+**Coverage:** 100% Jest. Tests: (a) `solveBC` recovers known G1 BCs to within `±0.0002` for `.223`, `.308`, and `.338 Lapua` at 300 m, 500 m, and 1 000 m; (b) handles non-convergent/invalid drops by returning `null`; (c) `solveBCAsync` sends exactly **1** `postMessage` to the worker; (d) `calcBC` early-exits in ≤18 calls.
+
+**Acceptance:**
+
+- Clicking CALCULATE in BC Back-Calculator sends **1** worker message instead of 64.
+- Wall time drops by ≥10× (e.g. from ~150–400 ms to <15 ms).
+- Solved BC values match the previous implementation to within `±0.0001`.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-16.
+
+---
+
+### PERF-18 · Bounded Web Worker pool & stale-run cancellation in `engine-async.ts` · FE · Size M [Must Have]
+
+`app/physics/engine-async.ts` maintains a single `_worker` instance. When `computeClientSide()` (`app/ballistics.js:144`) dispatches 5 selected bullets via `Promise.all(...)` or `runSweep()` (`app/ballistics.js:1295`) dispatches 5 sweep runs, all 5 tasks queue sequentially on a single CPU core. Additionally, rapid re-clicks or parameter changes have no cancellation mechanism, so stale work continues occupying workers and can overwrite newer UI state if not guarded.
+
+**Work items:**
+
+1. In `app/physics/engine-async.ts`, replace the single `_worker` with a bounded lazy pool of up to `POOL_SIZE = Math.max(1, Math.min(navigator.hardwareConcurrency || 2, 4))` workers:
+   - `prewarmPhysicsWorker()` still warms **only 1** worker on idle (zero extra startup cost for 1-bullet runs).
+   - Additional workers (up to `POOL_SIZE`) are spawned lazily only when concurrent in-flight jobs exceed currently idle workers.
+   - Maintain a FIFO task queue with least-busy dispatch (each worker runs 1 active job at a time so no worker starves another).
+   - Terminate all pool workers and reject all pending/queued promises on `pagehide` and `_resetForTest()`.
+2. Add optional `{ signal?: AbortSignal }` support to `simulateAsync(bullet, params, options)`:
+   - If aborted while queued (not yet sent to a worker), remove from the queue immediately and reject with `DOMException('Aborted', 'AbortError')` without running `simulate()`.
+   - If aborted while in-flight, reject immediately and discard the worker's response when it arrives.
+3. In `app/ballistics.js`, track a module-level `AbortController` for `runSimulation`, `runCustom`, and `runSweep`: starting a new run aborts any superseded run and ignores `AbortError` cleanly without flashing an error banner.
+
+**Coverage:** 100% Jest. Tests: (a) single job creates 1 worker; (b) 5 concurrent jobs fan out across `POOL_SIZE` workers and resolve in input order; (c) queued jobs beyond `POOL_SIZE` drain as workers finish; (d) aborting a queued job prevents `postMessage` from ever being called for it; (e) aborting an in-flight job rejects with `AbortError` and ignores late worker replies; (f) `pagehide` terminates every spawned worker; (g) rapid double-click on Compute discards the stale run.
+
+**Acceptance:**
+
+- 5-bullet simulation and 5-step sweep execute in parallel across up to 4 CPU cores, cutting multi-bullet wall time by ≥2× on 4+ core machines.
+- Single-bullet runs spawn only 1 worker (same memory footprint as today).
+- Rapidly clicking Compute twice cancels queued work from the first run and never renders stale results.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-19 · Bounded LRU memoization cache for simulation results · FE · Size XS [Must Have]
+
+Every Compute click recomputes every selected bullet from scratch, even when the user only adds or removes one bullet from an existing comparison, re-clicks Compute without changing parameters, or switches between Sweep mode and Trajectory mode (`clearSweep` or repeating a sweep). Because `simulate(bullet, params)` is a pure deterministic function of the physics fields, identical inputs always yield identical trajectories.
+
+**Work items:**
+
+1. In `app/physics/engine-async.ts`, add a bounded LRU `Map<string, TrajectoryResult>` (`MAX_CACHE_ENTRIES = 64`).
+2. Build a canonical cache key `simulationCacheKey(bullet, params)` from **only** the physics-affecting fields:
+   - Bullet: `bulletWeightGrams`, `muzzleVelocityMps`, `ballisticCoefficient`, `bulletDiameterMm` (only when `twistRateInchesPerTurn != null`).
+   - Params: `zeroRangeMeters`, `maxRangeMeters`, `stepMeters`, `windSpeedKph`, `windDirectionDeg ?? 90`, `altitudeMeters`, `temperatureC`, `sightHeightMm ?? 38.1`, `shootingAngleDegrees ?? 0`, `dragModel ?? 'G1'`, `twistRateInchesPerTurn ?? null`, `latitudeDeg ?? null`, `azimuthDeg ?? null`, and `customDragTable` (when non-empty).
+   - Exclude non-physics display fields (`bulletIds`, `description`, `hexColor`, `name`) from the key, and attach the caller's `{ ...cached, bullet, request: params }` on a hit so display metadata and object references stay accurate.
+3. On cache hit, promote the entry (delete + re-insert in `Map`) and return `Promise.resolve(result)` without touching any worker. On cache miss, store the resolved result and evict the oldest entry when `size > MAX_CACHE_ENTRIES`. Never cache rejected/aborted promises.
+4. Clear the cache inside `_resetForTest()` and export `_getCacheStatsForTest()` (or `_clearCacheForTest()`).
+
+**Coverage:** 100% Jest. Tests: (a) identical `(bullet, params)` hits cache and sends 0 worker messages on the second call; (b) changing any single physics param (e.g. `windSpeedKph`, `temperatureC`, `customDragTable`) misses cache; (c) changing display-only `hexColor` or `name` still reuses cached physics points with updated `bullet` metadata; (d) LRU evicts the least-recently-used entry past 64 entries; (e) validation errors and aborted calls are not cached.
+
+**Acceptance:**
+
+- Adding a 2nd bullet to an already-computed 1-bullet run dispatches only **1** worker job (for the new bullet) instead of 2.
+- Re-clicking Compute with unchanged parameters resolves in <1 ms with 0 worker messages.
+- Cache memory is strictly bounded at 64 entries.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-18.
+
+---
+
+### ~~PERF-20 · Coalesce crosshair hover updates with `rAF` & index-change guard · FE · Size XS~~ ✅ Done
+
+Both `buildChartConfig`'s `onHover` (`app/ballistics.js:844-859`) and `adjustChart`'s `onHover` (`app/ballistics.js:1095-1107`) run synchronously on every `mousemove` / `touchmove` event without checking whether `crosshairIndex` actually changed. Moving the pointer a few pixels inside the same range bucket (90%+ of pointer events) repeatedly rewrites `#readoutBody.innerHTML` and invokes `c.update('none')` on all 4 sibling Chart.js instances, causing continuous main-thread scripting and canvas redraw spikes on 60–120 Hz displays.
+
+**Work items:**
+
+1. Extract a single shared helper `scheduleCrosshairSync(nextIndex, sourceChartId, results)` in `app/ballistics.js` and use it in both `buildChartConfig` and `adjustChart` (removing the duplicated `onHover` bodies).
+2. Add an immediate no-op guard: if `nextIndex === crosshairIndex`, return immediately (zero DOM writes, zero `chart.update('none')` calls).
+3. Update `crosshairIndex = nextIndex` and coalesce DOM + sibling-chart updates into a single pending `requestAnimationFrame` callback (`_crosshairRafId`):
+   - If a frame callback is already scheduled, simply overwrite the pending target `{ index, sourceChartId, results }` — at most **1** readout update and **1** sibling redraw batch execute per display frame.
+   - Inside the `rAF` callback, update `#rangeReadout` (or hide when `index === null`) and call `c.update('none')` only on sibling charts that are currently intersecting or mounted.
+4. Cancel any pending `_crosshairRafId` inside `resetCrosshairState()` and `_resetState()`.
+5. Attach DevTools Performance trace summaries (hovering across 5 charts for 3 s, before vs. after) in the PR description.
+
+**Coverage:** 100% Jest. Tests: (a) consecutive `onHover` events at the same `elements[0].index` trigger 0 `updateReadout` calls and 0 `chart.update('none')` calls; (b) 5 rapid `onHover` events with different indices within one frame coalesce into 1 `rAF` execution using the latest index; (c) `resetCrosshairState` cancels a pending `rAF`; (d) both `buildChartConfig` charts and `adjustChart` use the shared helper.
+
+**Acceptance:**
+
+- Hovering slowly across a chart fires `#readoutBody` updates and sibling `chart.update('none')` only when the range index actually changes, and never more than once per animation frame.
+- DevTools Performance shows ≥75% reduction in Scripting + Painting time during continuous crosshair scrubbing.
+- Hovering, pinning, unpinning, and touch-scrubbing behave identically to before.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### ~~PERF-21 · Chart.js fast path: `parsing: false`, LTTB decimation, instance reuse & single-pass MOA/MRAD · FE · Size M~~ ✅ Done
+
+Every `renderResults()` call (`app/ballistics.js:930-1135`) destroys all 5 Chart.js instances, wipes `#chartContainer.innerHTML`, rebuilds all 5 panel DOM trees, and constructs 5 brand-new charts with a 600 ms animation (`animation: { duration: 600 }`) running across all 5 canvases simultaneously. Every dataset is passed as `{ x, y }` objects with Chart.js's default `parsing: true` and `normalized: false`, forcing Chart.js to re-parse and sort-check every point even though `x` (`rangeMeters`) is already numeric and strictly ascending. For fine step sizes (e.g. 2 000 m at 1 m step = 2 001 points × 5 bullets = 10 005 points per chart), bezier smoothing (`tension: 0.3`) and un-decimated rendering create multi-hundred-millisecond paint stalls. In addition, `adjustChart` (`app/ballistics.js:1062-1085`) calls `computeAdjustments()` **twice** per point (once for MOA, once for MRAD), and `Chart.register` (`app/ballistics.js:84`) still registers unused `CategoryScale`.
+
+**Work items:**
+
+1. In `_loadChart()` (`app/ballistics.js:82-85`), remove unused `CategoryScale` (every chart uses `x: { type: 'linear' }`) and register `Decimation` so Rolldown drops `CategoryScale` and enables built-in LTTB decimation.
+2. In `buildChartConfig` and `adjustChart`:
+   - Set `parsing: false` and `normalized: true` on chart options (all datasets are already `{ x: number, y: number }[]` sorted ascending by `x`).
+   - Enable `plugins.decimation = { enabled: true, algorithm: 'lttb', samples: 250, threshold: 250 }` so fine-step trajectories (>250 points) decimate visually accurately in O(N) while coarse trajectories (≤250 points) draw every point untouched.
+   - Adapt `animation` and `tension`: disable animation (`animation: false`) when `window.matchMedia('(prefers-reduced-motion: reduce)').matches` OR when total plotted points across datasets exceed 1 000 (otherwise keep a crisp `duration: 250`); set `tension: 0` when per-dataset points exceed 200 (at ≤10 m spacing, straight segments are visually indistinguishable from cubic splines and avoid 4× bezier control-point computation).
+3. In `adjustChart`, compute `computeAdjustments(p.dropCm, p.rangeMeters)` **once** per point and populate both the MOA and MRAD point arrays in a single pass.
+4. Reuse existing Chart.js instances on subsequent trajectory-mode renders:
+   - When all 5 expected chart canvases (`dropChart`, `velocityChart`, `energyChart`, `windChart`, `adjustChart`) already exist in `charts` and we are not transitioning from sweep mode, update the stat cards container in place, update subtitles/annotations, replace `chart.data.datasets`, update hover/click `results` closure reference, and call `chart.update(animMode)` instead of `cc.innerHTML = ''` + `c.destroy()` + `new Chart(...)`.
+   - Keep full teardown + rebuild when transitioning between sweep mode and trajectory mode (or on first render).
+
+**Coverage:** 100% Jest. Tests: (a) `Chart.register` registers `Decimation` and does **not** register `CategoryScale`; (b) chart configs set `parsing: false`, `normalized: true`, and `decimation`; (c) `prefers-reduced-motion: reduce` or >1 000 points disables animation; (d) `computeAdjustments` is called once per point (not twice) for `adjustChart`; (e) two consecutive `renderResults` calls reuse existing Chart instances (`destroy` called 0 times, `update` called once per chart); (f) transitioning from sweep mode back to trajectory mode rebuilds cleanly.
+
+**Acceptance:**
+
+- `dist/assets/vendor-*.js` shrinks by removing `CategoryScale` (record before/after byte size in PR).
+- Second Compute click (updating parameters) reuses all 5 Chart instances with zero canvas reallocations and ≥50% faster click-to-paint time.
+- A 5-bullet, 2 000 m, 1 m-step simulation renders smoothly without >50 ms long tasks during chart draw.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-20.
+
+---
+
+### ~~PERF-22 · Lazy hidden-tab table/DOPE rendering, cached `Intl.NumberFormat` & cached sort rows · FE · Size S~~ ✅ Done
+
+At the end of `renderResults()` (`app/ballistics.js:1139-1140`), the app synchronously builds and parses the full HTML for `#tableBody` (up to 10 000+ `<tr>` rows on small steps) AND `#dopeTable` even when the user is on the default **Trajectory Charts** tab and both `#dataPanel` and `#toolsPanel` are `display: none`. Inside `renderTable()` (`app/ballistics.js:1199-1200`), `p.velocityMps.toLocaleString()` and `p.energyJoules.toLocaleString()` are invoked on every row (each call does a slow locale lookup), and `onSortHeaderClick()` (`app/ballistics.js:1221`) re-runs `computeAdjustments()` and `escapeHtml()` for every single row on every sort click. Meanwhile `interpolateAt()` in `app/tools.js:68` still uses a linear scan over trajectory points.
+
+**Work items:**
+
+1. Add a single module-level cached formatter `const _numFmt = new Intl.NumberFormat();` in `app/ballistics.js` and replace per-row / per-card `.toLocaleString()` calls (`renderStatCards`, `renderTable`) with `_numFmt.format(...)`.
+2. Defer hidden-tab rendering with dirty flags (`_tableDirty`, `_dopeDirty`, `_pendingDopeReq`):
+   - In `renderResults(results, req)`: store `tableResults = results`, clear cached row records (`_cachedTableRows = null`), mark `_tableDirty = true` and `_dopeDirty = true`.
+   - Call `renderTable(results)` immediately **only if** `#dataPanel` has `.active`; call `renderDopeCard(results, req)` immediately **only if** `#toolsPanel` has `.active`.
+   - In `switchTab(name, el)`: when switching to `'data'` while `_tableDirty` is true, flush `renderTable(tableResults)` and clear `_tableDirty`; when switching to `'tools'` while `_dopeDirty` is true, flush `renderDopeCard(tableResults, _pendingDopeReq)` and clear `_dopeDirty`.
+3. Cache precomputed table row objects (`{ r, p, adj, color, escapedName }`) in `_cachedTableRows` when `tableResults` changes, so `onSortHeaderClick` sorts the cached array in place without recomputing `computeAdjustments()`, `colorFor()`, or `escapeHtml()` on every click.
+4. For large tables (>500 rows), render the first 250 rows synchronously and append remaining rows in `requestAnimationFrame` chunks (cancelled if a new render or sort starts), keeping Data Table tab-switch and sort INP under 50 ms.
+5. In `app/tools.js`, replace the linear loop in `interpolateAt()` (line 68) with lower-bound binary search (same pattern as `PERF-8`).
+
+**Coverage:** 100% Jest. Tests: (a) `renderResults` while on Charts tab does not populate `#tableBody` or `#dopeTable`; (b) switching to Data Table flushes `renderTable` once and clears `_tableDirty` (switching back and forth does not re-render); (c) switching to Tools tab flushes `renderDopeCard` once; (d) `renderResults` while Data Table is active renders immediately; (e) `onSortHeaderClick` reuses cached `adj` without calling `computeAdjustments` again; (f) chunked rendering appends all rows and cancels stale chunks on re-sort; (g) `interpolateAt` binary search matches linear scan across edge cases.
+
+**Acceptance:**
+
+- Clicking Compute while on the Charts tab performs **zero** `#dataTable` or `#dopeTable` DOM mutations.
+- Sorting a 2 000-row table completes in <16 ms.
+- Formatting 2 000 rows via cached `Intl.NumberFormat` is ≥5× faster than per-call `.toLocaleString()`.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-21.
+
+---
+
+### ~~PERF-23 · Debounce sidebar input persistence (`savePrefs` / `syncUrl`) & overlap Chart.js warm-up · FE · Size XS~~ ✅ Done
+
+Two subtle main-thread and waterfall issues remain in `app/ballistics.js`:
+1. Parameter inputs (`app/ballistics.js:1556-1559`) run `savePrefs()` (11 synchronous `localStorage.setItem` calls) and `syncUrl()` (12 DOM lookups, 3 `URLSearchParams` allocations, and `history.replaceState`) on **every single `input` event** — causing keystroke jitter and risking Safari's `SecurityError` when `history.replaceState` is called >100 times within 30 s (e.g. holding a number-input spinner).
+2. In `_loadChart()` (`app/ballistics.js:78-90`), a rejected dynamic import is never evicted from `_chartModPromise` (permanently breaking charts until reload after a transient offline error), and `runSimulation`, `runCustom`, and `runSweep` do not start `_loadChart()` before awaiting the worker — leaving Chart.js download serialized **after** worker completion on cold cache (this warm-up overlap was planned in PERF-9 but is absent on `main`).
+
+**Work items:**
+
+1. Add a lightweight trailing `debounce(fn, 200)` helper in `app/ballistics.js` with a `.flush()` method:
+   - Wire the 10 parameter inputs (plus `twistRate`, `latitudeDeg`, `azimuthDeg`) to a debounced `persistInputs()` that calls `savePrefs()` + `syncUrl()`.
+   - Flush any pending debounced persistence immediately inside `runSimulation()`, `runCustom()`, `copyLink()`, and a `pagehide` listener so no edit is ever lost.
+   - Also optimize `savePrefs()` to write only keys whose serialized value changed since the last write (in-memory `_lastSavedPrefs` mirror, reset in `_resetState()`).
+2. Fix `_loadChart()` and add `_warmChart()`:
+   - Clear `_chartModPromise = null` in `.catch(...)` before rethrowing so subsequent clicks retry after transient failures.
+   - Add `_warmChart()` (`_loadChart().catch(() => {})`) and call it at the start of `runSimulation()`, `runCustom()`, and `runSweep()` **before** awaiting `computeClientSide` / `simulateAsync`, overlapping the cold Chart.js chunk fetch with physics computation.
+   - Handle `_loadChart()` rejection in `renderResults` and `renderSweepCharts` via `_setSimulationError("Couldn't load the chart library. Check your connection and try again.")` while still rendering the data table / DOPE card (no unhandled rejection).
+
+**Coverage:** 100% Jest. Tests: (a) 5 rapid `input` events within 200 ms trigger `savePrefs` and `replaceState` only once after timer advances; (b) clicking Compute or Copy Link flushes pending persistence immediately; (c) `savePrefs` skips `localStorage.setItem` for unchanged keys; (d) `_loadChart` resets its cached promise after rejection and succeeds on retry; (e) `_warmChart` starts `import('chart.js')` before the worker promise settles; (f) `renderResults` shows error banner and preserves table on chart load failure.
+
+**Acceptance:**
+
+- Holding an input spinner for 2 s triggers ≤2 `history.replaceState` calls instead of 30–60.
+- Cold-cache Network waterfall shows `vendor-*.js` (Chart.js) fetch starting simultaneously with the physics worker run, not after it.
+- Transient offline failure on Chart.js chunk recovers cleanly on the next click once back online.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-22.
+
+---
+
+### PERF-24 · Defer SW registration & preserve immutable hashed chunks across deploys · FE / DevSecOps · Size S [Should Have]
+
+Three loading/caching inefficiencies penalize both first visits and repeat-visit deploys:
+1. `app/ballistics.js:1490-1496` registers `sw.js` immediately inside `init()` (before `window.load`). On first visit, `handleInstall()` (`app/sw.js:64-70`) immediately fetches every URL in `STATIC_ASSETS_TO_PRECACHE` — including the lazy ~200 KB `vendor-*.js` (Chart.js) chunk and all 7 `.woff2` fonts — directly competing with critical-path CSS, entry JS, and preloaded fonts for mobile bandwidth.
+2. `vite.config.js:20` stamps `CACHE_VERSION` with `Date.now().toString(36)` on every build, and `handleInstall()` fetches every precache URL from the network into the new cache. Whenever a 1-line UI fix deploys, every returning user re-downloads ~300 KB of unchanged content-hashed `vendor-*.js` and `.woff2` files.
+3. Duplicate unreferenced root assets (`app/apple-touch-icon.png`, `app/favicon.svg`) exist alongside `app/public/`, and `app/index.html:507-510` emits a second inline `<script type="module">` importing `tools.js` even though `ballistics.js` already imports `tools.js`.
+
+**Work items:**
+
+1. In `app/ballistics.js` `init()`, defer `navigator.serviceWorker.register(...)` until `window` `'load'` (or immediately if `document.readyState === 'complete'`) so SW install never competes with initial LCP/FCP.
+2. In `vite.config.js` `serviceWorkerPlugin()`:
+   - Replace `Date.now().toString(36)` with a deterministic 12-char SHA-256 hash (`crypto.createHash('sha256')`) of the sorted `allAssets` manifest list (so identical builds produce byte-identical `sw.js`).
+   - Exclude the lazy `vendor-*.js` (Chart.js) chunk from the synchronous install-time precache list (let `cacheFirstNetworkFallback` cache it on first Compute, or warm it opportunistically after `activate` on idle) so first-visit SW install doesn't eagerly download 200 KB of unused JS.
+3. In `app/sw.js` `handleInstall()`:
+   - For immutable Vite-hashed assets (matching `/\/assets\/.+-[A-Za-z0-9_-]{8}\./`), check `await caches.match(url)` across existing `ballistics-sw-*` caches first; if already present, `cache.put(url, cached)` directly instead of re-fetching over the network. Fall back to `cache.add(url)` only on a cache miss.
+4. Remove the duplicate root files `app/apple-touch-icon.png` and `app/favicon.svg` (keep `app/public/apple-touch-icon.png` and `app/public/favicon.svg`), and fold `initTools()` into `app/ballistics.js` `init()` so the redundant inline `<script type="module">` block at `app/index.html:507-510` is removed.
+
+**Coverage:** 100% Jest (`tests/sw.test.js`, `tests/ballistics.test.js`, `tests/index-html.test.js`). Tests: (a) SW registration waits for `load` when `readyState !== 'complete'` and registers immediately when `'complete'`; (b) `handleInstall` copies already-cached immutable hashed assets without calling `fetch`/`cache.add` and fetches uncached or unhashed URLs normally; (c) deterministic build check verifies two back-to-back builds produce identical `dist/sw.js`.
+
+**Acceptance:**
+
+- First-visit cold load (Fast 4G): zero SW precache requests fire before `window.load`; `vendor-*.js` is not downloaded until Compute is clicked.
+- Deploying a UI-only change to `ballistics.js` causes returning visitors' SW update to fetch only the changed entry chunk + `index.html` (~15–25 KB) instead of re-fetching fonts and unchanged chunks (~300 KB).
+- Two consecutive `npm run build` runs emit byte-identical `dist/sw.js`.
+- `app/index.html` contains only one `<script type="module">` tag.
+- `npm test` passes at 100/100/100/100.
+
+---
+
+### PERF-25 · CSS compositor & paint hygiene · FE · Size XS [Should Have]
+
+Audit of `app/ballistics.css` revealed four concrete layout/paint inefficiencies:
+1. `body::before` (`app/ballistics.css:138-151`) renders a full-viewport `position: fixed; z-index: 9999` `repeating-linear-gradient` scanline overlay without layer promotion or containment, forcing full-viewport alpha compositing/repainting over scrolling panels and animating canvases on lower-end GPUs.
+2. Ten rules use `transition: all 0.15s` (lines 291, 408, 461, 775, 794, 822, 840, 1128, 1167, 1208), and `.bullet-card::before` (line 303) animates layout-triggering `width: 3px → 4px` instead of compositor-only `transform: scaleX(...)`.
+3. `PERF-10` added `contain-intrinsic-block-size: auto 380px` on `.chart-panel` (line 488), but the `@media (max-width: 900px)` (line 729) and `@media (max-width: 500px)` (line 735) breakpoints shrink `.chart-wrap` height without overriding `contain-intrinsic-block-size`, causing scrollbar jumps on mobile.
+4. `#dataTable` uses default `table-layout: auto` (two-pass column sizing on every table render/sort), and `.empty-state .crosshair-big svg` runs an infinite 20 s rotation animation without a `@media (prefers-reduced-motion: reduce)` pause.
+
+**Work items:**
+
+1. On `body::before`, add `contain: strict; will-change: transform;` (or `transform: translateZ(0)`) so the scanline overlay stays on an isolated compositor layer and never invalidates paint on scroll/chart redraws.
+2. Replace all 10 `transition: all 0.15s` declarations with explicit paint-cheap property lists (e.g., `transition: border-color 0.15s, background-color 0.15s, color 0.15s`).
+3. Refactor `.bullet-card::before` to fixed `width: 4px; transform: scaleX(0.75); transform-origin: left; transition: transform 0.2s;` and `.bullet-card.active::before { transform: scaleX(1); }` so bullet selection animates strictly on the compositor thread.
+4. Add measured `contain-intrinsic-block-size` overrides for `.chart-panel` inside `@media (max-width: 900px)` (`auto 340px`) and `@media (max-width: 500px)` (`auto 320px`).
+5. Add `table-layout: fixed;` with explicit `<colgroup>` / column widths on `#dataTable` so large table renders skip two-pass intrinsic column measurement.
+6. Extend `@media (prefers-reduced-motion: reduce)` (`app/ballistics.css:1374`) to disable `.empty-state .crosshair-big svg` animation and sidebar/button transitions.
+
+**Coverage:** CSS-only change (plus optional `<colgroup>` in `app/index.html`). Existing JS coverage stays at 100/100/100/100; add a lightweight regex check in `tests/` (or verify in PR) that `transition: all` count in `app/ballistics.css` is `0`.
+
+**Acceptance:**
+
+- `grep -c 'transition: all' app/ballistics.css` returns `0`.
+- DevTools Rendering → "Paint flashing" shows scrolling `.chart-container` and toggling `.bullet-card` no longer flashes the full viewport or sibling cards.
+- Mobile (≤500 px) scrolling through chart panels shows no scrollbar jump as off-screen panels enter view.
+- `prefers-reduced-motion: reduce` stops the empty-state SVG spin animation.
+- `npm test` passes at 100/100/100/100.
+
+---

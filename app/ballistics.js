@@ -64,6 +64,35 @@ function csvCell(str) {
   return /^[=+\-@\t\r]/.test(s) ? `"'${s}"` : `"${s}"`;
 }
 
+// ── Cached number formatter (PERF-22) ─────────────────────────────────────────
+const _numFmt = new Intl.NumberFormat();
+
+// ── Debounce utility with flush/cancel (PERF-23) ──────────────────────────────
+function debounce(fn, delayMs) {
+  let timerId = null;
+  function debounced() {
+    if (timerId !== null) clearTimeout(timerId);
+    timerId = setTimeout(() => {
+      timerId = null;
+      fn();
+    }, delayMs);
+  }
+  debounced.flush = () => {
+    if (timerId !== null) {
+      clearTimeout(timerId);
+      timerId = null;
+      fn();
+    }
+  };
+  debounced.cancel = () => {
+    if (timerId !== null) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+  };
+  return debounced;
+}
+
 // ── Module state ──────────────────────────────────────────────────────────────
 const CUSTOM_DRAG_TABLE_KEY = 'ballistics.customDragTable';
 let _customDragTable = null;
@@ -72,39 +101,64 @@ let bullets = [];
 let selectedIds = new Set();
 let lastResults = [];
 let charts = {};
+let _chartMeta = {};
+const TRAJECTORY_CHART_IDS = ['dropChart', 'velocityChart', 'energyChart', 'windChart', 'adjustChart'];
 
 // Memoised chart.js import — resolved once, reused on every renderResults /
 // renderSweepCharts call, so Chart.register() fires at most once per page load.
+// Evicts the cached promise on rejection so subsequent clicks can retry (PERF-23).
 let _chartModPromise = null;
 function _loadChart() {
   if (!_chartModPromise) {
     _chartModPromise = import('chart.js').then(mod => {
       mod.Chart.register(
         mod.LineController, mod.LineElement, mod.PointElement,
-        mod.LinearScale, mod.CategoryScale, mod.Tooltip, mod.Legend,
+        mod.LinearScale, mod.Decimation, mod.Tooltip, mod.Legend,
       );
       return mod;
+    }).catch(err => {
+      _chartModPromise = null;
+      throw err;
     });
   }
   return _chartModPromise;
 }
+
+/** Kick off the Chart.js chunk import early without throwing on failure (PERF-23). */
+function _warmChart() {
+  return _loadChart().catch(() => {});
+}
+
+const CHART_LOAD_ERROR_MSG = "Couldn't load the chart library. Check your connection and try again.";
 
 // UX-1: Custom bullet catalog state
 let customRecords       = [];    // CustomBulletRecordV1[] — mirror of storage
 let customStorageStatus = 'ok';  // 'ok' | 'empty' | 'corrupt' | 'unavailable'
 let editingCustomId     = null;  // string | null
 let pendingDeleteId     = null;  // string | null
-// Crosshair state (task 5)
-let crosshairIndex  = null;  // data-point index currently under the cursor
-let crosshairPinned = false; // true after user clicks a range to lock the readout
-// Table sort state (FE-3)
-let sortColumn    = null;   // string | null
-let sortDirection = 'asc';  // 'asc' | 'desc'
-let tableResults  = null;   // results last passed to renderTable
+// Crosshair state (task 5 + PERF-20 rAF coalescing)
+let crosshairIndex    = null;  // data-point index currently under the cursor
+let crosshairPinned   = false; // true after user clicks a range to lock the readout
+let _crosshairRafId   = null;
+let _pendingCrosshair = null;
+// Table sort & lazy-render state (FE-3 + PERF-22)
+let sortColumn       = null;   // string | null
+let sortDirection    = 'asc';  // 'asc' | 'desc'
+let tableResults     = null;   // results last passed to renderTable / renderResults
+let _tableDirty      = false;
+let _dopeDirty       = false;
+let _pendingDopeReq  = null;
+let _cachedTableRows = null;
+let _tableChunkRafId = null;
+const TABLE_CHUNK_THRESHOLD = 500;
+const TABLE_CHUNK_SIZE      = 250;
 // Sweep state (MH-4)
 let sweepMode    = false;
 let sweepResults = null;
 let lastReq      = null;
+// Input persistence cache & debouncer (PERF-23)
+let _lastSavedPrefs = new Map();
+const _persistInputs = debounce(() => { savePrefs(); syncUrl(); }, 200);
 
 // ── Custom drag table helpers ─────────────────────────────────────────────────
 function _updateDragTableStatus(fileName, rowCount) {
@@ -267,6 +321,7 @@ function _setSimulationError(message) {
 // ── Simulation ────────────────────────────────────────────────────────────────
 async function runSimulation() {
   if (selectedIds.size === 0) { return; }
+  _persistInputs.flush();
   _setSimulationError(null);
 
   const latRaw = document.getElementById('latitudeDeg')?.value;
@@ -277,6 +332,7 @@ async function runSimulation() {
   const btn = document.getElementById('runBtn');
   btn.classList.add('loading');
   _setSimStatus('Computing trajectories…');
+  _warmChart();
 
   const twistRaw = document.getElementById('twistRate')?.value;
   const req = {
@@ -555,6 +611,8 @@ function showCustomError(msg) {
 }
 
 async function runCustom() {
+  _persistInputs.flush();
+  _setSimulationError(null);
   const name   = document.getElementById('customName').value.trim() || 'Custom Load';
   const weight = +document.getElementById('customWeight').value;
   const mv     = +document.getElementById('customMV').value;
@@ -571,6 +629,7 @@ async function runCustom() {
   if (latRawC && (+latRawC < -90 || +latRawC > 90)) return showCustomError('Latitude must be between −90 and 90');
   if (azRawC  && (+azRawC  < 0  || +azRawC  > 360)) return showCustomError('Azimuth must be between 0 and 360');
   showCustomError('');
+  _warmChart();
 
   const req = {
     name:                  name,
@@ -774,8 +833,64 @@ function updateReadout(results, dataIndex) {
   panel.style.display = 'block';
 }
 
+// ── Crosshair rAF coalescing & shared click handler (PERF-20) ────────────────
+function _cancelCrosshairRaf() {
+  if (_crosshairRafId !== null) {
+    cancelAnimationFrame(_crosshairRafId);
+    _crosshairRafId = null;
+  }
+  _pendingCrosshair = null;
+}
+
+function scheduleCrosshairSync(nextIndex, sourceChartId, results) {
+  if (nextIndex === crosshairIndex) return;
+  crosshairIndex = nextIndex;
+  _pendingCrosshair = { index: nextIndex, sourceChartId, results };
+  if (_crosshairRafId === null) {
+    _crosshairRafId = requestAnimationFrame(() => {
+      _crosshairRafId = null;
+      const { index, sourceChartId: srcId, results: res } = _pendingCrosshair;
+      _pendingCrosshair = null;
+      if (index !== null) {
+        updateReadout(res, index);
+      } else {
+        const panel = document.getElementById('rangeReadout');
+        /* istanbul ignore else -- #rangeReadout is always present in the app shell */
+        if (panel) panel.style.display = 'none';
+      }
+      const sourceChart = charts[srcId];
+      Object.values(charts).forEach(c => {
+        if (c !== sourceChart) c.update('none');
+      });
+    });
+  }
+}
+
+function _handleChartClick(elements, results) {
+  if (elements.length === 0) return;
+  _cancelCrosshairRaf();
+  crosshairPinned = !crosshairPinned;
+  const btn = document.getElementById('readoutPin');
+  /* istanbul ignore else -- #readoutPin is always present in the app shell */
+  if (btn) {
+    btn.textContent = crosshairPinned ? 'UNPIN' : 'PIN';
+    btn.classList.toggle('pinned', crosshairPinned);
+  }
+  if (crosshairPinned) {
+    crosshairIndex = elements[0].index;
+    updateReadout(results, crosshairIndex);
+  } else {
+    crosshairIndex = null;
+    const panel = document.getElementById('rangeReadout');
+    /* istanbul ignore else -- #rangeReadout is always present in the app shell */
+    if (panel) panel.style.display = 'none';
+  }
+  Object.values(charts).forEach(c => c.update('none'));
+}
+
 // ── Reset crosshair to initial (no hover, no pin) ────────────────────────────
 function resetCrosshairState() {
+  _cancelCrosshairRaf();
   crosshairIndex  = null;
   crosshairPinned = false;
   const pinBtn = document.getElementById('readoutPin');
@@ -786,9 +901,26 @@ function resetCrosshairState() {
   if (readout) readout.style.display = 'none';
 }
 
+// ── Chart performance helpers (PERF-21) ──────────────────────────────────────
+function _prefersReducedMotion() {
+  return typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function _chartAnimation(datasets) {
+  if (_prefersReducedMotion()) return false;
+  let total = 0;
+  for (const ds of datasets) total += ds.data.length;
+  return total > 1000 ? false : { duration: 250 };
+}
+
+function _lineTension(points) {
+  return points.length > 200 ? 0 : 0.3;
+}
+
 // ── Render per-bullet stat cards into container ───────────────────────────────
-function renderStatCards(results, container) {
-  container.insertAdjacentHTML('beforeend', `
+function _statCardsHtml(results) {
+  return `
     <div class="stats-grid">
       ${results.map(r => {
         const color = colorFor(r.bullet);
@@ -798,16 +930,20 @@ function renderStatCards(results, container) {
         return `
         <div class="stat-card" style="--bullet-color:${color}">
           <div class="stat-label" style="color:${color}">${escapeHtml(r.bullet.name)}</div>
-          <div class="stat-value">${Number(r.bullet.muzzleVelocityMps).toLocaleString()}</div>
+          <div class="stat-value">${_numFmt.format(Number(r.bullet.muzzleVelocityMps))}</div>
           <div class="stat-unit">MV m/s &nbsp;·&nbsp; BC ${Number(r.bullet.ballisticCoefficient)} &nbsp;·&nbsp; ${Number(r.bullet.bulletWeightGrams)}g</div>
           <div style="margin-top:8px; font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--text-dim); letter-spacing:1px; line-height:1.8">
-            <span style="color:var(--text)">⚡ ${Number(r.bullet.muzzleEnergyJoules).toLocaleString()}</span> J muzzle energy<br>
+            <span style="color:var(--text)">⚡ ${_numFmt.format(Number(r.bullet.muzzleEnergyJoules))}</span> J muzzle energy<br>
             <span style="color:var(--text)">${Number(r.supersonicLimitMeters)}</span> m supersonic${daLine}<br>
             <span style="color:var(--text)">${Number(r.maxOrdinateCm)}</span> cm max ordinate @ ${Number(r.maxOrdinateRangeMeters)} m
           </div>
         </div>`;
       }).join('')}
-    </div>`);
+    </div>`;
+}
+
+function renderStatCards(results, container) {
+  container.insertAdjacentHTML('beforeend', _statCardsHtml(results));
 }
 
 /**
@@ -833,49 +969,24 @@ function buildChartConfig(def, datasets, results) {
       }
     };
   }
+  const getResults = () => _chartMeta[def.id]?.results ?? results;
   return {
     type: 'line',
     data: { datasets },
     plugins: [crosshairPlugin, annotationPlugin(def.annotations ?? [])],
     options: {
-      responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
+      responsive: true, maintainAspectRatio: false,
+      parsing: false, normalized: true,
+      animation: _chartAnimation(datasets),
       events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
       interaction: { mode: 'nearest', intersect: false },
       onHover: (event, elements) => {
         if (crosshairPinned) return;
-        if (elements.length > 0) {
-          crosshairIndex = elements[0].index;
-          updateReadout(results, crosshairIndex);
-        } else {
-          crosshairIndex = null;
-          const panel = document.getElementById('rangeReadout');
-          /* istanbul ignore else -- #rangeReadout is always present in the app shell */
-          if (panel) panel.style.display = 'none';
-        }
-        // Sync crosshair across all other charts
-        Object.values(charts).forEach(c => {
-          if (c !== charts[def.id]) c.update('none');
-        });
+        const nextIndex = elements.length > 0 ? elements[0].index : null;
+        scheduleCrosshairSync(nextIndex, def.id, getResults());
       },
       onClick: (event, elements) => {
-        if (elements.length === 0) return;
-        crosshairPinned = !crosshairPinned;
-        const btn = document.getElementById('readoutPin');
-        /* istanbul ignore else -- #readoutPin is always present in the app shell */
-        if (btn) {
-          btn.textContent = crosshairPinned ? 'UNPIN' : 'PIN';
-          btn.classList.toggle('pinned', crosshairPinned);
-        }
-        if (crosshairPinned) {
-          crosshairIndex = elements[0].index;
-          updateReadout(results, crosshairIndex);
-        } else {
-          crosshairIndex = null;
-          const panel = document.getElementById('rangeReadout');
-          /* istanbul ignore else -- #rangeReadout is always present in the app shell */
-          if (panel) panel.style.display = 'none';
-        }
-        Object.values(charts).forEach(c => c.update('none'));
+        _handleChartClick(elements, getResults());
       },
       scales: {
         x: {
@@ -893,6 +1004,7 @@ function buildChartConfig(def, datasets, results) {
         }
       },
       plugins: {
+        decimation: { enabled: true, algorithm: 'lttb', samples: 250, threshold: 250 },
         legend: {
           labels: {
             color: '#c8dde8', font: { family: 'Rajdhani', size: 12, weight: '600' },
@@ -921,25 +1033,114 @@ function windChartSubtitle(req) {
   return `${req.windSpeedKph} km/h from ${label}`;
 }
 
-// ── Results rendering (~30-line orchestrator) ─────────────────────────────────
+/** Build datasets for one standard trajectory chart definition. */
+function _buildTrajectoryDatasets(def, results) {
+  const datasets = results.map(r => ({
+    label:            r.bullet.name,
+    data:             r.points.map(p => ({ x: p.rangeMeters, y: p[def.key] })),
+    borderColor:      colorFor(r.bullet),
+    backgroundColor:  'transparent',
+    borderWidth:      2,
+    pointRadius:      0,
+    pointHoverRadius: 4,
+    tension:          _lineTension(r.points)
+  }));
+
+  // SH-1 FE: add spin drift as dashed series on the wind drift chart
+  if (def.id === 'windChart') {
+    const hasSpinDrift = results.some(r => r.points.some(p => p.spinDriftCm));
+    if (hasSpinDrift) {
+      results.forEach(r => {
+        datasets.push({
+          label:            r.bullet.name + ' (spin drift)',
+          data:             r.points.map(p => ({ x: p.rangeMeters, y: p.spinDriftCm ?? 0 })),
+          borderColor:      colorFor(r.bullet),
+          backgroundColor:  'transparent',
+          borderWidth:      1.5,
+          borderDash:       [5, 5],
+          pointRadius:      0,
+          pointHoverRadius: 4,
+          tension:          _lineTension(r.points),
+        });
+      });
+    }
+    // WA-13: add Coriolis drift series when present
+    const hasCoriolisDrift = results.some(r => r.points.some(p => p.coriolisDeflectionCm));
+    if (hasCoriolisDrift) {
+      results.forEach(r => {
+        datasets.push({
+          label:            r.bullet.name + ' (coriolis)',
+          data:             r.points.map(p => ({ x: p.rangeMeters, y: p.coriolisDeflectionCm ?? 0 })),
+          borderColor:      colorFor(r.bullet),
+          backgroundColor:  'transparent',
+          borderWidth:      1.5,
+          borderDash:       [2, 4],
+          pointRadius:      0,
+          pointHoverRadius: 4,
+          tension:          _lineTension(r.points),
+        });
+      });
+    }
+  }
+  return datasets;
+}
+
+/** Build MOA + MRAD datasets in a single computeAdjustments pass per point (PERF-21). */
+function _buildAdjustmentDatasets(results) {
+  const moaDatasets  = [];
+  const mradDatasets = [];
+  results.forEach(r => {
+    const color   = colorFor(r.bullet);
+    const tension = _lineTension(r.points);
+    const len     = r.points.length;
+    const moaData  = new Array(len);
+    const mradData = new Array(len);
+    for (let i = 0; i < len; i++) {
+      const p = r.points[i];
+      const a = computeAdjustments(p.dropCm, p.rangeMeters);
+      moaData[i]  = { x: p.rangeMeters, y: a.moa };
+      mradData[i] = { x: p.rangeMeters, y: a.mrad };
+    }
+    moaDatasets.push({
+      label:            r.bullet.name + ' MOA',
+      data:             moaData,
+      borderColor:      color,
+      backgroundColor:  'transparent',
+      borderWidth:      2,
+      pointRadius:      0,
+      pointHoverRadius: 4,
+      tension,
+      yAxisID:          'yMoa',
+    });
+    mradDatasets.push({
+      label:            r.bullet.name + ' MRAD',
+      data:             mradData,
+      borderColor:      color,
+      backgroundColor:  'transparent',
+      borderWidth:      1.5,
+      borderDash:       [4, 4],
+      pointRadius:      0,
+      pointHoverRadius: 4,
+      tension,
+      yAxisID:          'yMrad',
+    });
+  });
+  return [...moaDatasets, ...mradDatasets];
+}
+
+// ── Results rendering ─────────────────────────────────────────────────────────
 async function renderResults(rawResults, req) {
   const results = rawResults.filter(r => r?.bullet);
   document.getElementById('emptyState').style.display = 'none';
   const rc = document.getElementById('resultsContainer');
   rc.style.display = 'flex';
   const cc = document.getElementById('chartContainer');
-  cc.innerHTML = '';
   // Update drag model status pill
   const modelEl = document.getElementById('modelStatus');
   /* istanbul ignore else -- #modelStatus is always present in the app shell */
   if (modelEl) modelEl.textContent = `MODEL: ${req.customDragTable?.length ? 'CUSTOM' : (req.dragModel ?? 'G1')}`;
 
-  Object.values(charts).forEach(c => c.destroy());
-  charts = {};
-
   resetCrosshairState();
-  renderStatCards(results, cc);
-
 
   // Build annotation arrays from the first result (annotations are per-simulation)
   const first = results[0];
@@ -957,187 +1158,167 @@ async function renderResults(rawResults, req) {
     : [];
 
   const chartDefs = [
-    { id: 'dropChart',     title: 'BULLET DROP',         subtitle: `zeroed at ${req.zeroRangeMeters} m`, yLabel: 'Drop (cm)',       key: 'dropCm',       annotations: dropAnns },
-    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: 'm/s downrange',                      yLabel: 'Velocity (m/s)', key: 'velocityMps',  annotations: sonicAnn,
+    { id: 'dropChart',     title: 'BULLET DROP',         subtitle: `zeroed at ${req.zeroRangeMeters} m`, yLabel: 'Drop (cm)',       key: 'dropCm',       annotations: [...dropAnns] },
+    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: 'm/s downrange',                      yLabel: 'Velocity (m/s)', key: 'velocityMps',  annotations: [...sonicAnn],
       refLine: { value: 343, label: 'Transonic', color: 'rgba(255,100,0,0.4)' } },
-    { id: 'energyChart',   title: 'KINETIC ENERGY',      subtitle: 'joules downrange',                   yLabel: 'Energy (J)',      key: 'energyJoules', annotations: sonicAnn },
-    { id: 'windChart',     title: 'WIND DRIFT',           subtitle: windChartSubtitle(req), yLabel: 'Drift (cm)',     key: 'windDriftCm',  annotations: sonicAnn }
+    { id: 'energyChart',   title: 'KINETIC ENERGY',      subtitle: 'joules downrange',                   yLabel: 'Energy (J)',      key: 'energyJoules', annotations: [...sonicAnn] },
+    { id: 'windChart',     title: 'WIND DRIFT',           subtitle: windChartSubtitle(req), yLabel: 'Drift (cm)',     key: 'windDriftCm',  annotations: [...sonicAnn] }
   ];
 
-  const { Chart } = await _loadChart();
+  let ChartCtor = null;
+  try {
+    ({ Chart: ChartCtor } = await _loadChart());
+  } catch (_) {
+    _setSimulationError(CHART_LOAD_ERROR_MSG);
+  }
 
-  chartDefs.forEach(def => {
-    cc.insertAdjacentHTML('beforeend', `
-      <div class="chart-panel">
-        <div class="chart-header">
-          <div>
-            <div class="chart-title">${def.title}</div>
-            <div class="chart-subtitle">${def.subtitle}</div>
-          </div>
-          <button class="export-btn" data-chart-id="${def.id}">PNG</button>
-        </div>
-        <div class="chart-wrap"><canvas id="${def.id}"></canvas></div>
-      </div>`);
-    cc.querySelector('.chart-panel:last-child .export-btn')
-      ?.addEventListener('click', () => exportPNG(def.id));
+  if (ChartCtor) {
+    const canReuse = TRAJECTORY_CHART_IDS.every(id => charts[id] && _chartMeta[id] && document.getElementById(id));
 
-    const datasets = results.map(r => ({
-      label:            r.bullet.name,
-      data:             r.points.map(p => ({ x: p.rangeMeters, y: p[def.key] })),
-      borderColor:      colorFor(r.bullet),
-      backgroundColor:  'transparent',
-      borderWidth:      2,
-      pointRadius:      0,
-      pointHoverRadius: 4,
-      tension:          0.3
-    }));
+    if (canReuse) {
+      // PERF-21: update stat cards and existing Chart instances in place
+      const existingStats = cc.querySelector('.stats-grid');
+      /* istanbul ignore else -- .stats-grid is always created on initial renderResults */
+      if (existingStats) existingStats.outerHTML = _statCardsHtml(results);
 
-    // SH-1 FE: add spin drift as dashed series on the wind drift chart
-    if (def.id === 'windChart') {
-      const hasSpinDrift = results.some(r => r.points.some(p => p.spinDriftCm));
-      if (hasSpinDrift) {
-        results.forEach(r => {
-          datasets.push({
-            label:            r.bullet.name + ' (spin drift)',
-            data:             r.points.map(p => ({ x: p.rangeMeters, y: p.spinDriftCm ?? 0 })),
-            borderColor:      colorFor(r.bullet),
-            backgroundColor:  'transparent',
-            borderWidth:      1.5,
-            borderDash:       [5, 5],
-            pointRadius:      0,
-            pointHoverRadius: 4,
-            tension:          0.3,
-          });
-        });
-      }
-      // WA-13: add Coriolis drift series when present
-      const hasCoriolisDrift = results.some(r => r.points.some(p => p.coriolisDeflectionCm));
-      if (hasCoriolisDrift) {
-        results.forEach(r => {
-          datasets.push({
-            label:            r.bullet.name + ' (coriolis)',
-            data:             r.points.map(p => ({ x: p.rangeMeters, y: p.coriolisDeflectionCm ?? 0 })),
-            borderColor:      colorFor(r.bullet),
-            backgroundColor:  'transparent',
-            borderWidth:      1.5,
-            borderDash:       [2, 4],
-            pointRadius:      0,
-            pointHoverRadius: 4,
-            tension:          0.3,
-          });
-        });
-      }
-    }
+      chartDefs.forEach(def => {
+        const subEl = document.getElementById(def.id)?.closest('.chart-panel')?.querySelector('.chart-subtitle');
+        /* istanbul ignore else -- .chart-subtitle is always present inside .chart-panel */
+        if (subEl) subEl.textContent = def.subtitle;
+        const datasets = _buildTrajectoryDatasets(def, results);
+        const meta = _chartMeta[def.id];
+        meta.results = results;
+        meta.annotations.splice(0, meta.annotations.length, ...def.annotations);
+        const anim = _chartAnimation(datasets);
+        charts[def.id].data.datasets = datasets;
+        charts[def.id].options.animation = anim;
+        charts[def.id].update(anim ? undefined : 'none');
+      });
 
-    const ctx = document.getElementById(def.id).getContext('2d');
-    charts[def.id] = new Chart(ctx, buildChartConfig(def, datasets, results));
+      const adjDatasets = _buildAdjustmentDatasets(results);
+      const adjMeta = _chartMeta.adjustChart;
+      adjMeta.results = results;
+      adjMeta.annotations.splice(0, adjMeta.annotations.length, ...sonicAnn);
+      const adjAnim = _chartAnimation(adjDatasets);
+      charts.adjustChart.data.datasets = adjDatasets;
+      charts.adjustChart.options.animation = adjAnim;
+      charts.adjustChart.update(adjAnim ? undefined : 'none');
+    } else {
+      cc.innerHTML = '';
+      Object.values(charts).forEach(c => c.destroy());
+      charts = {};
+      _chartMeta = {};
+      renderStatCards(results, cc);
 
-    // Item 4: forward touchmove as mousemove so the crosshair readout works
-    // on both iOS (unreliable synthetic mouse events) and Android Chrome.
-    // Page scroll is suppressed by touch-action: none on the canvas (CSS),
-    // so the listener is passive.
-    const canvas = document.getElementById(def.id);
-    /* istanbul ignore else -- canvas is always present after chart creation */
-    if (canvas) {
-      _attachTouchForwarder(canvas);
-    }
-  });
+      chartDefs.forEach(def => {
+        cc.insertAdjacentHTML('beforeend', `
+          <div class="chart-panel">
+            <div class="chart-header">
+              <div>
+                <div class="chart-title">${def.title}</div>
+                <div class="chart-subtitle">${def.subtitle}</div>
+              </div>
+              <button class="export-btn" data-chart-id="${def.id}">PNG</button>
+            </div>
+            <div class="chart-wrap"><canvas id="${def.id}"></canvas></div>
+          </div>`);
+        cc.querySelector('.chart-panel:last-child .export-btn')
+          ?.addEventListener('click', () => exportPNG(def.id));
 
-  // MH-1: Elevation adjustment chart — dual y-axis (MOA left, MRAD right)
-  {
-    cc.insertAdjacentHTML('beforeend', `
-      <div class="chart-panel">
-        <div class="chart-header">
-          <div>
-            <div class="chart-title">ELEVATION ADJUSTMENT</div>
-            <div class="chart-subtitle">click-up (MOA / MRAD) vs range</div>
-          </div>
-          <button class="export-btn" data-chart-id="adjustChart">PNG</button>
-        </div>
-        <div class="chart-wrap"><canvas id="adjustChart"></canvas></div>
-      </div>`);
-    cc.querySelector('.chart-panel:last-child .export-btn')
-      ?.addEventListener('click', () => exportPNG('adjustChart'));
+        const datasets = _buildTrajectoryDatasets(def, results);
+        _chartMeta[def.id] = { results, annotations: def.annotations };
+        const ctx = document.getElementById(def.id).getContext('2d');
+        charts[def.id] = new ChartCtor(ctx, buildChartConfig(def, datasets, results));
 
-    const moaDatasets = results.map(r => ({
-      label:            r.bullet.name + ' MOA',
-      data:             r.points.map(p => { const a = computeAdjustments(p.dropCm, p.rangeMeters); return { x: p.rangeMeters, y: a.moa }; }),
-      borderColor:      colorFor(r.bullet),
-      backgroundColor:  'transparent',
-      borderWidth:      2,
-      pointRadius:      0,
-      pointHoverRadius: 4,
-      tension:          0.3,
-      yAxisID:          'yMoa',
-    }));
-    const mradDatasets = results.map(r => ({
-      label:            r.bullet.name + ' MRAD',
-      data:             r.points.map(p => { const a = computeAdjustments(p.dropCm, p.rangeMeters); return { x: p.rangeMeters, y: a.mrad }; }),
-      borderColor:      colorFor(r.bullet),
-      backgroundColor:  'transparent',
-      borderWidth:      1.5,
-      borderDash:       [4, 4],
-      pointRadius:      0,
-      pointHoverRadius: 4,
-      tension:          0.3,
-      yAxisID:          'yMrad',
-    }));
+        // Item 4: forward touchmove as mousemove so the crosshair readout works
+        // on both iOS (unreliable synthetic mouse events) and Android Chrome.
+        // Page scroll is suppressed by touch-action: none on the canvas (CSS),
+        // so the listener is passive.
+        const canvas = document.getElementById(def.id);
+        /* istanbul ignore else -- canvas is always present after chart creation */
+        if (canvas) {
+          _attachTouchForwarder(canvas);
+        }
+      });
 
-    const adjCtx = document.getElementById('adjustChart').getContext('2d');
-    charts['adjustChart'] = new Chart(adjCtx, {
-      type: 'line',
-      data: { datasets: [...moaDatasets, ...mradDatasets] },
-      plugins: [crosshairPlugin, annotationPlugin(sonicAnn)],
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
-        events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
-        interaction: { mode: 'nearest', intersect: false },
-        onHover: (event, elements) => {
-          if (crosshairPinned) return;
-          if (elements.length > 0) {
-            crosshairIndex = elements[0].index;
-            updateReadout(results, crosshairIndex);
-          } else {
-            crosshairIndex = null;
-            const panel = document.getElementById('rangeReadout');
-            /* istanbul ignore else */
-            if (panel) panel.style.display = 'none';
+      // MH-1: Elevation adjustment chart — dual y-axis (MOA left, MRAD right)
+      {
+        cc.insertAdjacentHTML('beforeend', `
+          <div class="chart-panel">
+            <div class="chart-header">
+              <div>
+                <div class="chart-title">ELEVATION ADJUSTMENT</div>
+                <div class="chart-subtitle">click-up (MOA / MRAD) vs range</div>
+              </div>
+              <button class="export-btn" data-chart-id="adjustChart">PNG</button>
+            </div>
+            <div class="chart-wrap"><canvas id="adjustChart"></canvas></div>
+          </div>`);
+        cc.querySelector('.chart-panel:last-child .export-btn')
+          ?.addEventListener('click', () => exportPNG('adjustChart'));
+
+        const adjDatasets = _buildAdjustmentDatasets(results);
+        const adjAnns = [...sonicAnn];
+        _chartMeta.adjustChart = { results, annotations: adjAnns };
+
+        const adjCtx = document.getElementById('adjustChart').getContext('2d');
+        charts['adjustChart'] = new ChartCtor(adjCtx, {
+          type: 'line',
+          data: { datasets: adjDatasets },
+          plugins: [crosshairPlugin, annotationPlugin(adjAnns)],
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            parsing: false, normalized: true,
+            animation: _chartAnimation(adjDatasets),
+            events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
+            interaction: { mode: 'nearest', intersect: false },
+            onHover: (event, elements) => {
+              if (crosshairPinned) return;
+              const nextIndex = elements.length > 0 ? elements[0].index : null;
+              scheduleCrosshairSync(nextIndex, 'adjustChart', _chartMeta.adjustChart.results);
+            },
+            onClick: (event, elements) => {
+              _handleChartClick(elements, _chartMeta.adjustChart.results);
+            },
+            scales: {
+              x:     { type: 'linear', title: { display: true, text: 'Range (m)', color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { color: 'rgba(30,48,64,0.6)' }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
+              yMoa:  { type: 'linear', position: 'left',  title: { display: true, text: 'MOA',  color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { color: 'rgba(30,48,64,0.6)' }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
+              yMrad: { type: 'linear', position: 'right', title: { display: true, text: 'MRAD', color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { drawOnChartArea: false }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
+            },
+            plugins: {
+              decimation: { enabled: true, algorithm: 'lttb', samples: 250, threshold: 250 },
+              legend:  { labels: { color: '#c8dde8', font: { family: 'Rajdhani', size: 12, weight: '600' }, usePointStyle: true, pointStyleWidth: 12 } },
+              tooltip: { backgroundColor: '#141d26', borderColor: '#1e3040', borderWidth: 1, titleFont: { family: 'Share Tech Mono', size: 10 }, bodyFont: { family: 'Share Tech Mono', size: 10 }, titleColor: '#00d4ff', bodyColor: '#c8dde8', padding: 10, displayColors: true },
+            }
           }
-          Object.values(charts).forEach(c => { if (c !== charts['adjustChart']) c.update('none'); });
-        },
-        onClick: (event, elements) => {
-          if (elements.length === 0) return;
-          crosshairPinned = !crosshairPinned;
-          const btn = document.getElementById('readoutPin');
-          /* istanbul ignore else */
-          if (btn) { btn.textContent = crosshairPinned ? 'UNPIN' : 'PIN'; btn.classList.toggle('pinned', crosshairPinned); }
-          if (crosshairPinned) { crosshairIndex = elements[0].index; updateReadout(results, crosshairIndex); }
-          else { crosshairIndex = null; const panel = document.getElementById('rangeReadout'); /* istanbul ignore else */ if (panel) panel.style.display = 'none'; }
-          Object.values(charts).forEach(c => c.update('none'));
-        },
-        scales: {
-          x:     { type: 'linear', title: { display: true, text: 'Range (m)', color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { color: 'rgba(30,48,64,0.6)' }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
-          yMoa:  { type: 'linear', position: 'left',  title: { display: true, text: 'MOA',  color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { color: 'rgba(30,48,64,0.6)' }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
-          yMrad: { type: 'linear', position: 'right', title: { display: true, text: 'MRAD', color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { drawOnChartArea: false }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
-        },
-        plugins: {
-          legend:  { labels: { color: '#c8dde8', font: { family: 'Rajdhani', size: 12, weight: '600' }, usePointStyle: true, pointStyleWidth: 12 } },
-          tooltip: { backgroundColor: '#141d26', borderColor: '#1e3040', borderWidth: 1, titleFont: { family: 'Share Tech Mono', size: 10 }, bodyFont: { family: 'Share Tech Mono', size: 10 }, titleColor: '#00d4ff', bodyColor: '#c8dde8', padding: 10, displayColors: true },
+        });
+
+        const adjCanvas = document.getElementById('adjustChart');
+        /* istanbul ignore else */
+        if (adjCanvas) {
+          _attachTouchForwarder(adjCanvas);
         }
       }
-    });
-
-    const adjCanvas = document.getElementById('adjustChart');
-    /* istanbul ignore else */
-    if (adjCanvas) {
-      _attachTouchForwarder(adjCanvas);
     }
   }
 
+  // PERF-22: defer hidden-tab Data Table and DOPE card renders until their tab activates
   sortColumn = null;
   sortDirection = 'asc';
-  renderTable(results);
-  renderDopeCard(results, req);
+  tableResults = results;
+  _cachedTableRows = null;
+  _pendingDopeReq = req;
+  _tableDirty = true;
+  _dopeDirty = true;
+
+  if (document.getElementById('dataPanel')?.classList.contains('active')) {
+    _tableDirty = false;
+    renderTable(results);
+  }
+  if (document.getElementById('toolsPanel')?.classList.contains('active')) {
+    _dopeDirty = false;
+    renderDopeCard(results, req);
+  }
 }
 
 // ── Data table ────────────────────────────────────────────────────────────────
@@ -1152,8 +1333,32 @@ const SORTABLE_COLUMNS = Object.freeze({
   mrad:      (p, adj) => adj.mrad,
 });
 
+function _cancelTableChunkRaf() {
+  if (_tableChunkRafId !== null) {
+    cancelAnimationFrame(_tableChunkRafId);
+    _tableChunkRafId = null;
+  }
+}
+
+function _formatTableRow({ p, adj, color, escapedName }, showSpinDrift, showCoriolis) {
+  return `
+        <tr>
+          <td><span class="bullet-tag" style="background:${color}"></span>${escapedName}</td>
+          <td>${p.rangeMeters}</td>
+          <td>${p.dropCm > 0 ? '+' : ''}${p.dropCm} cm</td>
+          <td>${_numFmt.format(p.velocityMps)}</td>
+          <td>${_numFmt.format(p.energyJoules)}</td>
+          <td>${p.windDriftCm > 0 ? '+' : ''}${p.windDriftCm} cm</td>
+          <td>${p.timeOfFlightSec}s</td>
+          <td>${adj.moa > 0 ? '+' : ''}${adj.moa}</td>
+          <td>${adj.mrad > 0 ? '+' : ''}${adj.mrad}</td>
+          ${showSpinDrift ? `<td>${(p.spinDriftCm ?? 0).toFixed(1)} cm</td>` : ''}
+          ${showCoriolis ? `<td>${(p.coriolisDeflectionCm ?? 0) >= 0 ? '+' : ''}${(p.coriolisDeflectionCm ?? 0).toFixed(1)} cm</td>` : ''}
+        </tr>`;
+}
+
 function renderTable(results) {
-  tableResults = results;
+  _cancelTableChunkRaf();
   const tbody = document.getElementById('tableBody');
 
   const showSpinDrift = results.some(r => r.points.some(p => p.spinDriftCm > 0));
@@ -1166,13 +1371,21 @@ function renderTable(results) {
   /* istanbul ignore else -- #coriolisColHeader is always present in the app shell */
   if (coriolisHeader) coriolisHeader.style.display = showCoriolis ? '' : 'none';
 
-  let rows = [];
-  results.forEach(r => {
-    r.points.forEach(p => {
-      const adj = computeAdjustments(p.dropCm, p.rangeMeters);
-      rows.push({ r, p, adj });
+  // PERF-22: cache precomputed row objects across sort clicks for the same results
+  if (results !== tableResults || _cachedTableRows === null) {
+    tableResults = results;
+    _cachedTableRows = [];
+    results.forEach(r => {
+      const color       = colorFor(r.bullet);
+      const escapedName = escapeHtml(r.bullet.name);
+      r.points.forEach(p => {
+        const adj = computeAdjustments(p.dropCm, p.rangeMeters);
+        _cachedTableRows.push({ r, p, adj, color, escapedName });
+      });
     });
-  });
+  }
+
+  const rows = sortColumn !== null ? [..._cachedTableRows] : _cachedTableRows;
 
   if (sortColumn !== null) {
     const getValue = SORTABLE_COLUMNS[sortColumn];
@@ -1189,24 +1402,27 @@ function renderTable(results) {
     });
   }
 
-  const html = rows.map(({ r, p, adj }) => {
-    const color = colorFor(r.bullet);
-    return `
-        <tr>
-          <td><span class="bullet-tag" style="background:${color}"></span>${escapeHtml(r.bullet.name)}</td>
-          <td>${p.rangeMeters}</td>
-          <td>${p.dropCm > 0 ? '+' : ''}${p.dropCm} cm</td>
-          <td>${p.velocityMps.toLocaleString()}</td>
-          <td>${p.energyJoules.toLocaleString()}</td>
-          <td>${p.windDriftCm > 0 ? '+' : ''}${p.windDriftCm} cm</td>
-          <td>${p.timeOfFlightSec}s</td>
-          <td>${adj.moa > 0 ? '+' : ''}${adj.moa}</td>
-          <td>${adj.mrad > 0 ? '+' : ''}${adj.mrad}</td>
-          ${showSpinDrift ? `<td>${(p.spinDriftCm ?? 0).toFixed(1)} cm</td>` : ''}
-          ${showCoriolis ? `<td>${(p.coriolisDeflectionCm ?? 0) >= 0 ? '+' : ''}${(p.coriolisDeflectionCm ?? 0).toFixed(1)} cm</td>` : ''}
-        </tr>`;
-  });
-  tbody.innerHTML = html.join('');
+  if (rows.length <= TABLE_CHUNK_THRESHOLD) {
+    tbody.innerHTML = rows.map(row => _formatTableRow(row, showSpinDrift, showCoriolis)).join('');
+  } else {
+    // PERF-22: render first chunk synchronously and stream remaining rows via rAF
+    let offset = TABLE_CHUNK_SIZE;
+    tbody.innerHTML = rows.slice(0, offset).map(row => _formatTableRow(row, showSpinDrift, showCoriolis)).join('');
+    const appendChunk = () => {
+      _tableChunkRafId = null;
+      const end = Math.min(offset + TABLE_CHUNK_SIZE, rows.length);
+      let chunk = '';
+      for (let i = offset; i < end; i++) {
+        chunk += _formatTableRow(rows[i], showSpinDrift, showCoriolis);
+      }
+      tbody.insertAdjacentHTML('beforeend', chunk);
+      offset = end;
+      if (offset < rows.length) {
+        _tableChunkRafId = requestAnimationFrame(appendChunk);
+      }
+    };
+    _tableChunkRafId = requestAnimationFrame(appendChunk);
+  }
   updateSortIndicators();
 }
 
@@ -1266,6 +1482,7 @@ function buildSweepRequests(baseReq, sweepParam, bulletId) {
 
 async function runSweep() {
   if (selectedIds.size === 0) return;
+  _setSimulationError(null);
   const bulletId   = [...selectedIds][0];
   const sweepParam = document.getElementById('sweepParam')?.value ?? 'wind';
   const btn        = document.getElementById('sweepBtn');
@@ -1290,6 +1507,7 @@ async function runSweep() {
 
   if (!bullet) { if (btn) btn.querySelector('span').textContent = 'SWEEP'; return; }
 
+  _warmChart();
   let results;
   try {
     results = await Promise.all(requests.map(r => simulateAsync(bulletForDragModel(bullet, r.dragModel), r)));
@@ -1331,6 +1549,7 @@ async function renderSweepCharts(sweepResultsList, sweepParam) {
 
   Object.values(charts).forEach(c => c.destroy());
   charts = {};
+  _chartMeta = {};
 
   const sweepDefs = [
     { id: 'sweepDropChart', title: 'SWEEP — BULLET DROP', yLabel: 'Drop (cm)',      key: 'dropCm'      },
@@ -1338,7 +1557,13 @@ async function renderSweepCharts(sweepResultsList, sweepParam) {
     { id: 'sweepVelChart',  title: 'SWEEP — VELOCITY',    yLabel: 'Velocity (m/s)', key: 'velocityMps' },
   ];
 
-  const { Chart } = await _loadChart();
+  let ChartCtor;
+  try {
+    ({ Chart: ChartCtor } = await _loadChart());
+  } catch (_) {
+    _setSimulationError(CHART_LOAD_ERROR_MSG);
+    return;
+  }
 
   sweepDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
@@ -1366,11 +1591,11 @@ async function renderSweepCharts(sweepResultsList, sweepParam) {
       borderWidth:      2,
       pointRadius:      0,
       pointHoverRadius: 4,
-      tension:          0.3,
+      tension:          _lineTension(r.points),
     }));
 
     const ctx = document.getElementById(def.id).getContext('2d');
-    charts[def.id] = new Chart(ctx, buildChartConfig(def, datasets, sweepResultsList));
+    charts[def.id] = new ChartCtor(ctx, buildChartConfig(def, datasets, sweepResultsList));
   });
 }
 
@@ -1381,6 +1606,15 @@ function switchTab(name, el) {
   document.getElementById('chartsPanel').classList.toggle('active', name === 'charts');
   document.getElementById('dataPanel').classList.toggle('active', name === 'data');
   document.getElementById('toolsPanel')?.classList.toggle('active', name === 'tools');
+  // PERF-22: flush deferred renders when the user activates Data Table or Tools
+  if (name === 'data' && _tableDirty && tableResults) {
+    _tableDirty = false;
+    renderTable(tableResults);
+  }
+  if (name === 'tools' && _dopeDirty && tableResults) {
+    _dopeDirty = false;
+    renderDopeCard(tableResults, _pendingDopeReq);
+  }
 }
 
 // ── URL state sharing ─────────────────────────────────────────────────────────
@@ -1417,6 +1651,7 @@ function syncUrl() {
 
 /** Click handler for #copyLinkBtn. Returns the promise for tests. */
 async function copyLink() {
+  _persistInputs.flush();
   syncUrl();
   const url = location.origin + location.pathname + '?' + mergeIntoSearch(location.search, currentState());
   try {
@@ -1552,11 +1787,12 @@ function init() {
   updateBulletCards();
   syncRunButton();
 
-  // Persist parameter changes automatically and sync URL
+  // Persist parameter changes automatically and sync URL (debounced, PERF-23)
   const paramInputIds = ['zeroRange','maxRange','windSpeed','windDir','altitude','temperature','step','sightHeight','shootingAngle','dragModel'];
   paramInputIds.forEach(id => {
-    document.getElementById(id)?.addEventListener('input', () => { savePrefs(); syncUrl(); });
+    document.getElementById(id)?.addEventListener('input', _persistInputs, { signal });
   });
+  window.addEventListener('pagehide', () => _persistInputs.flush(), { signal });
 
   // Wire up static event listeners (replaces window.* globals and onclick attrs)
   document.getElementById('runBtn')?.addEventListener('click', () => { closeSidebar(); runSimulation(); });
@@ -1652,12 +1888,12 @@ function init() {
   document.getElementById('sweepBtn')?.addEventListener('click', runSweep);
   document.getElementById('clearSweepBtn')?.addEventListener('click', clearSweep);
 
-  // SH-1 FE: twist rate input persists to URL/prefs
-  document.getElementById('twistRate')?.addEventListener('input', syncUrl);
+  // SH-1 FE: twist rate input persists to URL/prefs (debounced, PERF-23)
+  document.getElementById('twistRate')?.addEventListener('input', _persistInputs, { signal });
 
-  // WA-13: Coriolis inputs persist to URL
-  document.getElementById('latitudeDeg')?.addEventListener('input', syncUrl, { signal });
-  document.getElementById('azimuthDeg')?.addEventListener('input', syncUrl, { signal });
+  // WA-13: Coriolis inputs persist to URL (debounced, PERF-23)
+  document.getElementById('latitudeDeg')?.addEventListener('input', _persistInputs, { signal });
+  document.getElementById('azimuthDeg')?.addEventListener('input', _persistInputs, { signal });
 
   // MH-3, SH-2: Tools tab
   initDopeCard(simulateAsync);
@@ -1804,13 +2040,21 @@ const DOM_ID_FOR_PREF = {
  */
 function savePrefs() {
   try {
-    localStorage.setItem(PREF_KEYS.selectedIds, JSON.stringify([...selectedIds]));
+    const selJson = JSON.stringify([...selectedIds]);
+    if (_lastSavedPrefs.get(PREF_KEYS.selectedIds) !== selJson) {
+      localStorage.setItem(PREF_KEYS.selectedIds, selJson);
+      _lastSavedPrefs.set(PREF_KEYS.selectedIds, selJson);
+    }
     for (const k of Object.keys(PREF_DEFAULTS).filter(k => k !== 'selectedIds')) {
       const domId = DOM_ID_FOR_PREF[k];
       /* istanbul ignore next -- null branch only reached when a pref has no DOM element */
       const value = (domId ? document.getElementById(domId)?.value : null)
                     ?? String(PREF_DEFAULTS[k]);
-      localStorage.setItem(PREF_KEYS[k], value);
+      const storageKey = PREF_KEYS[k];
+      if (_lastSavedPrefs.get(storageKey) !== value) {
+        localStorage.setItem(storageKey, value);
+        _lastSavedPrefs.set(storageKey, value);
+      }
     }
   } catch (e) {
     console.warn('localStorage unavailable — preferences not saved', e);
@@ -2122,14 +2366,19 @@ function _getState()     {
   };
 }
 function _resetState()   {
-  bullets = []; selectedIds = new Set(); lastResults = []; charts = {};
+  _cancelCrosshairRaf();
+  _cancelTableChunkRaf();
+  _persistInputs.cancel();
+  bullets = []; selectedIds = new Set(); lastResults = []; charts = {}; _chartMeta = {};
   crosshairIndex = null; crosshairPinned = false;
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
+  _tableDirty = false; _dopeDirty = false; _pendingDopeReq = null; _cachedTableRows = null;
   sweepMode = false; sweepResults = null; lastReq = null;
   _customDragTable = null;
   customRecords = []; customStorageStatus = 'ok';
   editingCustomId = null; pendingDeleteId = null;
   _chartModPromise = null;
+  _lastSavedPrefs = new Map();
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
 }
 function _setBullets(b)              { bullets = b; }
@@ -2163,7 +2412,8 @@ export {
   updateSweepButtonVisibility, buildSweepRequests, runSweep, clearSweep, renderSweepCharts,
   SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
-  _setSimulationError, _setSimStatus, _loadChart,
+  _setSimulationError, _setSimStatus, _loadChart, _warmChart,
+  scheduleCrosshairSync, debounce, TABLE_CHUNK_THRESHOLD, TABLE_CHUNK_SIZE,
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
   // UX-1 test helpers (openCustomBulletAdd/Edit/close/requestDelete are exported at declaration)
   _setCustomRecords, _setCustomStorageStatus,

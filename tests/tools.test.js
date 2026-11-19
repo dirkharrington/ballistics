@@ -274,6 +274,27 @@ describe('interpolateAt', () => {
     const p = [{ rangeMeters: 0, dropCm: 0 }, { rangeMeters: 100 }];
     expect(interpolateAt(p, 150, 'dropCm')).toBeNull();
   });
+
+  test('PERF-22: binary search matches linear scan across dense trajectory & exact breakpoints', () => {
+    const dense = Array.from({ length: 201 }, (_, i) => ({
+      rangeMeters: i * 10,
+      dropCm: -0.0005 * (i * 10) * (i * 10),
+    }));
+    function linearRef(points, d, field) {
+      if (d <= points[0].rangeMeters) return points[0][field];
+      if (d >= points[points.length - 1].rangeMeters) return points[points.length - 1][field];
+      for (let i = 1; i < points.length; i++) {
+        if (d <= points[i].rangeMeters) {
+          const t = (d - points[i - 1].rangeMeters) / (points[i].rangeMeters - points[i - 1].rangeMeters);
+          return Math.round((points[i - 1][field] + t * (points[i][field] - points[i - 1][field])) * 10) / 10;
+        }
+      }
+      return null;
+    }
+    for (const d of [0, 5, 10, 15, 500, 999.9, 1000, 1000.1, 1995, 2000]) {
+      expect(interpolateAt(dense, d, 'dropCm')).toBe(linearRef(dense, d, 'dropCm'));
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -614,6 +635,27 @@ describe('renderDopeCard', () => {
     const html = document.getElementById('dopeTable').innerHTML;
     // cor==null branch → emits '–' for Coriolis cell
     expect(html).toContain('–');
+  });
+
+  test('renders dash placeholder in Coriolis column when another bullet has empty points', () => {
+    const rWithCor = {
+      bullet: { id: 'a', name: 'Bullet A' },
+      points: [
+        { rangeMeters: 0, dropCm: 0, coriolisDeflectionCm: 0 },
+        { rangeMeters: 500, dropCm: -50, coriolisDeflectionCm: 2.5 },
+      ],
+    };
+    const rEmpty = { bullet: { id: 'b', name: 'Empty' }, points: [] };
+    renderDopeCard([rWithCor, rEmpty], {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('<td>–</td><td>–</td><td>–</td>');
+  });
+
+  test('renders two dash cells when bullet has empty points and Coriolis is absent', () => {
+    renderDopeCard([{ bullet: { id: 'b', name: 'Empty' }, points: [] }], {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('<td>–</td><td>–</td>');
+    expect(html).not.toContain('<td>–</td><td>–</td><td>–</td>');
   });
 });
 
