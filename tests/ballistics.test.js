@@ -4,7 +4,12 @@ if (!global.TextEncoder) global.TextEncoder = TextEncoder;
 if (!global.TextDecoder) global.TextDecoder = TextDecoder;
 
 // ── Mock chart.js (mapped via Jest moduleNameMapper) ─────────────────────────
-const { Chart: MockChart, _mockDestroy: mockChartDestroy, _mockUpdate: mockChartUpdate } = require('chart.js');
+const {
+  Chart: MockChart,
+  _mockDestroy: mockChartDestroy,
+  _mockUpdate:  mockChartUpdate,
+  _mockDraw:    mockChartDraw,
+} = require('chart.js');
 
 // ── Mock fetch ────────────────────────────────────────────────────────────────
 global.fetch = jest.fn();
@@ -176,6 +181,7 @@ beforeEach(() => {
   MockChart.mockClear();
   mockChartDestroy.mockClear();
   mockChartUpdate.mockClear();
+  mockChartDraw.mockClear();
   global.fetch.mockReset();
   global.alert.mockClear();
   global.console.warn.mockClear();
@@ -3399,13 +3405,13 @@ describe('readoutPin unpin with populated charts (L815 forEach arrow fn)', () =>
     pinBtn.click(); // pin — crosshairPinned → true
     expect(mod._getState().crosshairPinned).toBe(true);
 
-    // Unpin — exercises the forEach(c => c.update('none')) callback (L815)
+    // Unpin — exercises _redrawSiblingCharts(null) -> _drawChart(c)
     pinBtn.click();
     expect(mod._getState().crosshairPinned).toBe(false);
     expect(pinBtn.textContent).toBe('PIN');
-    // The mock Chart's update() should have been called at least once
-    const { _mockUpdate } = require('chart.js');
-    expect(_mockUpdate).toHaveBeenCalled();
+    // The mock Chart's draw() should have been called at least once
+    const { _mockDraw } = require('chart.js');
+    expect(_mockDraw).toHaveBeenCalled();
   });
 });
 
@@ -5926,17 +5932,19 @@ describe('PERF-20: Crosshair hover rAF coalescing & index-change guard', () => {
     maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
   }];
 
-  test('consecutive onHover events at the same index are no-ops (0 rAF / 0 chart.update)', async () => {
+  test('consecutive onHover events at the same index are no-ops (0 rAF / 0 chart.draw)', async () => {
     await mod.renderResults(sampleResults, { zeroRangeMeters: 100, windSpeedKph: 0 });
     const opts = MockChart.mock.calls[0][1].options;
     opts.onHover({}, [{ index: 1 }]);
     jest.runOnlyPendingTimers();
     mockChartUpdate.mockClear();
+    mockChartDraw.mockClear();
 
     const rafSpy = jest.spyOn(global, 'requestAnimationFrame');
     opts.onHover({}, [{ index: 1 }]);
     opts.onHover({}, [{ index: 1 }]);
     expect(rafSpy).not.toHaveBeenCalled();
+    expect(mockChartDraw).not.toHaveBeenCalled();
     expect(mockChartUpdate).not.toHaveBeenCalled();
     rafSpy.mockRestore();
   });
@@ -5945,18 +5953,20 @@ describe('PERF-20: Crosshair hover rAF coalescing & index-change guard', () => {
     await mod.renderResults(sampleResults, { zeroRangeMeters: 100, windSpeedKph: 0 });
     const opts = MockChart.mock.calls[0][1].options;
     mockChartUpdate.mockClear();
+    mockChartDraw.mockClear();
     const rafSpy = jest.spyOn(global, 'requestAnimationFrame');
 
     opts.onHover({}, [{ index: 0 }]);
     opts.onHover({}, [{ index: 1 }]);
     opts.onHover({}, [{ index: 2 }]);
     expect(rafSpy).toHaveBeenCalledTimes(1);
-    expect(mockChartUpdate).not.toHaveBeenCalled();
+    expect(mockChartDraw).not.toHaveBeenCalled();
 
     jest.runOnlyPendingTimers();
     expect(document.getElementById('readoutRange').textContent).toBe('200 m');
-    // 4 sibling charts updated once each (source chart excluded)
-    expect(mockChartUpdate).toHaveBeenCalledTimes(4);
+    // 4 sibling charts drawn once each via lightweight chart.draw() (source chart excluded)
+    expect(mockChartDraw).toHaveBeenCalledTimes(4);
+    expect(mockChartUpdate).not.toHaveBeenCalled();
     rafSpy.mockRestore();
   });
 
@@ -5965,11 +5975,13 @@ describe('PERF-20: Crosshair hover rAF coalescing & index-change guard', () => {
     const opts = MockChart.mock.calls[0][1].options;
     const cancelSpy = jest.spyOn(global, 'cancelAnimationFrame');
     mockChartUpdate.mockClear();
+    mockChartDraw.mockClear();
 
     opts.onHover({}, [{ index: 1 }]);
     mod.resetCrosshairState();
     expect(cancelSpy).toHaveBeenCalled();
     jest.runOnlyPendingTimers();
+    expect(mockChartDraw).not.toHaveBeenCalled();
     expect(mockChartUpdate).not.toHaveBeenCalled();
     cancelSpy.mockRestore();
   });
@@ -6762,5 +6774,283 @@ describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boo
     mod.requestCustomBulletDelete(customId);
     mod.requestCustomBulletDelete(customId);
     expect(mod._getState()._bulletById.has(customId)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERF-32: Viewport-aware crosshair draw, cached readout cells & sweep reuse
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-32: viewport-aware crosshair draw, cached readout cells & sweep chart reuse', () => {
+  function makePoints(count, offset = 0) {
+    return Array.from({ length: count }, (_, i) => ({
+      rangeMeters: i * 100,
+      dropCm: -(i * 2 + offset),
+      velocityMps: 800 - i * 20 - offset,
+      energyJoules: 3500 - i * 100,
+      windDriftCm: i * 1.5 + offset,
+      timeOfFlightSec: i * 0.12,
+    }));
+  }
+
+  function makeResult(count = 3, offset = 0, name = '.308 Win') {
+    return [{
+      bullet: { id: '308-win-168gr', name, muzzleVelocityMps: 807,
+                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+      request: {},
+      points: makePoints(count, offset),
+      maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
+    }];
+  }
+
+  function installMockObserver() {
+    const instances = [];
+    class MockIntersectionObserver {
+      constructor(cb) {
+        this.cb = cb;
+        this.observe = jest.fn();
+        this.disconnect = jest.fn();
+        instances.push(this);
+      }
+      trigger(entries) { this.cb(entries, this); }
+    }
+    const orig = global.IntersectionObserver;
+    global.IntersectionObserver = MockIntersectionObserver;
+    return {
+      instances,
+      restore() {
+        if (orig === undefined) delete global.IntersectionObserver;
+        else global.IntersectionObserver = orig;
+      },
+    };
+  }
+
+  test('IntersectionObserver skips offscreen crosshair draws and flushes on scroll-into-view', async () => {
+    const mockIO = installMockObserver();
+    try {
+      const results = makeResult(3);
+      await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
+      expect(mockIO.instances).toHaveLength(1);
+      const observer = mockIO.instances[0];
+      expect(observer.observe).toHaveBeenCalledTimes(5);
+
+      const dropEl   = document.getElementById('dropChart');
+      const velEl    = document.getElementById('velocityChart');
+      const energyEl = document.getElementById('energyChart');
+      const windEl   = document.getElementById('windChart');
+      const adjEl    = document.getElementById('adjustChart');
+
+      // Only dropChart is visible; 4 siblings are offscreen
+      observer.trigger([
+        { target: dropEl,   isIntersecting: true  },
+        { target: velEl,    isIntersecting: false },
+        { target: energyEl, isIntersecting: false },
+        { target: windEl,   isIntersecting: false },
+        { target: adjEl,    isIntersecting: false },
+      ]);
+
+      mockChartDraw.mockClear();
+      const opts = MockChart.mock.calls[0][1].options;
+      opts.onHover({}, [{ index: 1 }]);
+      jest.runOnlyPendingTimers();
+
+      // All 4 siblings were offscreen -> 0 draws, 4 queued dirty
+      expect(mockChartDraw).not.toHaveBeenCalled();
+      expect(mod._getState()._dirtyCrosshairCharts.size).toBe(4);
+
+      // Scroll velocityChart into view -> flushes its dirty crosshair draw once
+      observer.trigger([{ target: velEl, isIntersecting: true }]);
+      expect(mockChartDraw).toHaveBeenCalledTimes(1);
+      expect(mod._getState()._dirtyCrosshairCharts.has('velocityChart')).toBe(false);
+
+      // Re-firing isIntersecting: true when NOT dirty does not trigger extra draw
+      observer.trigger([{ target: velEl, isIntersecting: true }]);
+      expect(mockChartDraw).toHaveBeenCalledTimes(1);
+
+      // If a dirty chart was cleared before observer flushes, guard avoids error
+      mod._setCharts({});
+      observer.trigger([{ target: energyEl, isIntersecting: true }]);
+      expect(mockChartDraw).toHaveBeenCalledTimes(1);
+
+      // Reset tears down observer cleanly
+      mod._resetState();
+      expect(observer.disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      mockIO.restore();
+    }
+  });
+
+  test('IntersectionObserver works with sweep charts and pin/unpin redraws', async () => {
+    const mockIO = installMockObserver();
+    try {
+      const sweepData = [makeResult(3, 0)[0], makeResult(3, 5)[0]];
+      await mod.renderSweepCharts(sweepData, 'wind');
+      const observer = mockIO.instances[0];
+      expect(observer.observe).toHaveBeenCalledTimes(3);
+
+      const sDrop = document.getElementById('sweepDropChart');
+      const sWind = document.getElementById('sweepWindChart');
+      const sVel  = document.getElementById('sweepVelChart');
+
+      observer.trigger([
+        { target: sDrop, isIntersecting: true  },
+        { target: sWind, isIntersecting: false },
+        { target: sVel,  isIntersecting: false },
+      ]);
+
+      mockChartDraw.mockClear();
+      const opts = MockChart.mock.calls[0][1].options;
+      // Pin via click -> _redrawSiblingCharts(null) draws visible sweepDropChart only
+      opts.onClick({}, [{ index: 1 }]);
+      expect(mockChartDraw).toHaveBeenCalledTimes(1);
+      expect(mod._getState()._dirtyCrosshairCharts.size).toBe(2);
+
+      // Scroll sweepWindChart into view -> flushes 1 draw
+      observer.trigger([{ target: sWind, isIntersecting: true }]);
+      expect(mockChartDraw).toHaveBeenCalledTimes(2);
+
+      // Transitioning to trajectory mode disconnects previous observer and creates new one
+      await mod.renderResults(makeResult(2), { zeroRangeMeters: 100, windSpeedKph: 0 });
+      expect(observer.disconnect).toHaveBeenCalledTimes(1);
+      expect(mockIO.instances).toHaveLength(2);
+    } finally {
+      mockIO.restore();
+    }
+  });
+
+  test('falls back to drawing all sibling charts when IntersectionObserver is undefined, and falls back to update("none") if chart.draw is absent', () => {
+    expect(typeof global.IntersectionObserver).toBe('undefined');
+    const c1 = { update: jest.fn() };
+    const c2 = { update: jest.fn() };
+    mod._setCharts({ dropChart: c1, velocityChart: c2 });
+
+    mod.scheduleCrosshairSync(0, 'dropChart', makeResult(2));
+    jest.runOnlyPendingTimers();
+    expect(c1.update).not.toHaveBeenCalled();
+    expect(c2.update).toHaveBeenCalledWith('none');
+  });
+
+  test('updateReadout caches DOM rows and cells across repeated hovers with zero innerHTML reparses', () => {
+    const results = [
+      {
+        bullet: { id: '308-win-168gr', name: '.308 Win 168gr' },
+        points: [
+          { rangeMeters: 0,   dropCm: 0,    velocityMps: 807, energyJoules: 3552, windDriftCm: 0,   spinDriftCm: 0,   coriolisDeflectionCm: 1.5  },
+          { rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, spinDriftCm: 1.2, coriolisDeflectionCm: null },
+          { rangeMeters: 200, dropCm: -11,  velocityMps: 710, energyJoules: 2750, windDriftCm: 7.4, spinDriftCm: 2.4, coriolisDeflectionCm: -0.8 },
+          { rangeMeters: 300, dropCm: -25,  velocityMps: 660, energyJoules: 2400, windDriftCm: 12,  spinDriftCm: 0,   coriolisDeflectionCm: null },
+        ],
+      },
+      {
+        bullet: { id: '223-rem-55gr', name: '.223 Rem 55gr' },
+        points: [
+          { rangeMeters: 0,   dropCm: 0,    velocityMps: 988, energyJoules: 1740, windDriftCm: 0 },
+          // Sparse: lacks points[1] and points[2], present again at points[3]
+          undefined,
+          undefined,
+          { rangeMeters: 300, dropCm: -18,  velocityMps: 700, energyJoules: 880,  windDriftCm: 9 },
+        ],
+      },
+    ];
+
+    const tbody = document.getElementById('readoutBody');
+    const innerHtmlSetter = jest.fn();
+    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    Object.defineProperty(tbody, 'innerHTML', {
+      configurable: true,
+      get() { return innerHtmlDescriptor.get.call(this); },
+      set(v) { innerHtmlSetter(v); innerHtmlDescriptor.set.call(this, v); },
+    });
+
+    try {
+      // First hover (index 0): spinDriftCm=0 (absent), coriolis=1.5 (present)
+      mod.updateReadout(results, 0);
+      expect(innerHtmlSetter).not.toHaveBeenCalled();
+
+      const rows = [...tbody.querySelectorAll('tr')];
+      expect(rows).toHaveLength(2);
+      const firstRow = rows[0];
+      const dropCell0 = firstRow.cells[1];
+      expect(firstRow.textContent).not.toContain('Spin Drift');
+      expect(firstRow.textContent).toContain('Coriolis: +1.5 cm');
+
+      // Spy on createElement for subsequent hovers with same results reference
+      const createSpy = jest.spyOn(document, 'createElement');
+
+      // Hover index 1: spin appears (inserted before corCell while corCell was attached, then corCell removed!), sparse row hidden
+      mod.updateReadout(results, 1);
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(innerHtmlSetter).not.toHaveBeenCalled();
+      expect(tbody.querySelectorAll('tr')[0]).toBe(firstRow);
+      expect(firstRow.cells[1]).toBe(dropCell0);
+      expect(dropCell0.textContent).toBe('-2.5 cm');
+      expect(firstRow.textContent).toContain('Spin Drift: 1.2 cm');
+      expect(firstRow.textContent).not.toContain('Coriolis');
+      expect(rows[1].style.display).toBe('none');
+
+      // Hover index 2: spin already attached, coriolis re-attaches; sparse row still hidden
+      mod.updateReadout(results, 2);
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(firstRow.textContent).toContain('Spin Drift: 2.4 cm');
+      expect(firstRow.textContent).toContain('Coriolis: -0.8 cm');
+
+      // Hover index 3: spin removed (0), coriolis already absent at index 1/removed now; sparse row becomes visible again
+      mod.updateReadout(results, 3);
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(firstRow.textContent).not.toContain('Spin Drift');
+      expect(firstRow.textContent).not.toContain('Coriolis');
+      expect(rows[1].style.display).toBe('');
+      expect(rows[1].cells[1].textContent).toBe('-18 cm');
+
+      // Hover index 0 again, then index 2 when spin & coriolis are both present in order
+      mod.updateReadout(results, 0);
+      mod.updateReadout(results, 2);
+      const cellsAt2 = [...firstRow.cells].map(c => c.textContent);
+      expect(cellsAt2[5]).toContain('Spin Drift');
+      expect(cellsAt2[6]).toContain('Coriolis');
+
+      createSpy.mockRestore();
+
+      // Replacing #readoutBody invalidates cache even with same results reference
+      const freshTbody = document.createElement('tbody');
+      freshTbody.id = 'readoutBody';
+      tbody.replaceWith(freshTbody);
+      mod.updateReadout(results, 0);
+      expect(freshTbody.querySelectorAll('tr')).toHaveLength(2);
+    } finally {
+      delete tbody.innerHTML;
+    }
+  });
+
+  test('renderSweepCharts reuses existing Chart instances in place without destroy()', async () => {
+    const sweep1 = [makeResult(3, 0)[0], makeResult(3, 5)[0]];
+    await mod.renderSweepCharts(sweep1, 'wind');
+    expect(MockChart).toHaveBeenCalledTimes(3);
+    const canvasRefs = ['sweepDropChart', 'sweepWindChart', 'sweepVelChart'].map(id => document.getElementById(id));
+
+    MockChart.mockClear();
+    mockChartDestroy.mockClear();
+    mockChartUpdate.mockClear();
+
+    const sweep2 = [makeResult(3, 10)[0], makeResult(3, 20)[0]];
+    await mod.renderSweepCharts(sweep2, 'altitude');
+    expect(MockChart).not.toHaveBeenCalled();
+    expect(mockChartDestroy).not.toHaveBeenCalled();
+    expect(mockChartUpdate).toHaveBeenCalledTimes(3);
+    expect(document.getElementById('sweepDropChart')).toBe(canvasRefs[0]);
+    expect(document.getElementById('sweepWindChart')).toBe(canvasRefs[1]);
+    expect(document.getElementById('sweepVelChart')).toBe(canvasRefs[2]);
+    expect(canvasRefs[0].closest('.chart-panel').querySelector('.chart-subtitle').textContent).toContain('altitude sweep');
+
+    // Reused chart callbacks read the updated sweep2 results via _chartMeta
+    const firstCfg = mod._getState().charts.sweepDropChart;
+    expect(firstCfg.data.datasets[0].data[0].y).toBe(-10);
+
+    // Reuse with >1000 points exercises animation=false -> update('none') branch
+    mockChartUpdate.mockClear();
+    const sweepLarge = [makeResult(1005, 1)[0]];
+    await mod.renderSweepCharts(sweepLarge, 'temperature');
+    expect(MockChart).not.toHaveBeenCalled();
+    expect(mockChartDestroy).not.toHaveBeenCalled();
+    expect(mockChartUpdate).toHaveBeenCalledWith('none');
   });
 });
