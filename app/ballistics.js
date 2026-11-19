@@ -110,7 +110,7 @@ const TRAJECTORY_CHART_IDS = ['dropChart', 'velocityChart', 'energyChart', 'wind
 let _chartModPromise = null;
 function _loadChart() {
   if (!_chartModPromise) {
-    _chartModPromise = import('chart.js').then(mod => {
+    _chartModPromise = import('./chart-loader.js').then(mod => {
       mod.Chart.register(
         mod.LineController, mod.LineElement, mod.PointElement,
         mod.LinearScale, mod.Decimation, mod.Tooltip, mod.Legend,

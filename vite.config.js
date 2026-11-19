@@ -100,6 +100,13 @@ export default defineConfig({
     target: 'esnext',
     reportCompressedSize: false,
     rolldownOptions: {
+      treeshake: {
+        // Chart.js unused scale classes (LogarithmicScale, RadialLinearScale, TimeScale,
+        // TimeSeriesScale) read static properties (Ticks.formatters.*, TimeScale.defaults)
+        // in class field initializers; mark property reads pure so Rolldown tree-shakes them
+        // when excluded by app/chart-loader.js (PERF-26).
+        propertyReadSideEffects: false,
+      },
       output: {
         codeSplitting: {
           groups: [
