@@ -33,7 +33,8 @@
       "app/custom-rounds.js",
       "app/physics/engine.ts",
       "app/physics/engine-async.ts",
-      "app/physics/errors.ts"
+      "app/physics/errors.ts",
+      "app/physics/packed-points.ts"
     ],
     "transform": {
       "^.+\\.[jt]s$": "babel-jest"

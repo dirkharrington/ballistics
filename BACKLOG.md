@@ -1895,7 +1895,7 @@ Even after `PERF-27`, `app/ballistics.js:1-13` eagerly statically imports module
 
 ---
 
-### PERF-29 · Zero-copy Transferable `Float64Array` worker protocol for trajectory results · FE · Size M
+### ~~PERF-29 · Zero-copy Transferable `Float64Array` worker protocol for trajectory results · FE · Size M~~ ✅ Done
 
 `app/physics/engine.worker.ts:52-53` posts `{ id, result }` across the Web Worker boundary via structured clone. At fine step sizes (`maxRangeMeters: 5000, stepMeters: 1`), a single bullet produces **5,001 `TrajectoryPoint` objects** (25,005 objects / ~200,000 named properties for 5 bullets), causing noticeable structured-clone serialization stalls on the worker and polymorphic deserialization GC pauses on the main thread. In addition, the worker echoes back copies of `bullet` and `params` that the main thread already holds in memory.
 

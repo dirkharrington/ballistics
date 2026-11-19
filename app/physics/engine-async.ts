@@ -1,6 +1,7 @@
 import { createPhysicsWorker } from './create-physics-worker.ts';
 import { TrajectoryInputError } from './errors.ts';
-import type { Bullet, TrajectoryParams, TrajectoryResult, SolveBCParams } from './types.ts';
+import { unpackPoints } from './packed-points.ts';
+import type { Bullet, EffectiveDragModel, TrajectoryParams, TrajectoryResult, SolveBCParams } from './types.ts';
 
 interface WorkerRequest {
   id: number;
@@ -16,7 +17,13 @@ interface WorkerSolveBCRequest {
 
 interface WorkerSuccessResponse {
   id: number;
-  result: TrajectoryResult;
+  maxOrdinateCm: number;
+  maxOrdinateRangeMeters: number;
+  supersonicLimitMeters: number;
+  densityAltitudeMeters: number;
+  dragModel: EffectiveDragModel;
+  pointsBuffer: Float64Array;
+  hasCoriolis: boolean;
 }
 
 interface WorkerSolveBCResponse {
@@ -47,6 +54,8 @@ interface WorkerSlot {
 interface QueuedTask {
   readonly id: number;
   readonly payload: WorkerRequest | WorkerSolveBCRequest;
+  readonly bullet?: Bullet;
+  readonly params?: TrajectoryParams;
   readonly resolve: (value: any) => void;
   readonly reject: (err: unknown) => void;
   readonly signal?: AbortSignal;
@@ -135,7 +144,26 @@ function _spawnWorker(): WorkerSlot {
       } else if ('bc' in evt.data) {
         task.resolve(evt.data.bc);
       } else {
-        task.resolve(evt.data.result);
+        const {
+          maxOrdinateCm,
+          maxOrdinateRangeMeters,
+          supersonicLimitMeters,
+          densityAltitudeMeters,
+          dragModel,
+          pointsBuffer,
+          hasCoriolis,
+        } = evt.data;
+        const result: TrajectoryResult = {
+          bullet: task.bullet!,
+          request: task.params!,
+          points: unpackPoints(pointsBuffer, hasCoriolis),
+          maxOrdinateCm,
+          maxOrdinateRangeMeters,
+          supersonicLimitMeters,
+          densityAltitudeMeters,
+          dragModel,
+        };
+        task.resolve(result);
       }
     }
     _drainQueue();
@@ -168,6 +196,8 @@ function _drainQueue(): void {
 function _enqueue<T>(
   buildPayload: (id: number) => WorkerRequest | WorkerSolveBCRequest,
   signal?: AbortSignal,
+  bullet?: Bullet,
+  params?: TrajectoryParams,
 ): Promise<T> {
   if (signal?.aborted) {
     return Promise.reject(new DOMException('Simulation aborted', 'AbortError'));
@@ -177,6 +207,8 @@ function _enqueue<T>(
     const task: QueuedTask = {
       id,
       payload: buildPayload(id),
+      bullet,
+      params,
       resolve,
       reject,
       signal,
@@ -225,7 +257,12 @@ export function simulateAsync(
     _cache.set(key, cached);
     return Promise.resolve({ ...cached, bullet, request: params });
   }
-  return _enqueue<TrajectoryResult>(id => ({ id, bullet, params }), options?.signal)
+  return _enqueue<TrajectoryResult>(
+    id => ({ id, bullet, params }),
+    options?.signal,
+    bullet,
+    params,
+  )
     .then(result => {
       _cacheSet(key, result);
       return result;
