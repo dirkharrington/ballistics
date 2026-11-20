@@ -2,7 +2,7 @@
 
 /** Bullet-level numeric fields copied from imported JSON. */
 export const BULLET_NUMERIC_FIELDS = [
-  'muzzleVelocityMps', 'ballisticCoefficient', 'bulletWeightGrams',
+  'muzzleVelocityMps', 'ballisticCoefficient', 'ballisticCoefficientG7', 'bulletWeightGrams',
   'bulletDiameterMm', 'muzzleEnergyJoules',
 ];
 

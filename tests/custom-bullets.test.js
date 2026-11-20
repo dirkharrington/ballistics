@@ -848,14 +848,24 @@ describe('bulletForDragModel', () => {
     expect(bulletForDragModel(b, 'G7')).toBe(b);
   });
 
+  test('G7 + undefined G7 BC => same reference', () => {
+    const b = { ...BULLET_CATALOG[0], ballisticCoefficientG7: undefined };
+    expect(bulletForDragModel(b, 'G7')).toBe(b);
+  });
+
   test('G1 drag model => same reference', () => {
     const b = toBullet(makeRecord());
     expect(bulletForDragModel(b, 'G1')).toBe(b);
   });
 
-  test('built-in bullet under G7 => same reference', () => {
-    const builtIn = BULLET_CATALOG[0];
-    expect(bulletForDragModel(builtIn, 'G7')).toBe(builtIn);
+  test('built-in bullet under G7 => switches ballisticCoefficient to ballisticCoefficientG7', () => {
+    BULLET_CATALOG.forEach(builtIn => {
+      const result = bulletForDragModel(builtIn, 'G7');
+      expect(result).not.toBe(builtIn);
+      expect(result.ballisticCoefficient).toBe(builtIn.ballisticCoefficientG7);
+      expect(result.ballisticCoefficient).toBeGreaterThan(0);
+      expect(result.ballisticCoefficient).toBeLessThan(builtIn.ballisticCoefficient);
+    });
   });
 });
 

@@ -2084,3 +2084,253 @@ On every push to `main`, `.github/workflows/ci.yml:188-228` runs `pages-build` (
 **Dependencies:** PERF-34 (so `vite.config.mjs` is already in `paths-filter`).
 
 ---
+
+
+## Sprint 14 — Field-Grade Ballistics, Units, UX & Architecture
+
+**Sprint Goal:** Elevate the ballistics workbench from a metric-only engineering simulator into a complete field-ready ballistic solver and modular codebase — adding real G7 ballistic coefficients for all 37 catalog rounds, station barometric pressure & humidity plus opt-in vertical Coriolis (Eötvös), a global Metric/Imperial unit toggle, field DOPE windage + print layout + MPBR calculator, named rifle profiles & unified custom drag-CSV workflow, capped/searchable/keyboard-accessible sidebar controls with debounced auto-compute, modular decomposition of `app/ballistics.js` with lazy Sweep loading, modernized E2E smoke CI against built `dist/`, and clean `v3.0.0` release hygiene.
+
+Supersedes / closes open Sprint 11 and Icebox items: `REL-1`, `REL-2`, `REL-3`, `REL-4`, `REL-5`, `REL-6`, `REL-7`, `ACC-3`, `UX-7`, `DX-2`, `SEC-3`.
+
+---
+
+### ~~ENH-1 · Built-in G7 ballistic coefficients for all 37 catalog rounds · Physics · Size XS [Must Have]~~ ✅ Done
+
+`app/custom-bullets.js` (`bulletForDragModel`) already supports switching to `bullet.ballisticCoefficientG7` when `dragModel === 'G7'`, and rounds 11–37 in `app/data/bullets.yaml` already annotate their G7 equivalents in comments, yet `ballisticCoefficientG7` is absent from all 37 catalog YAML entries and `catalog-projection.cjs` strips fields outside its explicit projection list. As a result, switching the Drag Model selector to G7 still runs built-in rounds against their G1 BC.
+
+**Work items:**
+
+1. Add `ballisticCoefficientG7` (numeric, verified published G7 BCs where available and conservative boat-tail/flat-base G7 conversions for remaining hunting/pistol/rimfire rounds) to all 37 bullets in `app/data/bullets.yaml`.
+2. Add `ballisticCoefficientG7` to `projectBulletCatalog` in `catalog-projection.cjs` and mirror it in `app/physics/types.ts` (`Bullet`), `app/io.js` (`BULLET_NUMERIC_FIELDS`), and `tests/__mocks__/bullet-catalog.js`.
+3. Add unit tests verifying every round in `app/data/bullets.yaml` defines `ballisticCoefficientG7 > 0` (`< ballisticCoefficient`), `projectBulletCatalog` preserves `ballisticCoefficientG7`, and `bulletForDragModel(bullet, 'G7')` selects `ballisticCoefficientG7`.
+
+**Coverage:** 100% Jest (`tests/bullet-catalog.test.js`, `tests/custom-bullets.test.js`, `tests/io.test.js`).
+
+**Acceptance:**
+
+- All 37 built-in rounds carry numeric `ballisticCoefficientG7` in `virtual:bullet-catalog` and pass schema/range validation.
+- Selecting `dragModel: 'G7'` uses `ballisticCoefficientG7` for built-in rounds while preserving G1 fallback if absent.
+- `npm test` passes at 100/100/100/100 and `tests/fixtures/spa1-golden.json` passes untouched.
+
+**Dependencies:** None.
+
+---
+
+### ENH-2 · Station barometric pressure, relative humidity & opt-in vertical Coriolis (Eötvös) · Physics · Size M [Must Have]
+
+External ballistics atmospheric correction currently models only altitude + temperature (`airDensityRatio`), omitting barometric pressure and relative humidity, while Coriolis deflection models horizontal drift (`coriolisDeflectionCm`) without vertical Eötvös deflection (`coriolisVerticalCm`). Care must be taken to keep all 28 existing cases in `tests/fixtures/spa1-golden.json` (including the horizontal Coriolis case) 100% key- and bit-identical.
+
+**Work items:**
+
+1. Extend `app/physics/types.ts`:
+   - `TrajectoryParams`: optional `pressureHpa?: number | null` (`[500, 1100]`), `humidityPercent?: number | null` (`[0, 100]`), and `includeEotvos?: boolean | null`.
+   - `TrajectoryPoint`: optional `coriolisVerticalCm?: number` (positive = high when firing East; key omitted unless `includeEotvos === true` and both `latitudeDeg` and `azimuthDeg` are set).
+2. In `app/physics/engine.ts`:
+   - Validate `pressureHpa`, `humidityPercent`, and `includeEotvos`.
+   - Keep `airDensityRatio(altFt, tempF)` untouched; add exported `stationAirDensityRatio(altFt, tempF, pressureHpa, humidityPercent)` that delegates verbatim to `airDensityRatio` when both `pressureHpa` and `humidityPercent` are null/undefined, and otherwise computes moist-air density ratio via Tetens vapor pressure relative to ICAO sea-level dry air (`1013.25 hPa`, `15 °C`).
+   - Compute opt-in Eötvös vertical deflection `coriolisVerticalCm = round1(EARTH_OMEGA_RADS * cos(lat) * sin(az) * mvMps * t * t * 100) + 0` when `includeEotvos === true` and both `latitudeDeg` and `azimuthDeg` are set.
+3. Bump `POINT_STRIDE` in `app/physics/packed-points.ts` from `8` to `9` (`hasEotvos` + slot 8 = `coriolisVerticalCm`), propagate through `app/physics/engine.worker.ts` and `app/physics/engine-async.ts` (including `simulationCacheKey`), add `'coriolisVerticalCm'` to `POINT_NUMERIC_FIELDS` in `app/io.js`, and persist `pressureHpa`, `humidityPercent`, and `includeEotvos` in `app/url-state.js`.
+
+**Coverage:** 100% Jest across `tests/physics-engine.test.js`, `tests/physics/` worker/packed-points tests, `tests/url-state.test.js`, and `tests/io.test.js`.
+
+**Acceptance:**
+
+- All 28 golden fixture cases in `tests/fixtures/spa1-golden.json` pass bit- and key-identically untouched.
+- Moist air produces lower air density than dry air; higher station pressure produces higher air density; East azimuth (`90°`) yields positive `coriolisVerticalCm`, West (`270°`) yields negative, North/South yields `0`.
+- Transferable stride-9 pack/unpack and URL state round-trips preserve all new fields cleanly.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** ENH-1 (stacked cleanly on Track A).
+
+---
+
+### ENH-3 · Global Metric / Imperial unit system (`app/units.js`, `#unitToggle`) · FE · Size M [Must Have]
+
+Long-range shooters frequently work in yards, grains, feet per second, inches, °F, and inHg rather than purely SI metric units. Adding a first-class unit system toggle lets users operate seamlessly in Metric or Imperial across inputs, charts, stat cards, hover readout, data table, DOPE/MPBR tools, exports, and shared URLs while keeping physics engine internals and JSON exports canonical Metric.
+
+**Work items:**
+
+1. Create `app/units.js` (and add to `package.json` `jest.collectCoverageFrom`) exporting `UNIT_LABELS`, `normalizeUnitSystem`, `getUnitSystem`, `toDisplay`, `fromDisplay`, and unit conversion/formatting helpers for range (`m`/`yd`), small distance/drop/wind/spin/Coriolis (`cm`/`in`), velocity (`m/s`/`fps`), wind speed (`km/h`/`mph`), energy (`J`/`ft·lb`), weight (`g`/`gr`), temperature (`°C`/`°F`), sight height (`mm`/`in`), and pressure (`hPa`/`inHg`).
+2. Add `<button type="button" id="unitToggle" class="unit-toggle" aria-pressed="false">` in `app/index.html` header next to `#themeToggle`, persist in `localStorage`, and update sidebar labels (`data-unit-kind`) plus converted input values on toggle without drift.
+3. Support optional `units` query parameter in `app/url-state.js` (omit when default `'metric'`, serialize `units=imperial` when Imperial).
+4. Wire unit-aware axis labels, subtitles, tick formatting, stat cards, hover readout, Data Table headers/cells, Sweep labels, DOPE/MPBR tools, and CSV/Markdown exports across `app/ballistics.js`, `app/prefs.js`, `app/charts.js`, `app/table.js`, `app/sweep.js`, `app/tools.js`, and `app/io.js` (while keeping `exportJSON` canonical Metric for lossless round-trip import).
+
+**Coverage:** 100% Jest (`tests/units.test.js` plus unit tests across `charts`, `table`, `tools`, `io`, `url-state`, `ballistics`).
+
+**Acceptance:**
+
+- Toggling `#unitToggle` converts sidebar inputs, re-renders labels/charts/tables/readout/tools in Imperial (`yd`, `fps`, `in`, `ft·lb`, `mph`, `°F`, `inHg`) and restores cleanly back to Metric.
+- URL sharing preserves `units=imperial` while keeping default Metric URLs backward-compatible.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** ENH-4, ENH-7 (built after `ENH-4` & modular split in Wave 2).
+
+---
+
+### ENH-4 · Field DOPE windage MOA/MRAD, `@media print` pocket DOPE card (`UX-7`), & MPBR calculator · FE / UX · Size S [Must Have]
+
+The Tools tab DOPE card currently outputs elevation come-ups (MOA↑ / MRAD↑) only and lacks windage holds or a clean printable pocket card (`UX-7`). Hunters and field shooters also rely on Maximum Point-Blank Range (MPBR) for a target vital-zone diameter (`20 cm` / `8 in` default).
+
+**Work items:**
+
+1. Update `_buildDopeTable` in `app/tools.js` to include `Wind MOA` and `Wind MRAD` columns per round whenever non-zero wind drift is present (`Math.atan2(windDriftCm / 100, dist)`), keeping dynamic `colSpan` alignment with optional Coriolis columns.
+2. Add `#dopePrintBtn` (`PRINT DOPE`) wired to `window.print()` plus a dedicated `@media print` stylesheet in `app/ballistics.css` hiding chrome/sidebars/tabs/other cards and formatting `#dopeTable` for crisp high-contrast pocket/A5 printing (`UX-7`).
+3. Implement `calcMpbr(points, vitalZoneCm = 20)`, `initMpbrTool()`, and `renderMpbrTool(results)` in `app/tools.js` plus the `#mpbrCard` UI (`#mpbrVitalCm`, `#mpbrResults`) in `app/index.html`, hooked into `app/ballistics.js`.
+
+**Coverage:** 100% Jest (`tests/tools.test.js`, `tests/ballistics.test.js`).
+
+**Acceptance:**
+
+- DOPE table includes signed `Wind MOA` and `Wind MRAD` columns when wind drift is non-zero and omits them cleanly in zero-wind runs.
+- `@media print` isolates the DOPE card cleanly without nav/sidebar clutter (`UX-7`).
+- MPBR calculator computes peak rise, warns if trajectory exceeds `+vitalZoneCm / 2`, and interpolates maximum point-blank range.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None (Wave 1 independent track, stacked after ENH-7).
+
+---
+
+### ENH-5 · Named rifle/setup profiles (`DX-2`), atmosphere & Eötvös controls, & unified custom drag-CSV · FE · Size M [Should Have]
+
+URL state allows sharing individual setups (`DX-2`), but users have no in-app way to save, switch, and delete named rifle/load profiles locally. Meanwhile, the new `ENH-2` atmosphere & Eötvös physics parameters need clean sidebar inputs, `#latitudeDeg` still displays an obsolete `"sent with computation requests over HTTPS"` tooltip from the deleted server era, and uploading a custom Mach→Cd drag CSV lives inside the legacy custom accordion rather than `#customBulletForm`.
+
+**Work items:**
+
+1. Create `app/profiles.js` (add to `package.json` `jest.collectCoverageFrom`) providing `loadProfiles`, `saveProfile`, `deleteProfile`, schema validation/sanitization, and `localStorage` persistence (`ballistics_profiles`, cap 20 named profiles).
+2. Add `#profileBar` (`#profileSelect`, `#profileNameInput`, `#saveProfileBtn`, `#deleteProfileBtn`) to `app/index.html` sidebar (no `window.prompt`).
+3. Add sidebar inputs for `#pressureHpa` (optional; `hPa` / `inHg` unit-aware), `#humidityPercent` (optional `0–100%`), and `#includeEotvos` checkbox ("Vertical Coriolis (Eötvös)"), remove stale HTTPS server wording on `#latitudeDeg`, and display `coriolisVerticalCm` in `app/table.js` and `app/tools.js` DOPE card when active.
+4. Add optional Mach→Cd `.csv` input (`#cbDragCsv`) directly inside `#customBulletForm` so custom bullet creation/editing and custom drag-curve selection are unified cleanly with `app/drag-csv.js`.
+
+**Coverage:** 100% Jest (`tests/profiles.test.js`, `tests/ballistics.test.js`, `tests/table.test.js`, `tests/tools.test.js`, `tests/custom-bullets.test.js`).
+
+**Acceptance:**
+
+- Users can save, load, overwrite, and delete named rifle setups across page reloads (`DX-2`).
+- Sidebar atmosphere & Eötvös inputs flow end-to-end into physics worker, URL state, Data Table, and DOPE card.
+- Stale `"requests over HTTPS"` copy is gone from `app/index.html`.
+- `#cbDragCsv` inside `#customBulletForm` attaches validated custom drag CSV curves seamlessly.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** ENH-2, ENH-3, ENH-4, ENH-6, ENH-7 (Wave 2).
+
+---
+
+### ENH-6 · Interactive sidebar UX — bullet search, 5-round cap (`REL-7`), roving arrow keys (`REL-6`), & debounced auto-compute · FE / ACC · Size M [Must Have]
+
+Selecting all 37 catalog rounds at once via `#selectAllBullets` causes chart clutter (`REL-7`), browsing 37+ rounds lacks live search filtering, keyboard users lack ArrowDown/ArrowUp roving focus across cards (`REL-6` / `ACC-3`), and users must click Compute repeatedly after minor sidebar tweaks instead of getting debounced live updates.
+
+**Work items:**
+
+1. Remove `#selectAllBullets` from `app/index.html` and `app/ballistics.js` (`REL-7`), and replace with `#bulletSearch` + `#bulletSearchClear`, `#selectedCount` (`N / 5 selected`), and `#clearSelectionBtn` above `#bulletList`.
+2. Enforce `MAX_SELECTED_BULLETS = 5`: clamp saved/URL selections to 5, block activating a 6th card while briefly applying `.bullet-card--limit-reached` (`600 ms`) + announcement/toast (`REL-7`).
+3. Implement live substring search filtering over `#bulletList` (`name` and `id`) while preserving selected state and showing an empty-filter hint when zero rounds match.
+4. Add roving `tabindex` (`0` on active focused card, `-1` on siblings) with `ArrowDown`, `ArrowUp`, `Home`, `End` navigation across visible `.bullet-card` items and `focus` index tracking (`REL-6` / `ACC-3`).
+5. Add `#autoComputeToggle` (default checked, persisted via `localStorage`) triggering a `250 ms` debounced `runSimulation()` on parameter input changes or bullet toggles when selected count > 0; clicking `#runBtn` cancels any pending debounce and runs immediately.
+
+**Coverage:** 100% Jest (`tests/ballistics.test.js`).
+
+**Acceptance:**
+
+- `#selectAllBullets` is removed from `app/index.html` and `app/ballistics.js` (`REL-7`).
+- Maximum 5 rounds can be active simultaneously; attempting a 6th triggers `.bullet-card--limit-reached` (`REL-7`).
+- Arrow keys move focus across `#bulletList` with single roving `tabindex="0"` (`REL-6`).
+- Search filters visible rounds cleanly and debounced auto-compute refreshes charts automatically when enabled.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None (Wave 1 Track C).
+
+---
+
+### ENH-7 · Decompose `app/ballistics.js` monolith into `prefs`, `charts`, `table` & lazy `sweep` · FE / Architecture · Size M [Should Have]
+
+`app/ballistics.js` has grown to ~2,500 lines mixing `localStorage`/theme/toast helpers, Chart.js rendering & crosshair management, Data Table DOM construction/sorting, and Parameter Sensitivity Sweep calculation/rendering (which is loaded eagerly on initial boot even though Sweep is secondary). Splitting these concerns clarifies ownership and reduces initial critical-path JS.
+
+**Work items:**
+
+1. Extract cohesive modules with explicit unit test suites and add all 4 to `package.json` `jest.collectCoverageFrom`:
+   - `app/prefs.js`: `PREF_KEYS`, `PREF_DEFAULTS`, `savePrefs`, `loadPrefs`, `applyTheme`, `initThemeToggle`, `updateToggleLabel`, `escapeHtml`, `showToast`.
+   - `app/charts.js`: `BULLET_COLORS`, `SWEEP_COLORS`, `crosshairPlugin`, `annotationPlugin`, `drawVLine`, `drawHLine`, `windChartSubtitle`, `buildChartConfig`, chart rendering & in-place reuse, viewport observer, hover readout sync, `_applyChartTheme`.
+   - `app/table.js`: `SORTABLE_COLUMNS`, table rendering, chunked RAF row insertion, sorting (`onSortHeaderClick`, `updateSortIndicators`).
+   - `app/sweep.js`: `SWEEP_RANGES`, `buildSweepRequests`, `runSweep`, `clearSweep`, `renderSweepCharts`, `updateSweepButtonVisibility` — **dynamically imported** (`import('./sweep.js')`) by `app/ballistics.js` when Sweep controls are shown or invoked.
+2. Keep `app/ballistics.js` as a lean orchestrator and re-export extracted public helpers so existing tests and external callers remain compatible.
+3. Add `tests/prefs.test.js`, `tests/charts.test.js`, `tests/table.test.js`, `tests/sweep.test.js`.
+
+**Coverage:** 100% Jest across all extracted modules + `tests/ballistics.test.js`.
+
+**Acceptance:**
+
+- `app/prefs.js`, `app/charts.js`, `app/table.js`, and `app/sweep.js` are separate tested ES6 modules at 100/100/100/100 coverage.
+- `npm run build` emits a separate lazy-loaded `sweep-*.js` chunk and reduces main entry bundle size.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** ENH-6 (built directly atop Sprint 14 sidebar state).
+
+---
+
+### ENH-8 · Modernize Puppeteer E2E smoke suite on built `dist/` (`vite preview`) & add CI job · QA / DevOps · Size S [Must Have]
+
+`tests/e2e/app.e2e.test.js` and `jest-puppeteer.config.cjs` are broken relics of the pre-SPA era (asserting deleted `#statusPill`, `.status-offline`, 10 pre-selected cards, and localhost:5173 without `/ballistics/`), and `.github/workflows/ci.yml` never runs E2E tests. Running a fast smoke suite against production `dist/` via `vite preview` catches real bundling, worker, base-path (`/ballistics/`), and CSP regressions.
+
+**Work items:**
+
+1. Update `jest-puppeteer.config.cjs`:
+   - Serve built `dist/` using `./node_modules/.bin/vite preview --port 4173 --strictPort --host 127.0.0.1`.
+   - Resolve `executablePath` from `process.env.PUPPETEER_EXECUTABLE_PATH` or standard Linux/macOS Chrome/Chromium paths (`/usr/bin/google-chrome`, `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, etc.) so CI runs cleanly with `PUPPETEER_SKIP_DOWNLOAD: 'true'`.
+2. Rewrite `tests/e2e/app.e2e.test.js` against `http://127.0.0.1:4173/ballistics/` asserting zero `pageerror` / console errors (including zero CSP errors), initial load of 37 built-in rounds, Web Worker compute & 5 rendered canvases, Data Table lazy render + sorting, and Tools tab lazy load + DOPE table rendering.
+3. Add `'jest.e2e.config.cjs'` and `'jest-puppeteer.config.cjs'` to CI `paths-filter`, add an `e2e-smoke` job in `.github/workflows/ci.yml` (`needs: [changes]`, gated on `frontend == 'true'`), and add `e2e-smoke` to `deploy.needs`.
+
+**Coverage:** `npm test` remains 100/100/100/100; `npm run test:e2e` passes end-to-end against `npm run build` output.
+
+**Acceptance:**
+
+- `npm run build && npm run test:e2e` passes locally with zero page/console/CSP errors.
+- `.github/workflows/ci.yml` runs `e2e-smoke` on PRs and pushes to `main`.
+
+**Dependencies:** ENH-9 (verifies `<meta http-equiv="Content-Security-Policy">` under real browser execution).
+
+---
+
+### ENH-9 · Release hygiene (`REL-1`–`REL-3`) & Content-Security-Policy meta tag (`SEC-3`) · DevSecOps / DX · Size S [Must Have]
+
+Consolidates Sprint 11 documentation cleanup and Icebox security hardening: removes the 28 dead backend/WASM/Rust specs in `contracts/` (`REL-1`), creates root `CHANGELOG.md` (`REL-2`), brings `README.md` up to date (`REL-3`), and adds a strict `<meta http-equiv="Content-Security-Policy">` tag (`SEC-3`) compatible with static GitHub Pages hosting and Vite 8 assets/module workers.
+
+**Work items:**
+
+1. `REL-1`: Delete the 28 stale backend/WASM contract docs from `contracts/` listed in Sprint 11 `REL-1`, update `contracts/CHANGELOG.md` header to reference the pure-browser SPA, and verify zero CI/code references break.
+2. `REL-2`: Create root `CHANGELOG.md` in Keep a Changelog format covering `[Unreleased]`, `[3.0.0]`, and `Migration notes`.
+3. `REL-3`: Update `README.md` Tech Stack, Architecture, Features, Testing, and Project Structure sections to accurately reflect Vite 8, Web Worker pool, Transferables, Sprint 14 features, and modular files.
+4. `SEC-3`: Add `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; worker-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">` in `app/index.html` (no `frame-ancestors` in `<meta>`, no `unsafe-eval`), plus assertion coverage in `tests/index-html.test.js`.
+
+**Coverage:** 100% Jest (`tests/index-html.test.js`); `npm run build` preserves quoted CSP directives cleanly.
+
+**Acceptance:**
+
+- `contracts/` contains only the 24 current-era SPA docs (`REL-1`).
+- `CHANGELOG.md` and `README.md` accurately describe `v3.0.0` (`REL-2`, `REL-3`).
+- `app/index.html` and `dist/index.html` enforce the `<meta http-equiv="Content-Security-Policy">` policy (`SEC-3`) without blocking scripts, workers, CSS, fonts, or PNG exports.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None cleanly when stacked above Wave 2 feature edits (`app/index.html`, `README.md`).
+
+---
+
+### ENH-10 · Explicit job-level CI permissions (`REL-5`) & `v3.0.0` version bump (`REL-4`) · DevSecOps · Size XS [Must Have]
+
+Finalizes Sprint 14 release readiness by ensuring every job in `.github/workflows/ci.yml` explicitly declares least-privilege `permissions:` (`REL-5`: `changes` and `frontend-build` join `codeql`, `trivy`, `e2e-smoke`, and `deploy`) and bumping `package.json` + `package-lock.json` from `1.0.0` to `3.0.0` (`REL-4`).
+
+**Work items:**
+
+1. Add explicit `permissions: { contents: read }` blocks to `changes` and `frontend-build` in `.github/workflows/ci.yml` (`REL-5`).
+2. Bump `"version"` to `"3.0.0"` in `package.json` and `package-lock.json` (`REL-4`).
+
+**Coverage:** `npm test` 100/100/100/100, `npm run build`, and `npm run test:e2e`.
+
+**Acceptance:**
+
+- Every job in `.github/workflows/ci.yml` declares explicit `permissions:`.
+- `package.json` and `package-lock.json` report version `3.0.0`.
+- `npm test`, `npm run build`, and `npm run test:e2e` all pass.
+
+**Dependencies:** ENH-8, ENH-9.
+
+---
