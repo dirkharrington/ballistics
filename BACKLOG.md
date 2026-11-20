@@ -1921,7 +1921,7 @@ Even after `PERF-27`, `app/ballistics.js:1-13` eagerly statically imports module
 
 ---
 
-### PERF-30 · Safeguarded secant + warm-bracket `solveBC` & hoisted branchless RK4 inner loop · FE · Size S
+### ~~PERF-30 · Safeguarded secant + warm-bracket `solveBC` & hoisted branchless RK4 inner loop · FE · Size S~~ ✅ Done
 
 Two CPU hot paths remain in `app/physics/engine.ts`:
 1. `solveBC()` (`app/physics/engine.ts:549-577`) still uses **pure bisection** (`hi - lo > 1e-5` over `[0.001, 1.5]`), unconditionally running **18 full trajectory integrations** (`evalDropCmAtRange`), and every call to `evalDropCmAtRange` (`app/physics/engine.ts:491`) invokes `findZeroAngleFps` cold over `[-0.05, 0.05]` (~8 zero-angle passes × 18 = ~144 zero-range RK4 passes + 18 full-range passes per BC solve).

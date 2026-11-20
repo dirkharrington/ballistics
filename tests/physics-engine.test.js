@@ -1454,3 +1454,73 @@ describe('PERF-17: solveBC', () => {
     expect(solveBC({ weightG: 10, mvMps: 20, measuredDropCm: -40, rangeM: 500, altM: 0, tempC: 15 })).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERF-30: Warm-bracket findZeroAngleFps, safeguarded secant solveBC & hoisted RK4
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PERF-30: warm-bracket findZeroAngleFps, safeguarded secant solveBC & hoisted RK4', () => {
+  const { solveBC } = require('../app/physics/engine.ts');
+
+  test('findZeroAngleFps warm hint hits tight bracket and falls back cleanly when out of bracket', () => {
+    const mvFps = 807 * 3.28084;
+    const rho = 1.0;
+    const zeroFt = 100 * 3.28084;
+    const sightHtFt = 38.1 / 25.4 / 12;
+    const unhinted = findZeroAngleFps(mvFps, 0.475, rho, zeroFt, sightHtFt, G1_TABLE);
+
+    // Warm-bracket hit
+    const hintedHit = findZeroAngleFps(mvFps, 0.475, rho, zeroFt, sightHtFt, G1_TABLE, unhinted + 0.0005);
+    expect(Math.abs(hintedHit - unhinted)).toBeLessThan(1e-12);
+
+    // Hint too high (fLo >= 0) → falls back to [-0.05, 0.05]
+    const hintedHigh = findZeroAngleFps(mvFps, 0.475, rho, zeroFt, sightHtFt, G1_TABLE, 0.04);
+    expect(Math.abs(hintedHigh - unhinted)).toBeLessThan(1e-12);
+
+    // Hint too low (fHi < 0) → falls back to [-0.05, 0.05]
+    const hintedLow = findZeroAngleFps(mvFps, 0.475, rho, zeroFt, sightHtFt, G1_TABLE, -0.04);
+    expect(Math.abs(hintedLow - unhinted)).toBeLessThan(1e-12);
+
+    // Hint near clamping edges [-0.05, 0.05]
+    expect(findZeroAngleFps(mvFps, 0.475, rho, zeroFt, -50, G1_TABLE, -0.05)).toBe(-0.05);
+    expect(findZeroAngleFps(mvFps, 0.475, rho, zeroFt,  50, G1_TABLE,  0.05)).toBe(0.05);
+  });
+
+  test('solveBC clamps to 0.001 / 1.5 when measuredDropCm lies outside bracket', () => {
+    expect(solveBC({ weightG: 10.89, mvMps: 807, measuredDropCm: -5000, rangeM: 500, altM: 0, tempC: 15 })).toBe(0.001);
+    expect(solveBC({ weightG: 10.89, mvMps: 807, measuredDropCm: -50,   rangeM: 500, altM: 0, tempC: 15 })).toBe(1.5);
+  });
+
+  test('solveBC solves interior roots across 500m and 1000m (secant + bisection fallback) to 4 decimal places', () => {
+    expect(solveBC({ weightG: 10.89, mvMps: 807.7, measuredDropCm: -188.06, rangeM: 500,  altM: 0, tempC: 15 })).toBe(0.5136);
+    expect(solveBC({ weightG: 10.89, mvMps: 807.7, measuredDropCm: -752.0,  rangeM: 1000, altM: 0, tempC: 15 })).toBe(0.3026);
+    expect(solveBC({ weightG: 10.89, mvMps: 807.7, measuredDropCm: -753.6,  rangeM: 1000, altM: 0, tempC: 15 })).toBe(0.0162);
+  });
+
+  test('hoisted dragAt handles sub-vMin, super-vMax, and upward bracket advance across all RK4 paths', () => {
+    // v <= vMin in evalHeightAtZero and integrateTrajectoryFps via custom table starting at Mach 0.5 (562.5 fps)
+    const highMinTable = [
+      { mach: 0.5, cd: 0.25 },
+      { mach: 1.0, cd: 0.30 },
+      { mach: 2.5, cd: 0.20 },
+    ];
+    const subVMinRes = simulate(
+      { ...BASE_BULLET, muzzleVelocityMps: 160 }, // ~525 fps < 562.5 fps
+      { ...BASE_PARAMS, zeroRangeMeters: 50, maxRangeMeters: 100, stepMeters: 50, customDragTable: highMinTable },
+    );
+    expect(subVMinRes.points.length).toBeGreaterThan(0);
+
+    // v >= vMax in evalHeightAtZero, integrateTrajectoryFps, and evalDropCmAtRange (> 4000 fps)
+    const fastRes = simulate(
+      { ...BASE_BULLET, muzzleVelocityMps: 1300 }, // ~4265 fps > 4000 fps
+      { ...BASE_PARAMS, maxRangeMeters: 200, stepMeters: 100 },
+    );
+    expect(fastRes.points.length).toBeGreaterThan(0);
+    const fastBc = solveBC({ weightG: 10.89, mvMps: 1300, measuredDropCm: -60, rangeM: 500, altM: 0, tempC: 15 });
+    expect(fastBc).toBeGreaterThanOrEqual(0.001);
+    expect(fastBc).toBeLessThanOrEqual(1.5);
+
+    // Upward bracket advance (v > vArr[idx]) in evalDropCmAtRange: 121.9 m/s (399.93 fps) accelerates past 400 fps over 150m
+    const accelBc = solveBC({ weightG: 10, mvMps: 121.9, measuredDropCm: -50, rangeM: 150, altM: 0, tempC: 15 });
+    expect(accelBc).toBe(1.5);
+  });
+});

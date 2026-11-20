@@ -259,37 +259,76 @@ function evalHeightAtZero(
   angle: number, mvFps: number, rhoOverBc: number, zeroFt: number,
   ct: CompiledDragTable, startIdx: number
 ): number {
+  const vArr  = ct.v;
+  const fArr  = ct.f;
+  const dvArr = ct.dv;
+  const dfArr = ct.df;
+  const last  = ct.last;
+  const vMin  = vArr[0]!;
+  const vMax  = vArr[last]!;
+  const fMin  = fArr[0]!;
+  const fMax  = fArr[last]!;
+
   const halfDt  = 0.5 * DT_S;
   const sixthDt = DT_S / 6;
   let vx = mvFps * Math.cos(angle), vy = mvFps * Math.sin(angle);
   let x = 0, y = 0;
   let idx = startIdx;
+
   while (x < zeroFt) {
     const v1 = Math.sqrt(vx * vx + vy * vy);
     if (v1 < 50) break;
-    idx = findBracket(v1, ct, idx);
-    const d1  = evalCompiledDrag(v1, ct, idx) * rhoOverBc;
+    let drag1: number;
+    if (v1 <= vMin) { idx = 1; drag1 = fMin; }
+    else if (v1 >= vMax) { idx = last; drag1 = fMax; }
+    else {
+      while (idx > 1 && v1 <= vArr[idx - 1]!) idx--;
+      while (idx < last && v1 > vArr[idx]!) idx++;
+      drag1 = fArr[idx - 1]! + ((v1 - vArr[idx - 1]!) / dvArr[idx]!) * dfArr[idx]!;
+    }
+    const d1  = drag1 * rhoOverBc;
     const ax1 = -(vx / v1) * d1;
     const ay1 = -(vy / v1) * d1 - G_FPS2;
 
     const vx2 = vx + halfDt * ax1, vy2 = vy + halfDt * ay1;
     const v2  = Math.sqrt(vx2 * vx2 + vy2 * vy2);
-    const i2  = findBracket(v2, ct, idx);
-    const d2  = evalCompiledDrag(v2, ct, i2) * rhoOverBc;
+    let i2 = idx, drag2: number;
+    if (v2 <= vMin) { i2 = 1; drag2 = fMin; }
+    else if (v2 >= vMax) { i2 = last; drag2 = fMax; }
+    else {
+      while (i2 > 1 && v2 <= vArr[i2 - 1]!) i2--;
+      while (i2 < last && v2 > vArr[i2]!) i2++;
+      drag2 = fArr[i2 - 1]! + ((v2 - vArr[i2 - 1]!) / dvArr[i2]!) * dfArr[i2]!;
+    }
+    const d2  = drag2 * rhoOverBc;
     const ax2 = -(vx2 / v2) * d2;
     const ay2 = -(vy2 / v2) * d2 - G_FPS2;
 
     const vx3 = vx + halfDt * ax2, vy3 = vy + halfDt * ay2;
     const v3  = Math.sqrt(vx3 * vx3 + vy3 * vy3);
-    const i3  = findBracket(v3, ct, i2);
-    const d3  = evalCompiledDrag(v3, ct, i3) * rhoOverBc;
+    let i3 = idx, drag3: number;
+    if (v3 <= vMin) { i3 = 1; drag3 = fMin; }
+    else if (v3 >= vMax) { i3 = last; drag3 = fMax; }
+    else {
+      while (i3 > 1 && v3 <= vArr[i3 - 1]!) i3--;
+      while (i3 < last && v3 > vArr[i3]!) i3++;
+      drag3 = fArr[i3 - 1]! + ((v3 - vArr[i3 - 1]!) / dvArr[i3]!) * dfArr[i3]!;
+    }
+    const d3  = drag3 * rhoOverBc;
     const ax3 = -(vx3 / v3) * d3;
     const ay3 = -(vy3 / v3) * d3 - G_FPS2;
 
     const vx4 = vx + DT_S * ax3, vy4 = vy + DT_S * ay3;
     const v4  = Math.sqrt(vx4 * vx4 + vy4 * vy4);
-    const i4  = findBracket(v4, ct, i3);
-    const d4  = evalCompiledDrag(v4, ct, i4) * rhoOverBc;
+    let i4 = idx, drag4: number;
+    if (v4 <= vMin) { i4 = 1; drag4 = fMin; }
+    else if (v4 >= vMax) { i4 = last; drag4 = fMax; }
+    else {
+      while (i4 > 1 && v4 <= vArr[i4 - 1]!) i4--;
+      while (i4 < last && v4 > vArr[i4]!) i4++;
+      drag4 = fArr[i4 - 1]! + ((v4 - vArr[i4 - 1]!) / dvArr[i4]!) * dfArr[i4]!;
+    }
+    const d4  = drag4 * rhoOverBc;
     const ax4 = -(vx4 / v4) * d4;
     const ay4 = -(vy4 / v4) * d4 - G_FPS2;
 
@@ -304,17 +343,37 @@ function evalHeightAtZero(
 /** @internal */
 export function findZeroAngleFps(
   mvFps: number, bc: number, rho: number, zeroFt: number,
-  sightHtFt: number, dragTable: DragTable = G1_TABLE
+  sightHtFt: number, dragTable: DragTable = G1_TABLE,
+  hintAngle?: number
 ): number {
   const ct        = getCompiledDragTable(dragTable);
   const rhoOverBc = rho / bc;
   const startIdx  = findBracket(mvFps, ct, ct.last);
 
   let lo = -0.05, hi = 0.05;
-  let fLo = evalHeightAtZero(lo, mvFps, rhoOverBc, zeroFt, ct, startIdx) - sightHtFt;
-  if (fLo >= 0) return lo;
-  let fHi = evalHeightAtZero(hi, mvFps, rhoOverBc, zeroFt, ct, startIdx) - sightHtFt;
-  if (fHi < 0) return hi;
+  let fLo = 0, fHi = 0;
+  let hit = false;
+
+  if (hintAngle !== undefined) {
+    const hLo = Math.max(-0.05, hintAngle - 0.002);
+    const hHi = Math.min(0.05, hintAngle + 0.002);
+    fLo = evalHeightAtZero(hLo, mvFps, rhoOverBc, zeroFt, ct, startIdx) - sightHtFt;
+    if (fLo < 0) {
+      fHi = evalHeightAtZero(hHi, mvFps, rhoOverBc, zeroFt, ct, startIdx) - sightHtFt;
+      if (fHi >= 0) {
+        lo = hLo;
+        hi = hHi;
+        hit = true;
+      }
+    }
+  }
+
+  if (!hit) {
+    fLo = evalHeightAtZero(lo, mvFps, rhoOverBc, zeroFt, ct, startIdx) - sightHtFt;
+    if (fLo >= 0) return lo;
+    fHi = evalHeightAtZero(hi, mvFps, rhoOverBc, zeroFt, ct, startIdx) - sightHtFt;
+    if (fHi < 0) return hi;
+  }
 
   // Safeguarded secant with bisection fallback (PERF-16): converges in ~5–9 passes
   // instead of 64 fixed bisection passes while matching to <1e-12 rad.
@@ -339,7 +398,17 @@ export function integrateTrajectoryFps(
   cosAngle: number = 1, dragTable: DragTable = G1_TABLE,
   extras: PointExtras = {}
 ): { points: TrajectoryPoint[]; maxOrdIn: number; maxOrdRangeYd: number; supersonicLimYd: number } {
-  const ct = getCompiledDragTable(dragTable);
+  const ct    = getCompiledDragTable(dragTable);
+  const vArr  = ct.v;
+  const fArr  = ct.f;
+  const dvArr = ct.dv;
+  const dfArr = ct.df;
+  const last  = ct.last;
+  const vMin  = vArr[0]!;
+  const vMax  = vArr[last]!;
+  const fMin  = fArr[0]!;
+  const fMax  = fArr[last]!;
+
   const rhoOverBc     = rho / bc;
   const halfDt        = 0.5 * DT_S;
   const sixthDt       = DT_S / 6;
@@ -355,7 +424,7 @@ export function integrateTrajectoryFps(
   let supersonicLogged = false;
   const mvHorizFps = vx;
   const windFps    = windMph * MPH_TO_FPS;
-  let idx = findBracket(mvFps, ct, ct.last);
+  let idx = findBracket(mvFps, ct, last);
 
   while ((x / 3) <= maxRangeYd + stepYd) {
     const rangeYd = x / 3;
@@ -389,29 +458,57 @@ export function integrateTrajectoryFps(
       supersonicLogged = true;
     }
 
-    idx = findBracket(vel, ct, idx);
-    const d1  = evalCompiledDrag(vel, ct, idx) * rhoOverBc;
+    let drag1: number;
+    if (vel <= vMin) { idx = 1; drag1 = fMin; }
+    else if (vel >= vMax) { idx = last; drag1 = fMax; }
+    else {
+      while (idx > 1 && vel <= vArr[idx - 1]!) idx--;
+      while (idx < last && vel > vArr[idx]!) idx++;
+      drag1 = fArr[idx - 1]! + ((vel - vArr[idx - 1]!) / dvArr[idx]!) * dfArr[idx]!;
+    }
+    const d1  = drag1 * rhoOverBc;
     const ax1 = -(vx / vel) * d1;
     const ay1 = -(vy / vel) * d1 - G_FPS2;
 
     const vx2 = vx + halfDt * ax1, vy2 = vy + halfDt * ay1;
     const v2  = Math.sqrt(vx2 * vx2 + vy2 * vy2);
-    const i2  = findBracket(v2, ct, idx);
-    const d2  = evalCompiledDrag(v2, ct, i2) * rhoOverBc;
+    let i2 = idx, drag2: number;
+    if (v2 <= vMin) { i2 = 1; drag2 = fMin; }
+    else if (v2 >= vMax) { i2 = last; drag2 = fMax; }
+    else {
+      while (i2 > 1 && v2 <= vArr[i2 - 1]!) i2--;
+      while (i2 < last && v2 > vArr[i2]!) i2++;
+      drag2 = fArr[i2 - 1]! + ((v2 - vArr[i2 - 1]!) / dvArr[i2]!) * dfArr[i2]!;
+    }
+    const d2  = drag2 * rhoOverBc;
     const ax2 = -(vx2 / v2) * d2;
     const ay2 = -(vy2 / v2) * d2 - G_FPS2;
 
     const vx3 = vx + halfDt * ax2, vy3 = vy + halfDt * ay2;
     const v3  = Math.sqrt(vx3 * vx3 + vy3 * vy3);
-    const i3  = findBracket(v3, ct, i2);
-    const d3  = evalCompiledDrag(v3, ct, i3) * rhoOverBc;
+    let i3 = idx, drag3: number;
+    if (v3 <= vMin) { i3 = 1; drag3 = fMin; }
+    else if (v3 >= vMax) { i3 = last; drag3 = fMax; }
+    else {
+      while (i3 > 1 && v3 <= vArr[i3 - 1]!) i3--;
+      while (i3 < last && v3 > vArr[i3]!) i3++;
+      drag3 = fArr[i3 - 1]! + ((v3 - vArr[i3 - 1]!) / dvArr[i3]!) * dfArr[i3]!;
+    }
+    const d3  = drag3 * rhoOverBc;
     const ax3 = -(vx3 / v3) * d3;
     const ay3 = -(vy3 / v3) * d3 - G_FPS2;
 
     const vx4 = vx + DT_S * ax3, vy4 = vy + DT_S * ay3;
     const v4  = Math.sqrt(vx4 * vx4 + vy4 * vy4);
-    const i4  = findBracket(v4, ct, i3);
-    const d4  = evalCompiledDrag(v4, ct, i4) * rhoOverBc;
+    let i4 = idx, drag4: number;
+    if (v4 <= vMin) { i4 = 1; drag4 = fMin; }
+    else if (v4 >= vMax) { i4 = last; drag4 = fMax; }
+    else {
+      while (i4 > 1 && v4 <= vArr[i4 - 1]!) i4--;
+      while (i4 < last && v4 > vArr[i4]!) i4++;
+      drag4 = fArr[i4 - 1]! + ((v4 - vArr[i4 - 1]!) / dvArr[i4]!) * dfArr[i4]!;
+    }
+    const d4  = drag4 * rhoOverBc;
     const ax4 = -(vx4 / v4) * d4;
     const ay4 = -(vy4 / v4) * d4 - G_FPS2;
 
@@ -486,9 +583,18 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
  */
 function evalDropCmAtRange(
   mvFps: number, bc: number, rho: number, zeroFt: number,
-  sightHtFt: number, targetFt: number, ct: CompiledDragTable, startIdx: number
-): number | null {
-  const angle     = findZeroAngleFps(mvFps, bc, rho, zeroFt, sightHtFt, G1_TABLE);
+  sightHtFt: number, targetFt: number, ct: CompiledDragTable, startIdx: number,
+  hintAngle?: number
+): { dropCm: number; angle: number } | null {
+  const angle     = findZeroAngleFps(mvFps, bc, rho, zeroFt, sightHtFt, G1_TABLE, hintAngle);
+  const vArr      = ct.v;
+  const fArr      = ct.f;
+  const dvArr     = ct.dv;
+  const dfArr     = ct.df;
+  const last      = ct.last;
+  const vMax      = vArr[last]!;
+  const fMax      = fArr[last]!;
+
   const rhoOverBc = rho / bc;
   const halfDt    = 0.5 * DT_S;
   const sixthDt   = DT_S / 6;
@@ -504,29 +610,53 @@ function evalDropCmAtRange(
     prevX = x;
     prevY = y;
 
-    idx = findBracket(vel, ct, idx);
-    const d1  = evalCompiledDrag(vel, ct, idx) * rhoOverBc;
+    let drag1: number;
+    if (vel >= vMax) { idx = last; drag1 = fMax; }
+    else {
+      while (idx > 1 && vel <= vArr[idx - 1]!) idx--;
+      while (idx < last && vel > vArr[idx]!) idx++;
+      drag1 = fArr[idx - 1]! + ((vel - vArr[idx - 1]!) / dvArr[idx]!) * dfArr[idx]!;
+    }
+    const d1  = drag1 * rhoOverBc;
     const ax1 = -(vx / vel) * d1;
     const ay1 = -(vy / vel) * d1 - G_FPS2;
 
     const vx2 = vx + halfDt * ax1, vy2 = vy + halfDt * ay1;
     const v2  = Math.sqrt(vx2 * vx2 + vy2 * vy2);
-    const i2  = findBracket(v2, ct, idx);
-    const d2  = evalCompiledDrag(v2, ct, i2) * rhoOverBc;
+    let i2 = idx, drag2: number;
+    if (v2 >= vMax) { i2 = last; drag2 = fMax; }
+    else {
+      while (i2 > 1 && v2 <= vArr[i2 - 1]!) i2--;
+      while (i2 < last && v2 > vArr[i2]!) i2++;
+      drag2 = fArr[i2 - 1]! + ((v2 - vArr[i2 - 1]!) / dvArr[i2]!) * dfArr[i2]!;
+    }
+    const d2  = drag2 * rhoOverBc;
     const ax2 = -(vx2 / v2) * d2;
     const ay2 = -(vy2 / v2) * d2 - G_FPS2;
 
     const vx3 = vx + halfDt * ax2, vy3 = vy + halfDt * ay2;
     const v3  = Math.sqrt(vx3 * vx3 + vy3 * vy3);
-    const i3  = findBracket(v3, ct, i2);
-    const d3  = evalCompiledDrag(v3, ct, i3) * rhoOverBc;
+    let i3 = idx, drag3: number;
+    if (v3 >= vMax) { i3 = last; drag3 = fMax; }
+    else {
+      while (i3 > 1 && v3 <= vArr[i3 - 1]!) i3--;
+      while (i3 < last && v3 > vArr[i3]!) i3++;
+      drag3 = fArr[i3 - 1]! + ((v3 - vArr[i3 - 1]!) / dvArr[i3]!) * dfArr[i3]!;
+    }
+    const d3  = drag3 * rhoOverBc;
     const ax3 = -(vx3 / v3) * d3;
     const ay3 = -(vy3 / v3) * d3 - G_FPS2;
 
     const vx4 = vx + DT_S * ax3, vy4 = vy + DT_S * ay3;
     const v4  = Math.sqrt(vx4 * vx4 + vy4 * vy4);
-    const i4  = findBracket(v4, ct, i3);
-    const d4  = evalCompiledDrag(v4, ct, i4) * rhoOverBc;
+    let i4 = idx, drag4: number;
+    if (v4 >= vMax) { i4 = last; drag4 = fMax; }
+    else {
+      while (i4 > 1 && v4 <= vArr[i4 - 1]!) i4--;
+      while (i4 < last && v4 > vArr[i4]!) i4++;
+      drag4 = fArr[i4 - 1]! + ((v4 - vArr[i4 - 1]!) / dvArr[i4]!) * dfArr[i4]!;
+    }
+    const d4  = drag4 * rhoOverBc;
     const ax4 = -(vx4 / v4) * d4;
     const ay4 = -(vy4 / v4) * d4 - G_FPS2;
 
@@ -538,13 +668,16 @@ function evalDropCmAtRange(
 
   const frac = (targetFt - prevX) / (x - prevX);
   const yAtTarget = prevY + frac * (y - prevY);
-  return (yAtTarget - targetFt * tanAngle) * 12 * CM_PER_INCH;
+  return {
+    dropCm: (yAtTarget - targetFt * tanAngle) * 12 * CM_PER_INCH,
+    angle,
+  };
 }
 
 /**
- * Worker-side G1 BC back-calculator (PERF-17).
+ * Worker-side G1 BC back-calculator (PERF-17, PERF-30).
  * Finds the G1 BC in [0.001, 1.5] matching `measuredDropCm` at `rangeM` to 4 decimal places
- * in <=18 lightweight iterations without main-thread worker round-trips.
+ * via Illinois-damped safeguarded secant with warm-bracket zero-angle reuse.
  */
 export function solveBC(params: SolveBCParams): number | null {
   const { weightG, mvMps, measuredDropCm, rangeM, altM, tempC } = params;
@@ -567,11 +700,41 @@ export function solveBC(params: SolveBCParams): number | null {
   const startIdx  = findBracket(mvFps, G1_COMPILED, G1_COMPILED.last);
 
   let lo = 0.001, hi = 1.5;
+  const resLo = evalDropCmAtRange(mvFps, lo, rho, zeroFt, sightHtFt, targetFt, G1_COMPILED, startIdx);
+  if (resLo === null) return null;
+  let fLo = resLo.dropCm - measuredDropCm;
+  let hintAngle = resLo.angle;
+  if (fLo >= 0) return lo;
+
+  const resHi = evalDropCmAtRange(mvFps, hi, rho, zeroFt, sightHtFt, targetFt, G1_COMPILED, startIdx, hintAngle)!;
+  let fHi = resHi.dropCm - measuredDropCm;
+  hintAngle = resHi.angle;
+  if (fHi <= 0) return hi;
+
+  let mid = (lo + hi) / 2;
+  let prevSide = 0;
   for (let i = 0; i < 40 && hi - lo > 1e-5; i++) {
-    const mid  = (lo + hi) / 2;
-    const drop = evalDropCmAtRange(mvFps, mid, rho, zeroFt, sightHtFt, targetFt, G1_COMPILED, startIdx);
-    if (drop === null) return null;
-    if (drop < measuredDropCm) lo = mid; else hi = mid;
+    const span = hi - lo;
+    const margin = 0.05 * span;
+    const secant = hi - fHi * (span / (fHi - fLo));
+    mid = (secant > lo + margin && secant < hi - margin)
+      ? secant
+      : (lo + hi) / 2;
+    const resMid = evalDropCmAtRange(mvFps, mid, rho, zeroFt, sightHtFt, targetFt, G1_COMPILED, startIdx, hintAngle)!;
+    hintAngle = resMid.angle;
+    const fMid = resMid.dropCm - measuredDropCm;
+    if (Math.abs(fMid) <= 1e-7) break;
+    if (fMid < 0) {
+      lo = mid;
+      fLo = fMid;
+      if (prevSide === -1) fHi *= 0.5;
+      prevSide = -1;
+    } else {
+      hi = mid;
+      fHi = fMid;
+      if (prevSide === 1) fLo *= 0.5;
+      prevSide = 1;
+    }
   }
-  return Math.round(((lo + hi) / 2) * 10000) / 10000;
+  return Math.round(mid * 10000) / 10000;
 }
