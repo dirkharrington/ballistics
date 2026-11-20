@@ -1841,7 +1841,7 @@ Audit of `app/ballistics.css` revealed four concrete layout/paint inefficiencies
 
 ---
 
-### PERF-27 · Strip unread catalog prose from `virtual:bullet-catalog` & prune dead chart config code · FE · Size XS
+### ~~PERF-27 · Strip unread catalog prose from `virtual:bullet-catalog` & prune dead chart config code · FE · Size XS~~ ✅ Done
 
 `virtual:bullet-catalog` (`vite.config.js:45-62`) embeds all 37 rounds from `app/data/bullets.yaml` into the initial `dist/assets/index-*.js` entry bundle (**14,983 bytes**). Audit of `app/*.js`, `app/physics/*.ts`, and `app/index.html` confirms **zero runtime reads** of `.description` (37 entries = **6,350 bytes**) and **zero runtime reads** of `.caliber` (37 entries = **884 bytes**) — **7,234 bytes (48.3%)** of the bundled catalog is dead payload downloaded and parsed before first paint. Additionally, `buildChartConfig()` (`app/ballistics.js:976-987`) builds an unused local `annotations = { refLine: ... }` object (leftover from `chartjs-plugin-annotation`), and `velocityChart` (`app/ballistics.js:1179`) passes an unused `refLine` property.
 
