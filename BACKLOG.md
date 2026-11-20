@@ -1975,7 +1975,7 @@ Four unnecessary `O(N)` DOM and JS loops remain in the sidebar and lookup paths 
 
 ---
 
-### PERF-32 · Viewport-aware crosshair redraws (`IntersectionObserver` + `chart.draw()`), cached readout cells & sweep chart reuse · FE · Size S
+### ~~PERF-32 · Viewport-aware crosshair redraws (`IntersectionObserver` + `chart.draw()`), cached readout cells & sweep chart reuse · FE · Size S~~ ✅ Done
 
 Three rendering hot spots remain after `PERF-20` and `PERF-21`:
 1. In `scheduleCrosshairSync` (`app/ballistics.js:878-880`), every crosshair index change invokes `c.update('none')` on **all 4 sibling Chart.js instances**, running Chart.js's full `update()` pipeline (datasets, scales, layout) even though only `crosshairPlugin.afterDraw`'s vertical dashed line changed — AND redrawing charts that are scrolled completely off-screen!

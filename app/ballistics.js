@@ -100,6 +100,7 @@ let lastResults = [];
 let charts = {};
 let _chartMeta = {};
 const TRAJECTORY_CHART_IDS = ['dropChart', 'velocityChart', 'energyChart', 'windChart', 'adjustChart'];
+const SWEEP_CHART_IDS      = ['sweepDropChart', 'sweepWindChart', 'sweepVelChart'];
 
 // Memoised chart.js import — resolved once, reused on every renderResults /
 // renderSweepCharts call, so Chart.register() fires at most once per page load.
@@ -177,11 +178,15 @@ let customRecords       = [];    // CustomBulletRecordV1[] — mirror of storage
 let customStorageStatus = 'ok';  // 'ok' | 'empty' | 'corrupt' | 'unavailable'
 let editingCustomId     = null;  // string | null
 let pendingDeleteId     = null;  // string | null
-// Crosshair state (task 5 + PERF-20 rAF coalescing)
-let crosshairIndex    = null;  // data-point index currently under the cursor
-let crosshairPinned   = false; // true after user clicks a range to lock the readout
-let _crosshairRafId   = null;
-let _pendingCrosshair = null;
+// Crosshair state (task 5 + PERF-20 rAF coalescing + PERF-32 viewport-aware draw)
+let crosshairIndex         = null;  // data-point index currently under the cursor
+let crosshairPinned        = false; // true after user clicks a range to lock the readout
+let _crosshairRafId        = null;
+let _pendingCrosshair      = null;
+let _chartObserver         = null;
+let _visibleChartIds       = new Set();
+let _dirtyCrosshairCharts  = new Set();
+let _readoutCache          = null;
 // Table sort & lazy-render state (FE-3 + PERF-22)
 let sortColumn       = null;   // string | null
 let sortDirection    = 'asc';  // 'asc' | 'desc'
@@ -710,7 +715,31 @@ export function _attachTouchForwarder(canvas) {
   }, { passive: true });
 }
 
-// ── Range readout — populate the panel below the charts ──────────────────────
+// ── Range readout — populate the panel below the charts (cached cells, PERF-32) ─
+function _buildReadoutRow(r) {
+  const row = document.createElement('tr');
+  const nameCell = document.createElement('td');
+  const dot = document.createElement('span');
+  dot.className = 'bullet-dot';
+  dot.setAttribute('style', `background:${colorFor(r.bullet)}`);
+  nameCell.appendChild(dot);
+  nameCell.appendChild(document.createTextNode(r.bullet.name));
+  const dropCell   = document.createElement('td');
+  const velCell    = document.createElement('td');
+  const energyCell = document.createElement('td');
+  const windCell   = document.createElement('td');
+  row.append(nameCell, dropCell, velCell, energyCell, windCell);
+  return {
+    row,
+    dropCell,
+    velCell,
+    energyCell,
+    windCell,
+    spinCell: document.createElement('td'),
+    corCell:  document.createElement('td'),
+  };
+}
+
 function updateReadout(results, dataIndex) {
   const panel = document.getElementById('rangeReadout');
   if (!panel) return;
@@ -725,27 +754,108 @@ function updateReadout(results, dataIndex) {
   const tbody = document.getElementById('readoutBody');
   /* istanbul ignore else -- #readoutBody is always present in the app shell */
   if (tbody) {
+    if (!_readoutCache || _readoutCache.results !== results || _readoutCache.tbody !== tbody) {
+      const frag = document.createDocumentFragment();
+      const rows = results.map(r => {
+        const entry = _buildReadoutRow(r);
+        frag.appendChild(entry.row);
+        return entry;
+      });
+      tbody.textContent = '';
+      tbody.appendChild(frag);
+      _readoutCache = { results, tbody, rows };
+    }
+
     const sign = v => v > 0 ? '+' : '';
-    tbody.innerHTML = results.map(r => {
-      const p = r.points[dataIndex];
-      if (!p) return '';
-      const color = colorFor(r.bullet);
-      return `<tr>
-        <td><span class="bullet-dot" style="background:${color}"></span>${escapeHtml(r.bullet.name)}</td>
-        <td>${sign(p.dropCm)}${p.dropCm} cm</td>
-        <td>${p.velocityMps} m/s</td>
-        <td>${p.energyJoules} J</td>
-        <td>${sign(p.windDriftCm)}${p.windDriftCm} cm</td>
-        ${p.spinDriftCm > 0 ? `<td>Spin Drift: ${p.spinDriftCm.toFixed(1)} cm</td>` : ''}
-        ${p.coriolisDeflectionCm != null ? `<td>Coriolis: ${p.coriolisDeflectionCm >= 0 ? '+' : ''}${p.coriolisDeflectionCm.toFixed(1)} cm</td>` : ''}
-      </tr>`;
-    }).join('');
+    for (let i = 0; i < results.length; i++) {
+      const entry = _readoutCache.rows[i];
+      const p = results[i].points[dataIndex];
+      if (!p) {
+        entry.row.style.display = 'none';
+        continue;
+      }
+      entry.row.style.display = '';
+      entry.dropCell.textContent   = `${sign(p.dropCm)}${p.dropCm} cm`;
+      entry.velCell.textContent    = `${p.velocityMps} m/s`;
+      entry.energyCell.textContent = `${p.energyJoules} J`;
+      entry.windCell.textContent   = `${sign(p.windDriftCm)}${p.windDriftCm} cm`;
+
+      if (p.spinDriftCm > 0) {
+        entry.spinCell.textContent = `Spin Drift: ${p.spinDriftCm.toFixed(1)} cm`;
+        if (entry.spinCell.parentNode !== entry.row) {
+          entry.row.insertBefore(entry.spinCell, entry.corCell.parentNode === entry.row ? entry.corCell : null);
+        }
+      } else if (entry.spinCell.parentNode === entry.row) {
+        entry.spinCell.remove();
+      }
+
+      if (p.coriolisDeflectionCm != null) {
+        entry.corCell.textContent = `Coriolis: ${p.coriolisDeflectionCm >= 0 ? '+' : ''}${p.coriolisDeflectionCm.toFixed(1)} cm`;
+        if (entry.corCell.parentNode !== entry.row) {
+          entry.row.appendChild(entry.corCell);
+        }
+      } else if (entry.corCell.parentNode === entry.row) {
+        entry.corCell.remove();
+      }
+    }
   }
 
   panel.style.display = 'block';
 }
 
-// ── Crosshair rAF coalescing & shared click handler (PERF-20) ────────────────
+// ── Viewport-aware chart redraws & crosshair rAF coalescing (PERF-20, PERF-32) ─
+function _teardownChartObserver() {
+  if (_chartObserver) {
+    _chartObserver.disconnect();
+    _chartObserver = null;
+  }
+  _visibleChartIds.clear();
+  _dirtyCrosshairCharts.clear();
+}
+
+function _drawChart(chart) {
+  if (typeof chart.draw === 'function') chart.draw();
+  else chart.update('none');
+}
+
+function _redrawSiblingCharts(sourceChartId) {
+  for (const [id, c] of Object.entries(charts)) {
+    if (id === sourceChartId) continue;
+    if (_chartObserver && !_visibleChartIds.has(id)) {
+      _dirtyCrosshairCharts.add(id);
+    } else {
+      _drawChart(c);
+    }
+  }
+}
+
+function _observeChartCanvases(ids) {
+  _teardownChartObserver();
+  if (typeof IntersectionObserver !== 'function') return;
+  _chartObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      const id = entry.target.id;
+      if (entry.isIntersecting) {
+        _visibleChartIds.add(id);
+        if (_dirtyCrosshairCharts.has(id) && charts[id]) {
+          _dirtyCrosshairCharts.delete(id);
+          _drawChart(charts[id]);
+        }
+      } else {
+        _visibleChartIds.delete(id);
+      }
+    }
+  });
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    /* istanbul ignore else -- canvas is always present when chart is created */
+    if (el) {
+      _visibleChartIds.add(id);
+      _chartObserver.observe(el);
+    }
+  }
+}
+
 function _cancelCrosshairRaf() {
   if (_crosshairRafId !== null) {
     cancelAnimationFrame(_crosshairRafId);
@@ -770,10 +880,7 @@ function scheduleCrosshairSync(nextIndex, sourceChartId, results) {
         /* istanbul ignore else -- #rangeReadout is always present in the app shell */
         if (panel) panel.style.display = 'none';
       }
-      const sourceChart = charts[srcId];
-      Object.values(charts).forEach(c => {
-        if (c !== sourceChart) c.update('none');
-      });
+      _redrawSiblingCharts(srcId);
     });
   }
 }
@@ -797,12 +904,13 @@ function _handleChartClick(elements, results) {
     /* istanbul ignore else -- #rangeReadout is always present in the app shell */
     if (panel) panel.style.display = 'none';
   }
-  Object.values(charts).forEach(c => c.update('none'));
+  _redrawSiblingCharts(null);
 }
 
 // ── Reset crosshair to initial (no hover, no pin) ────────────────────────────
 function resetCrosshairState() {
   _cancelCrosshairRaf();
+  _dirtyCrosshairCharts.clear();
   crosshairIndex  = null;
   crosshairPinned = false;
   const pinBtn = document.getElementById('readoutPin');
@@ -1041,6 +1149,7 @@ async function renderResults(rawResults, req) {
   if (modelEl) modelEl.textContent = `MODEL: ${req.customDragTable?.length ? 'CUSTOM' : (req.dragModel ?? 'G1')}`;
 
   resetCrosshairState();
+  _readoutCache = null;
 
   // Build annotation arrays from the first result (annotations are per-simulation)
   const first = results[0];
@@ -1107,6 +1216,7 @@ async function renderResults(rawResults, req) {
       Object.values(charts).forEach(c => c.destroy());
       charts = {};
       _chartMeta = {};
+      _teardownChartObserver();
       renderStatCards(results, cc);
 
       chartDefs.forEach(def => {
@@ -1198,6 +1308,7 @@ async function renderResults(rawResults, req) {
           _attachTouchForwarder(adjCanvas);
         }
       }
+      _observeChartCanvases(TRAJECTORY_CHART_IDS);
     }
   }
 
@@ -1427,7 +1538,7 @@ async function runSweep() {
 
   sweepResults = results;
   sweepMode    = true;
-  renderSweepCharts(results, sweepParam);
+  await renderSweepCharts(results, sweepParam);
 
   if (btn) btn.querySelector('span').textContent = 'SWEEP';
   const clearBtn = document.getElementById('clearSweepBtn');
@@ -1444,19 +1555,18 @@ async function clearSweep() {
 }
 
 async function renderSweepCharts(sweepResultsList, sweepParam) {
-  const values = SWEEP_RANGES[sweepParam] ?? SWEEP_RANGES.wind;
-  const labels = { wind: 'km/h', altitude: 'm alt', temperature: '°C' };
-  const unit   = labels[sweepParam] ?? '';
+  const values   = SWEEP_RANGES[sweepParam] ?? SWEEP_RANGES.wind;
+  const labels   = { wind: 'km/h', altitude: 'm alt', temperature: '°C' };
+  const unit     = labels[sweepParam] ?? '';
+  const subtitle = `${sweepParam} sweep (${values.join(', ')} ${unit})`;
 
   document.getElementById('emptyState').style.display = 'none';
   const rc = document.getElementById('resultsContainer');
   rc.style.display = 'flex';
   const cc = document.getElementById('chartContainer');
-  cc.innerHTML = '';
 
-  Object.values(charts).forEach(c => c.destroy());
-  charts = {};
-  _chartMeta = {};
+  resetCrosshairState();
+  _readoutCache = null;
 
   const sweepDefs = [
     { id: 'sweepDropChart', title: 'SWEEP — BULLET DROP', yLabel: 'Drop (cm)',      key: 'dropCm'      },
@@ -1472,6 +1582,40 @@ async function renderSweepCharts(sweepResultsList, sweepParam) {
     return;
   }
 
+  const buildSweepDatasets = def => sweepResultsList.map((r, i) => ({
+    label:            `${values[i]} ${unit}`,
+    data:             r.points.map(p => ({ x: p.rangeMeters, y: p[def.key] })),
+    borderColor:      SWEEP_COLORS[i % SWEEP_COLORS.length],
+    backgroundColor:  'transparent',
+    borderWidth:      2,
+    pointRadius:      0,
+    pointHoverRadius: 4,
+    tension:          _lineTension(r.points),
+  }));
+
+  const canReuse = SWEEP_CHART_IDS.every(id => charts[id] && _chartMeta[id] && document.getElementById(id));
+
+  if (canReuse) {
+    sweepDefs.forEach(def => {
+      const subEl = document.getElementById(def.id)?.closest('.chart-panel')?.querySelector('.chart-subtitle');
+      /* istanbul ignore else -- .chart-subtitle is always present inside .chart-panel */
+      if (subEl) subEl.textContent = subtitle;
+      const datasets = buildSweepDatasets(def);
+      _chartMeta[def.id].results = sweepResultsList;
+      const anim = _chartAnimation(datasets);
+      charts[def.id].data.datasets = datasets;
+      charts[def.id].options.animation = anim;
+      charts[def.id].update(anim ? undefined : 'none');
+    });
+    return;
+  }
+
+  cc.innerHTML = '';
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+  _chartMeta = {};
+  _teardownChartObserver();
+
   sweepDefs.forEach(def => {
     cc.insertAdjacentHTML('beforeend', `
       <div class="chart-panel">
@@ -1486,24 +1630,18 @@ async function renderSweepCharts(sweepResultsList, sweepParam) {
       </div>`);
     const panel = cc.querySelector('.chart-panel:last-child');
     panel.querySelector('.chart-title').textContent = def.title;
-    panel.querySelector('.chart-subtitle').textContent = `${sweepParam} sweep (${values.join(', ')} ${unit})`;
+    panel.querySelector('.chart-subtitle').textContent = subtitle;
     panel.querySelector('.export-btn')
       ?.addEventListener('click', () => exportPNG(def.id));
 
-    const datasets = sweepResultsList.map((r, i) => ({
-      label:            `${values[i]} ${unit}`,
-      data:             r.points.map(p => ({ x: p.rangeMeters, y: p[def.key] })),
-      borderColor:      SWEEP_COLORS[i % SWEEP_COLORS.length],
-      backgroundColor:  'transparent',
-      borderWidth:      2,
-      pointRadius:      0,
-      pointHoverRadius: 4,
-      tension:          _lineTension(r.points),
-    }));
-
-    const ctx = document.getElementById(def.id).getContext('2d');
-    charts[def.id] = new ChartCtor(ctx, buildChartConfig(def, datasets, sweepResultsList));
+    const datasets = buildSweepDatasets(def);
+    _chartMeta[def.id] = { results: sweepResultsList };
+    const canvas = document.getElementById(def.id);
+    charts[def.id] = new ChartCtor(canvas.getContext('2d'), buildChartConfig(def, datasets, sweepResultsList));
+    _attachTouchForwarder(canvas);
   });
+
+  _observeChartCanvases(SWEEP_CHART_IDS);
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -1914,7 +2052,7 @@ function init() {
       const panel = document.getElementById('rangeReadout');
       /* istanbul ignore else -- #rangeReadout is always present in the app shell */
       if (panel) panel.style.display = 'none';
-      Object.values(charts).forEach(c => c.update('none'));
+      _redrawSiblingCharts(null);
     }
   });
 }
@@ -2295,6 +2433,7 @@ function _handleCustomBulletSubmit() {
 function _getState()     {
   return {
     bullets, _bulletById, selectedIds, lastResults, lastReq, charts, crosshairIndex, crosshairPinned,
+    _visibleChartIds, _dirtyCrosshairCharts,
     customRecords, customStorageStatus, editingCustomId, pendingDeleteId,
   };
 }
@@ -2303,6 +2442,8 @@ function _resetState()   {
   _cancelTableChunkRaf();
   _persistInputs.cancel();
   _teardownBulletListDelegation();
+  _teardownChartObserver();
+  _readoutCache = null;
   bullets = []; _syncBulletIndex(bullets); selectedIds = new Set(); lastResults = []; charts = {}; _chartMeta = {};
   crosshairIndex = null; crosshairPinned = false;
   sortColumn = null; sortDirection = 'asc'; tableResults = null;
