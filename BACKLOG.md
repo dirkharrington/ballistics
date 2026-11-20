@@ -1781,3 +1781,306 @@ Audit of `app/ballistics.css` revealed four concrete layout/paint inefficiencies
 - `npm test` passes at 100/100/100/100.
 
 ---
+
+## Sprint 13 — Deep Performance Optimization
+
+**Sprint Goal:** Unlock true Chart.js tree-shaking (−70–90 kB from `vendor-*.js`), cut critical-path initial entry JS by ~35% (strip unused catalog metadata + code-split Tools, CSV drag parser, and Export/Import), eliminate worker structured-clone stalls via zero-copy Transferable `Float64Array` buffers, accelerate `solveBC` and the RK4 inner loop by another 3–5× / 15–25%, remove O(N) sidebar/crosshair DOM overhead, eliminate dead/duplicate font assets & font-swap CLS, minify HTML/SW/CSS natively in Vite 8, and remove duplicate `npm ci` + `npm run build` from CI Pages deploys.
+
+**Measured post-Sprint-12 baseline (`main` @ `799e10c`):**
+- `dist/assets/vendor-*.js`: **204,706 B (204.70 kB)** — still bundles 13+ unused Chart.js controllers/scales/plugins (`BarController`, `BubbleController`, `CategoryScale`, `DoughnutController`, `Filler`, `LogarithmicScale`, `PieController`, `PolarAreaController`, `RadarController`, `RadialLinearScale`, `ScatterController`, `SubTitle`, `TimeScale`) because `import('chart.js')` is a dynamic namespace import.
+- `dist/assets/index-*.js`: **84,560 B (84.56 kB)** — includes 14,983 B of `virtual:bullet-catalog` (of which 7,234 B are unread `description`/`caliber` strings), eager `app/tools.js` (15,397 B source), eager `app/drag-csv.js` (3,078 B source), and eager export/import handlers (~8.5 kB source).
+- `dist/index.html`: **24,366 B** (5,386 B / 22.1% comments and indentation whitespace).
+- `dist/assets/index-*.css`: **24,540 B** (includes 3 duplicate Orbitron `@font-face` blocks, 1 unused `rajdhani-700` `@font-face` block, and dead `.retry-btn` rules).
+- `dist/sw.js`: **5,573 B** (unminified copy of `app/sw.js` with comments and whitespace).
+- `app/fonts/`: **95,296 B** across 7 files (`orbitron-{400,700,900}.woff2` are 3 byte-identical 11,800 B copies of the same variable font; `rajdhani-700.woff2` is 15,688 B and renders zero glyphs in its `unicode-range`).
+- Worker transport: `engine.worker.ts` structured-clones up to 5,001 `TrajectoryPoint` objects per bullet (25,005 objects for 5 bullets at 5 000 m / 1 m step) plus echoes `bullet` and `params`.
+- `solveBC`: runs 18 fixed pure-bisection iterations, each calling `findZeroAngleFps` cold over `[-0.05, 0.05]`.
+- CI deploy (`push` to `main`): `pages-build` spins up a second runner and repeats `npm ci` + `npm run build` after `frontend-build` already built `dist/`.
+
+**Merge & parallelization plan:**
+- **Track A (Bundle & Code-Splitting — stacked):** `PERF-26 → PERF-27 → PERF-28` (all touch `app/ballistics.js` / `vite.config.js` bundle boundaries; merge in sequence).
+- **Track B (Physics Engine & Zero-Copy Worker — stacked):** `PERF-29 → PERF-30` (touch `app/physics/*`; can run in parallel with Track A).
+- **Track C (UI Runtime, Viewport-Aware Crosshair & DOM — stacked):** `PERF-31 → PERF-32` (touch `app/ballistics.js` runtime hot paths; stack cleanly after Track A or rebase onto `main`).
+- **Track D (Fonts, Build Pipeline & CI — independent/stacked):** `PERF-33 → PERF-34 → PERF-35` (fonts/CSS/HTML, Vite config & minification, CI deploy pipeline).
+
+---
+
+### ~~PERF-26 · Tree-shake Chart.js via static named-import lazy wrapper (`app/chart-loader.js`) · FE · Size XS~~ ✅ Done
+
+`PERF-21` removed `CategoryScale` from `Chart.register(...)`, yet `dist/assets/vendor-ClZs5zoC.js` stayed **204,706 bytes (204.70 kB)**. Because `_loadChart()` (`app/ballistics.js:111-125`) calls `import('chart.js')` directly — a dynamic namespace import — Rolldown must preserve every export of the `chart.js` barrel. Verified via grep on `dist/assets/vendor-*.js`, at least 13 unused controllers, scales, and plugins (`BarController`, `BubbleController`, `CategoryScale`, `DoughnutController`, `Filler`, `LogarithmicScale`, `PieController`, `PolarAreaController`, `RadarController`, `RadialLinearScale`, `ScatterController`, `SubTitle`, `TimeScale`) are still shipped on first Compute.
+
+**Work items:**
+
+1. Create `app/chart-loader.js` containing only static named re-exports of the 8 symbols actually used by the app:
+   ```js
+   export {
+     Chart,
+     LineController,
+     LineElement,
+     PointElement,
+     LinearScale,
+     Decimation,
+     Tooltip,
+     Legend,
+   } from 'chart.js';
+   ```
+2. Update `_loadChart()` in `app/ballistics.js:113` to call `import('./chart-loader.js')` instead of `import('chart.js')`, preserving `mod.Chart.register(...)`, promise memoization, rejection eviction, and `_warmChart()` overlap.
+3. Verify `vite.config.js` `codeSplitting.groups` still places `chart.js` + `@kurkle` in the lazy `vendor-*.js` chunk (not pulled into `index-*.js`) and that `sw.js` precache still excludes `vendor-*.js`.
+4. Add a build-verification check (or test against built `dist/` / PR check) confirming none of `BarController`, `PieController`, `DoughnutController`, `CategoryScale`, `TimeScale`, or `RadarController` remain in `dist/assets/vendor-*.js`, and record exact before/after byte sizes in the PR description.
+
+**Coverage:** 100% Jest (`tests/ballistics.test.js` + `tests/__mocks__/chart.js`). Update any Jest mock/spy targeting `import('chart.js')` to work seamlessly through `app/chart-loader.js` (`moduleNameMapper` still maps `^chart\.js$` to `tests/__mocks__/chart.js`). Note: pure re-export files have 0 executable statements; if any helper logic is placed in `app/chart-loader.js`, add it to `package.json` `collectCoverageFrom` at 100%.
+
+**Acceptance:**
+
+- `dist/assets/vendor-*.js` shrinks by ≥30% (from 204.70 kB to ≤140 kB raw).
+- Zero unused Chart.js controllers/scales (`BarController`, `PieController`, `DoughnutController`, `CategoryScale`, `TimeScale`, `RadarController`) appear in `dist/assets/vendor-*.js`.
+- `vendor-*.js` remains lazy-loaded (not modulepreloaded in `dist/index.html` and not precached in `dist/sw.js`).
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### PERF-27 · Strip unread catalog prose from `virtual:bullet-catalog` & prune dead chart config code · FE · Size XS
+
+`virtual:bullet-catalog` (`vite.config.js:45-62`) embeds all 37 rounds from `app/data/bullets.yaml` into the initial `dist/assets/index-*.js` entry bundle (**14,983 bytes**). Audit of `app/*.js`, `app/physics/*.ts`, and `app/index.html` confirms **zero runtime reads** of `.description` (37 entries = **6,350 bytes**) and **zero runtime reads** of `.caliber` (37 entries = **884 bytes**) — **7,234 bytes (48.3%)** of the bundled catalog is dead payload downloaded and parsed before first paint. Additionally, `buildChartConfig()` (`app/ballistics.js:976-987`) builds an unused local `annotations = { refLine: ... }` object (leftover from `chartjs-plugin-annotation`), and `velocityChart` (`app/ballistics.js:1179`) passes an unused `refLine` property.
+
+**Work items:**
+
+1. In `vite.config.js` `bulletCatalogPlugin()`, project each entry of `data.app.bullets` to only the 8 runtime-consumed fields (`id`, `name`, `bulletWeightGrams`, `muzzleVelocityMps`, `ballisticCoefficient`, `bulletDiameterMm`, `muzzleEnergyJoules`, `hexColor`), omitting `description` and `caliber` from the emitted virtual module while leaving `app/data/bullets.yaml` untouched as documentation.
+2. In `app/physics/types.ts:21`, change `readonly caliber: string` to `readonly caliber?: string` (matching `description?: string` on line 27). Keep `caliber: 'Custom'` in `app/custom-bullets.js:317` so `tests/custom-bullets.test.js:744` stays unchanged.
+3. Remove the dead `annotations` / `def.refLine` block in `buildChartConfig()` (`app/ballistics.js:976-987`), remove the unused `refLine` property on `velocityChart` (`app/ballistics.js:1179`), and remove/update the dead-code coverage tests at `tests/ballistics.test.js:881-968`.
+4. Verify `dist/assets/index-*.js` contains zero `description:` keys and record before/after entry-chunk byte size in the PR description.
+
+**Coverage:** 100% Jest. Add a unit check (e.g. in a lightweight Vite plugin test or `tests/`) verifying the catalog projection preserves all 8 required physics/UI fields for every round in `app/data/bullets.yaml` and strips `description` and `caliber`.
+
+**Acceptance:**
+
+- `dist/assets/index-*.js` shrinks by ≥7.0 kB (from 84.56 kB to ≤77.5 kB).
+- `grep -c 'description:' dist/assets/index-*.js` returns `0`.
+- All 37 built-in bullets render and simulate identically; `tests/fixtures/spa1-golden.json` passes unchanged.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-26.
+
+---
+
+### PERF-28 · Lazy-load secondary feature modules (`tools.js`, `drag-csv.js`, extracted `io.js`) out of initial entry bundle · FE · Size M
+
+Even after `PERF-27`, `app/ballistics.js:1-13` eagerly statically imports modules that are hidden or unused on initial page load:
+- `app/tools.js` (**15,397 B** source) — only used when the user opens the hidden **Tools** tab (`#toolsPanel`), yet initialized eagerly inside `init()` (`app/ballistics.js:1926-1928`).
+- `app/drag-csv.js` (**3,078 B** source) — only used when the user uploads a custom drag-curve CSV (`#dragTableFile` `change` event at `app/ballistics.js:1966`).
+- Export / Import handlers (`_downloadBlob`, `csvCell`, `exportTrajectoryCSV`, `exportCSV`, `exportJSON`, `importResultsFromFile`, `exportMarkdown`, `exportPNG` at `app/ballistics.js:61-65, 395-615`, ~230 lines / ~8.5 kB source) — only executed on user Export/Import clicks.
+
+**Work items:**
+
+1. Extract the pure/self-contained export & import routines into a new `app/io.js` module (accepting dependencies such as `computeAdjustments`, `escapeHtml`, `HEX_COLOR_RE`, `onError`, `onImported` as clean parameters so there are zero import cycles with `app/ballistics.js`).
+2. Add memoized lazy loaders `_loadIo()`, `_loadTools()`, and `_loadDragCsv()` in `app/ballistics.js` (each clearing its cached promise on rejection so transient offline failures can retry, matching `_loadChart()`).
+3. Remove the eager static imports of `tools.js` and `drag-csv.js` from `app/ballistics.js:1,5`:
+   - Wire `#dragTableFile` `change` handler to `await _loadDragCsv()` before calling `parseDragCsv(...)`.
+   - Defer `initTools()`, `initDopeCard(simulateAsync)`, and `initBcSolver(simulateAsync, solveBCAsync)` until the first time the Tools tab activates (`switchTab('tools', ...)`, initializing once via `_toolsInitialized` guard and immediately flushing `renderDopeCard` when `_dopeDirty` is true). If `location.search` already contains `dopeDistances=`, preserve URL restoration when Tools initializes.
+   - Wire export/import button handlers and the thin `app/ballistics.js` wrapper exports (`exportTrajectoryCSV`, `exportCSV`, `exportJSON`, `exportMarkdown`, `exportPNG`, `importResultsFromFile`) to delegate lazily to `_loadIo()`. Update synchronous call sites in `tests/ballistics.test.js:2185-2300` to `await` the async wrappers, and add dedicated unit tests for `app/io.js` in `tests/io.test.js`.
+4. Add `app/io.js` to `package.json` `collectCoverageFrom`. Keep the small lazy feature chunks (`tools-*.js`, `io-*.js`, `drag-csv-*.js`) in `dist/sw.js` post-`load` precache so offline PWA support for Tools/Export stays 100% intact without impacting FCP/LCP/TTI (since SW install is deferred past `window.load` by `PERF-24`).
+
+**Coverage:** 100% Jest across `app/ballistics.js`, `app/io.js`, `app/tools.js`, and `app/drag-csv.js`. Tests: (a) initial `init()` does not initialize Tools or parse CSV; (b) first `switchTab('tools', ...)` loads and initializes Tools once and renders dirty DOPE data; (c) failed dynamic import resets loader promise and recovers on retry; (d) CSV/JSON/Markdown/PNG export and JSON import sanitization paths retain 100% branch coverage in `tests/io.test.js` and `tests/ballistics.test.js`.
+
+**Acceptance:**
+
+- `dist/assets/index-*.js` shrinks to ≤60 kB (down from 84.56 kB baseline — ≥28% reduction in critical-path entry JS).
+- Vite emits separate lazy chunks for `tools`, `io`, and `drag-csv` that are **not** `<link rel="modulepreload">`ed in `dist/index.html`.
+- Initial page load (Charts tab) downloads and evaluates zero bytes of `tools`, `io`, or `drag-csv`.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-27.
+
+---
+
+### PERF-29 · Zero-copy Transferable `Float64Array` worker protocol for trajectory results · FE · Size M
+
+`app/physics/engine.worker.ts:52-53` posts `{ id, result }` across the Web Worker boundary via structured clone. At fine step sizes (`maxRangeMeters: 5000, stepMeters: 1`), a single bullet produces **5,001 `TrajectoryPoint` objects** (25,005 objects / ~200,000 named properties for 5 bullets), causing noticeable structured-clone serialization stalls on the worker and polymorphic deserialization GC pauses on the main thread. In addition, the worker echoes back copies of `bullet` and `params` that the main thread already holds in memory.
+
+**Work items:**
+
+1. Create `app/physics/packed-points.ts` (added to `package.json` `collectCoverageFrom`):
+   - Define `export const POINT_STRIDE = 8;` laying out `[rangeMeters, dropCm, velocityMps, energyJoules, windDriftCm, timeOfFlightSec, spinDriftCm, coriolisDeflectionCm]` per point inside a flat `Float64Array` (storing `NaN` in slot 7 when `coriolisDeflectionCm` is absent).
+   - Export `packPoints(points: readonly TrajectoryPoint[]): { buffer: Float64Array; hasCoriolis: boolean }` and `unpackPoints(buffer: Float64Array, hasCoriolis: boolean): TrajectoryPoint[]` (pre-allocating `new Array(count)` and writing monomorphic object literals — omitting `coriolisDeflectionCm` when `!hasCoriolis` or `Number.isNaN(cor)` so output is structurally and bit-identically equal to `simulate()`).
+2. Update `app/physics/engine.worker.ts` to pack `result.points` via `packPoints(result.points)`, omit echoing `bullet` and `request`, and transfer ownership zero-copy with `self.postMessage(response, [buffer.buffer])`.
+3. Update `app/physics/engine-async.ts` to store `{ bullet, params }` on the pending simulation task, reconstruct `TrajectoryResult` on worker response by re-attaching the caller's exact `bullet` and `params` references plus `unpackPoints(evt.data.pointsBuffer, evt.data.hasCoriolis)`, and keep the LRU cache storing the reconstructed `TrajectoryResult`.
+4. Benchmark 5-bullet, 5 000 m, 1 m-step (25 005 points) worker transfer & unpack latency before and after in the PR description.
+
+**Coverage:** 100% Jest (`tests/physics/packed-points.test.ts` + updated `tests/physics/engine-async.test.ts`). Tests: (a) `packPoints` / `unpackPoints` round-trips empty, standard (no Coriolis), Coriolis-enabled, and mixed/negative-zero points identically; (b) `engine.worker.ts` passes `[buffer.buffer]` in the `postMessage` transfer list and does not echo `bullet`/`request`; (c) `simulateAsync` returns the caller's exact `bullet` and `params` references (`toBe`) and identical `points` array.
+
+**Acceptance:**
+
+- `engine.worker.ts` transfers `Float64Array.buffer` in the `postMessage` transfer list (zero-copy handoff) and stops echoing `bullet` and `params`.
+- `unpackPoints(packPoints(result.points))` matches every case in `tests/fixtures/spa1-golden.json` bit-identically (including exact key presence/absence for `coriolisDeflectionCm`).
+- 5-bullet, 5 000 m, 1 m-step worker round-trip overhead drops by ≥50%.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### PERF-30 · Safeguarded secant + warm-bracket `solveBC` & hoisted branchless RK4 inner loop · FE · Size S
+
+Two CPU hot paths remain in `app/physics/engine.ts`:
+1. `solveBC()` (`app/physics/engine.ts:549-577`) still uses **pure bisection** (`hi - lo > 1e-5` over `[0.001, 1.5]`), unconditionally running **18 full trajectory integrations** (`evalDropCmAtRange`), and every call to `evalDropCmAtRange` (`app/physics/engine.ts:491`) invokes `findZeroAngleFps` cold over `[-0.05, 0.05]` (~8 zero-angle passes × 18 = ~144 zero-range RK4 passes + 18 full-range passes per BC solve).
+2. Inside the RK4 inner loops (`evalHeightAtZero:267-300`, `integrateTrajectoryFps:360-422`, `evalDropCmAtRange:501-537`), each of the 4 RK4 stages calls `findBracket(v, ct, idx)` followed immediately by `evalCompiledDrag(v, ct, idx)`, running duplicate boundary checks (`v <= ct.v[0]` and `v >= ct.v[ct.last]` checked **8 times per step** instead of 4) plus repeated property lookups (`ct.v`, `ct.f`, `ct.dv`, `ct.df`, `ct.last`) on every stage.
+
+**Work items:**
+
+1. In `solveBC()` (`app/physics/engine.ts:569-576`), replace pure bisection with **safeguarded secant + bisection fallback** (evaluating bracket endpoints `lo = 0.001, hi = 1.5`, falling back to `(lo + hi) / 2` whenever the secant estimate exits `(lo + 0.05 * span, hi - 0.05 * span)` or denominator is zero, and terminating once `Math.abs(drop - measuredDropCm) <= 1e-3` or `hi - lo <= 1e-5`), cutting typical BC iterations from 18 down to ~5–7.
+2. Add an optional `hintAngle?: number` parameter to `findZeroAngleFps` (defaulting to cold `[-0.05, 0.05]` so existing callers/tests are unchanged): when provided by `evalDropCmAtRange` from the previous BC candidate's converged angle, probe a tight bracket `[hint - 0.002, hint + 0.002]` first and fall back to `[-0.05, 0.05]` only if the root is not bracketed, cutting inner zero-finder passes per BC step by ~2×.
+3. In `evalHeightAtZero`, `integrateTrajectoryFps`, and `evalDropCmAtRange`, hoist `vArr = ct.v`, `fArr = ct.f`, `dvArr = ct.dv`, `dfArr = ct.df`, `last = ct.last`, `vMin = vArr[0]!`, `vMax = vArr[last]!`, `fMin = fArr[0]!`, `fMax = fArr[last]!` into loop-invariant locals and fuse bracket advance + piecewise linear interpolation into a single bounds-checked step per RK4 stage — preserving the **exact** IEEE-754 arithmetic order `fArr[idx - 1]! + ((v - vArr[idx - 1]!) / dvArr[idx]!) * dfArr[idx]!` and `-(vx / vel) * d` so `tests/fixtures/spa1-golden.json` remains 100% bit-identical. Keep exported `findBracket` and `evalCompiledDrag` intact for unit tests.
+4. Record median wall time before and after for (a) `solveBC` (`.308 Win 168gr`, 500 m & 1 000 m) and (b) 5-bullet, 2 000 m, 1 m-step `simulate()` in the PR description.
+
+**Coverage:** 100% Jest (`tests/physics-engine.test.js`). Tests: (a) `solveBC` matches known G1 BCs to within `±0.0002` across `.223`, `.308`, `.338 Lapua`, edge clamps (out-of-bracket drop returning clamped bound or `null`), and bisection-fallback branch; (b) `findZeroAngleFps` warm-hint hit and wide-bracket fallback branches are both covered; (c) `tests/fixtures/spa1-golden.json` passes **without** regeneration.
+
+**Acceptance:**
+
+- `solveBC` wall time drops by ≥3× (typical convergence in ≤8 BC iterations vs. 18).
+- 5-bullet, 2 000 m, 1 m-step `simulate()` median wall time improves by ≥15% on top of `PERF-15`/`PERF-16`.
+- `tests/fixtures/spa1-golden.json` passes bit-identically without regeneration.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-29.
+
+---
+
+### PERF-31 · Sidebar event delegation, O(1) bullet Map lookup, targeted single-card toggle & single-pass boot render · FE · Size S
+
+Four unnecessary `O(N)` DOM and JS loops remain in the sidebar and lookup paths of `app/ballistics.js`:
+1. `renderBulletList()` (`app/ballistics.js:218-260`) runs 37 `document.getElementById('card-' + b.id)` queries and registers **74 individual `click`/`keydown` closures** on every render.
+2. `init()` (`app/ballistics.js:1787-1814`) calls `renderBulletList()` while `selectedIds` is still empty, then 27 lines later calls `updateBulletCards()`, touching all 37 card DOM nodes a second time on page boot.
+3. `toggleBullet(id)` (`app/ballistics.js:262-269`) invokes `updateBulletCards()` (`app/ballistics.js:271-285`), scanning and mutating **all 37+ cards** via 37+ `getElementById` calls whenever a user toggles **1** bullet.
+4. `computeClientSide()` (`app/ballistics.js:208`) and `runSweep()` (`app/ballistics.js:1522`) perform linear `bullets.find(b => b.id === id)` scans on every dispatch.
+
+**Work items:**
+
+1. Add a module-level `_bulletById = new Map()` index maintained by a single `_setBullets(list)` helper (used everywhere `bullets` is assigned, plus `_resetState()`), and replace `bullets.find(b => b.id === id)` in `computeClientSide` and `runSweep` with `_bulletById.get(id)`.
+2. Emit `data-bullet-id="${escapeHtml(b.id)}"` and conditional `active` class directly on built-in `.bullet-card` elements in `renderBulletList()`, and wire **one** delegated `click` + **one** delegated `keydown` (`Enter` / `' '`) listener on `#bulletList` in `init()` (with `{ signal }`, ignoring clicks inside `.bullet-card-actions` or custom bullet buttons so custom Edit/Delete behavior is unchanged). Remove the 74 per-card `addEventListener` calls in `renderBulletList()`.
+3. In `init()`, restore `selectedIds` from URL/prefs **before** calling `renderBulletList()` so initial markup already reflects active cards in a single DOM write pass (skipping the redundant full-list `updateBulletCards()` loop on startup; keep `syncSelectAllCheckbox()` and `syncRunButton()`).
+4. Add `_syncSingleBulletCard(id)` and call it from `toggleBullet(id)` instead of scanning all 37+ cards via `updateBulletCards()` (keep `updateBulletCards()` for bulk operations such as `selectAllBullets` and custom-bullet mutations).
+
+**Coverage:** 100% Jest (`tests/ballistics.test.js`). Tests: (a) clicking and pressing Enter/Space on delegated built-in cards toggles selection; (b) clicks inside `.bullet-card-actions` do not toggle the card; (c) `toggleBullet` updates only the target card's `active` class and `aria-pressed` attribute without querying sibling cards; (d) `init()` renders selected cards `.active` in one pass; (e) `_bulletById` stays synced after `_setBullets` and custom bullet add/delete.
+
+**Acceptance:**
+
+- `renderBulletList()` attaches 0 per-card listeners for built-in bullets (only 2 delegated listeners on `#bulletList`).
+- Toggling a bullet mutates 1 `.bullet-card` node instead of 37+.
+- Page boot renders `#bulletList` with initial `.active` state in a single pass.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-28 (or rebase cleanly on `app/ballistics.js`).
+
+---
+
+### PERF-32 · Viewport-aware crosshair redraws (`IntersectionObserver` + `chart.draw()`), cached readout cells & sweep chart reuse · FE · Size S
+
+Three rendering hot spots remain after `PERF-20` and `PERF-21`:
+1. In `scheduleCrosshairSync` (`app/ballistics.js:878-880`), every crosshair index change invokes `c.update('none')` on **all 4 sibling Chart.js instances**, running Chart.js's full `update()` pipeline (datasets, scales, layout) even though only `crosshairPlugin.afterDraw`'s vertical dashed line changed — AND redrawing charts that are scrolled completely off-screen!
+2. `updateReadout()` (`app/ballistics.js:818-850`) rebuilds and re-parses the entire `#readoutBody.innerHTML` HTML string on every hovered range index, creating steady DOM/GC churn during fast scrubbing.
+3. `renderSweepCharts()` (`app/ballistics.js:1558-1619`) still tears down and reconstructs all 3 Chart.js instances (`cc.innerHTML = ''` + `c.destroy()` + `new Chart(...)`) every time the user switches sweep parameter (`wind` / `altitude` / `temperature`).
+
+**Work items:**
+
+1. Maintain a single `IntersectionObserver` (`_chartObserver`) tracking currently visible chart IDs in `_visibleChartIds` (gracefully treating all charts as visible when `IntersectionObserver` is unavailable, and disconnecting/clearing on teardown and `_resetState()`). Track skipped off-screen charts in `_dirtyCrosshairCharts`; when a dirty chart scrolls into view, redraw it immediately.
+2. In `scheduleCrosshairSync`, redraw only visible sibling charts using lightweight `c.draw()` (which invokes canvas redraw + `afterDraw` plugins without recalculating datasets, scales, or layout; fall back to `c.update('none')` if `typeof c.draw !== 'function'` for mock safety). Add `_mockDraw` / `draw` to `tests/__mocks__/chart.js`.
+3. Cache `#readoutBody` `<tr>` / `<td>` element references per active `results` identity (invalidated in `renderResults` / `_resetState`): on subsequent `updateReadout()` calls for the same result set, update only `.textContent` on existing cells instead of re-parsing `tbody.innerHTML`.
+4. Extend `PERF-21`'s in-place instance reuse to `renderSweepCharts()` (`SWEEP_CHART_IDS = ['sweepDropChart', 'sweepWindChart', 'sweepVelChart']`): when all 3 sweep charts already exist, update subtitles, `data.datasets`, `_chartMeta` references, and `options.animation` in place instead of destroying and recreating the canvases.
+
+**Coverage:** 100% Jest (`tests/ballistics.test.js`). Tests: (a) off-screen sibling charts are skipped during `scheduleCrosshairSync` and drawn when `IntersectionObserver` marks them intersecting; (b) visible sibling charts call `draw()` instead of `update('none')`; (c) fallback path when `IntersectionObserver` is unavailable redraws all sibling charts; (d) consecutive `updateReadout` calls on the same `results` reuse existing `<tr>` nodes without replacing `tbody.innerHTML`; (e) consecutive `renderSweepCharts` calls reuse existing Chart instances (`destroy` called 0 times, `update` called once per sweep chart).
+
+**Acceptance:**
+
+- Hovering across Chart 1 while Charts 3–5 are below the fold invokes `draw()` only on visible sibling charts (0 `update('none')` calls during scrub).
+- Zero `#readoutBody.innerHTML` reparses occur after the first hover frame of a simulation result.
+- Switching Sweep parameter (`wind` → `altitude` → `temperature`) reuses all 3 sweep Chart instances with zero canvas reallocations.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-31.
+
+---
+
+### PERF-33 · Font deduplication, dead weight removal (`rajdhani-700`) & metric-matched fallback fonts for 0.000 CLS · FE · Size XS
+
+Audit of `app/fonts/`, `app/ballistics.css`, and `app/index.html` revealed three concrete font wastes:
+1. `app/fonts/orbitron-400.woff2`, `orbitron-700.woff2`, and `orbitron-900.woff2` are **3 byte-for-byte identical copies** (11,800 B each, SHA-256 `c25a9f9da5d9f3db...`) of the Orbitron variable font, emitting 3 redundant `@font-face` blocks in `dist/assets/index-*.css`.
+2. `app/fonts/rajdhani-700.woff2` (**15,688 bytes**) never renders a single glyph: the only non-Orbitron `font-weight: 700` rule in all of `app/ballistics.css` is `.bullet-card.active .check::after { content: '✓'; font-weight: 700; }` (line 340), and `✓` (U+2713) is outside `rajdhani-700.woff2`'s `unicode-range`! Yet it ships in `dist/assets/` and is eagerly precached by `dist/sw.js`.
+3. `rajdhani-600.woff2` (15,732 B) is used by all 37 above-the-fold `.bullet-name` cards (`app/ballistics.css:343-350`) but is not preloaded in `app/index.html:17-19`, and none of the 3 webfont families declare metric-adjusted fallback `@font-face` descriptors (`size-adjust`, `ascent-override`, `descent-override`, `line-gap-override`) to prevent CLS during `font-display: swap`.
+
+**Work items:**
+
+1. Replace the 3 identical `orbitron-{400,700,900}.woff2` files in `app/fonts/` with a single `app/fonts/orbitron.woff2` (11,800 B), collapse `app/ballistics.css:8-37` into one variable `@font-face` declaring `font-weight: 400 900;`, and update `app/index.html` to preload `/fonts/orbitron.woff2`.
+2. Delete `app/fonts/rajdhani-700.woff2` (−15,688 B from `dist/` and SW precache), remove its `@font-face` block (`app/ballistics.css:60-69`), and change `.bullet-card.active .check::after` (`app/ballistics.css:340`) to `font-weight: 600;` (or `font-family: system-ui, sans-serif;`).
+3. Add `<link rel="preload" href="/fonts/rajdhani-600.woff2" as="font" type="font/woff2" crossorigin>` in `app/index.html` so above-the-fold bullet card names paint without a late font fetch.
+4. Add metric-matched fallback `@font-face` declarations (`'Rajdhani Fallback'`, `'Orbitron Fallback'`, `'Share Tech Mono Fallback'` using `local(...)` + measured `size-adjust`, `ascent-override`, `descent-override`, `line-gap-override`) in `app/ballistics.css` and insert them before `sans-serif`/`monospace` in font-family stacks.
+5. Update `tests/fonts.test.js` (to support variable weight ranges like `400 900` and allow `local()` fallback `@font-face` blocks) and `tests/index-html.test.js` (`REQUIRED_PRELOADS`).
+
+**Coverage:** 100% Jest (`tests/fonts.test.js`, `tests/index-html.test.js`, `tests/css-perf.test.js`). Add an assertion in `tests/fonts.test.js` verifying no two `.woff2` files in `app/fonts/` have identical SHA-256 hashes.
+
+**Acceptance:**
+
+- `app/fonts/` drops from 7 files (95.3 kB) to 4 unique files (56.0 kB — −39.3 kB); `dist/assets/` & `dist/sw.js` precache drop `rajdhani-700-*.woff2` (−15.7 kB).
+- `dist/assets/index-*.css` contains 4 webfont `@font-face` blocks (down from 7) plus metric-matched fallback blocks.
+- Lighthouse CLS on throttled cold load is `0.000`.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### PERF-34 · Build pipeline optimization: native ESM `vite.config.mjs`, HTML/SW minification & Lightning CSS · FE / DevOps · Size S
+
+Four build-output and build-speed inefficiencies remain in `vite.config.js`:
+1. `vite.config.js` uses ESM `import`/`export` without `"type": "module"` in `package.json`, forcing Vite 8 to log an `ESM syntax in a file loaded as CommonJS` warning and bundle the config via CJS fallback on every run.
+2. `dist/index.html` is **24,366 bytes** unminified — containing HTML comments and **5,386 bytes (22.1%)** of indentation/inter-tag whitespace shipped on every cold navigation.
+3. `dist/sw.js` is **5,573 bytes** unminified because `serviceWorkerPlugin()` copies `app/sw.js` verbatim with comments and whitespace.
+4. Vite 8 already includes `lightningcss` (`^1.33.0`) and `rolldown` (`~1.2.18`), yet CSS uses the legacy minifier and `app/ballistics.css` still retains dead `.retry-btn` rules left over from the deleted Java backend.
+
+**Work items:**
+
+1. Rename `vite.config.js` → `vite.config.mjs` and update `.github/workflows/ci.yml:36` `paths-filter` to watch `'vite.config.mjs'`, eliminating the Vite CJS-fallback warning and speeding up build startup.
+2. Add a zero-dependency `htmlMinifyPlugin()` in `vite.config.mjs` (`transformIndexHtml` with `enforce: 'post'`) that strips `<!-- ... -->` comments and collapses inter-tag whitespace/indentation while preserving `<script>`, `<style>`, `<pre>`, `<textarea>`, and attribute spacing.
+3. Inside `serviceWorkerPlugin()`, minify the emitted `dist/sw.js` deterministically using Vite 8's built-in Oxc/Rolldown minifier (verify exact Vite 8 API such as `transformWithOxc` / `rolldown` — zero new npm dependencies!) while preserving `CACHE_VERSION`, `STATIC_ASSETS_TO_PRECACHE`, and ES module exports.
+4. Enable `css: { transformer: 'lightningcss' }` and `build: { cssMinify: 'lightningcss' }` in `vite.config.mjs` (verifying `dist/assets/index-*.css` renders identically and shrinks or matches size) and remove dead `.retry-btn` CSS rules from `app/ballistics.css`.
+5. Record exact before/after sizes of `dist/index.html`, `dist/sw.js`, and `dist/assets/index-*.css`, plus verify two back-to-back builds emit byte-identical `dist/sw.js` and `dist/index.html`, in the PR description.
+
+**Coverage:** 100% Jest (add/update `tests/css-perf.test.js` or build check if appropriate; no runtime JS changes in `app/`).
+
+**Acceptance:**
+
+- `npm run build` outputs zero `ESM syntax in a file loaded as CommonJS` warnings.
+- `dist/index.html` shrinks from 24.37 kB to ≤19.5 kB (−20%+).
+- `dist/sw.js` shrinks from 5.57 kB to ≤3.5 kB (−35%+), and two consecutive builds produce byte-identical `dist/sw.js`.
+- `.retry-btn` is removed from `app/ballistics.css`.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** PERF-33.
+
+---
+
+### PERF-35 · Eliminate duplicate `npm ci` + `npm run build` in CI GitHub Pages deploy pipeline · DevSecOps / CI · Size XS
+
+On every push to `main`, `.github/workflows/ci.yml:188-228` runs `pages-build` (`needs: [frontend-build]`), which boots a brand-new `ubuntu-24.04` runner and repeats `actions/checkout`, `actions/setup-node`, `~/.npm` cache restore, `npm ci`, and `npm run build` solely to upload `dist/` via `actions/upload-pages-artifact` — even though `frontend-build` (which has the exact same unprivileged `contents: read` permissions) just completed `npm run build` and `npm test -- --ci` seconds earlier.
+
+**Work items:**
+
+1. Check GitHub branch protection rules first (via `gh api`) to confirm whether `Pages Build` is a required status check:
+   - **Preferred (when `Pages Build` is not a required status check):** Move `actions/configure-pages` and `actions/upload-pages-artifact` (`path: dist`) to the end of `frontend-build` (after `npm test -- --ci` succeeds), gated on `if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.frontend == 'true'`. Remove the redundant `pages-build` job and update `deploy` to `needs: [changes, frontend-build, codeql, trivy]` with `if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.frontend == 'true'` so non-frontend pushes to `main` never fail looking for a missing Pages artifact.
+   - **Fallback (if `Pages Build` must remain as a named job):** Upload `dist/` from `frontend-build` on `main` pushes via `actions/upload-artifact` and have `pages-build` download `dist/` directly and run only `configure-pages` + `upload-pages-artifact` (zero `checkout`, `setup-node`, `npm ci`, or `npm run build`).
+2. Keep the privileged `deploy` job strictly isolated (`pages: write`, `id-token: write`, `environment: github-pages`), preserving the existing least-privilege security boundary.
+3. Record end-to-end push-to-`main` workflow wall-clock time before and after in the PR description.
+
+**Coverage:** CI workflow-only change; verify workflow YAML validity and that PR checks (`changes`, `frontend-build`, `codeql`, `trivy`) and `main` deploy run cleanly on GitHub Actions.
+
+**Acceptance:**
+
+- Pushing to `main` runs `npm ci` and `npm run build` **once** (inside `frontend-build`) instead of twice.
+- Privileged `deploy` job remains isolated with `pages: write` and `id-token: write` and still gates on `frontend-build`, `codeql`, and `trivy`.
+- Non-frontend pushes to `main` (e.g. `.github/dependabot.yml`) do not fail in `deploy`.
+- Merge-to-Pages-live wall time decreases by ≥30 seconds.
+
+**Dependencies:** PERF-34 (so `vite.config.mjs` is already in `paths-filter`).
+
+---
