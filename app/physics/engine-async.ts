@@ -24,6 +24,7 @@ interface WorkerSuccessResponse {
   dragModel: EffectiveDragModel;
   pointsBuffer: Float64Array;
   hasCoriolis: boolean;
+  hasEotvos: boolean;
 }
 
 interface WorkerSolveBCResponse {
@@ -98,6 +99,9 @@ export function simulationCacheKey(bullet: Bullet, params: TrajectoryParams): st
     twist,
     params.latitudeDeg ?? null,
     params.azimuthDeg ?? null,
+    params.pressureHpa ?? null,
+    params.humidityPercent ?? null,
+    params.includeEotvos === true,
     custom,
   ]);
 }
@@ -152,11 +156,12 @@ function _spawnWorker(): WorkerSlot {
           dragModel,
           pointsBuffer,
           hasCoriolis,
+          hasEotvos,
         } = evt.data;
         const result: TrajectoryResult = {
           bullet: task.bullet!,
           request: task.params!,
-          points: unpackPoints(pointsBuffer, hasCoriolis),
+          points: unpackPoints(pointsBuffer, hasCoriolis, hasEotvos),
           maxOrdinateCm,
           maxOrdinateRangeMeters,
           supersonicLimitMeters,

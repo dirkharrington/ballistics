@@ -14,7 +14,7 @@ export const RESULT_NUMERIC_FIELDS = [
 /** Point-level numeric fields copied from imported JSON. */
 export const POINT_NUMERIC_FIELDS = [
   'rangeMeters', 'dropCm', 'velocityMps', 'energyJoules', 'windDriftCm',
-  'timeOfFlightSec', 'spinDriftCm', 'coriolisDeflectionCm',
+  'timeOfFlightSec', 'spinDriftCm', 'coriolisDeflectionCm', 'coriolisVerticalCm',
 ];
 
 const MAX_IMPORT_BYTES   = 5 * 1024 * 1024;

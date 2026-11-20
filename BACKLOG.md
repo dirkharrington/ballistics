@@ -2116,7 +2116,7 @@ Supersedes / closes open Sprint 11 and Icebox items: `REL-1`, `REL-2`, `REL-3`, 
 
 ---
 
-### ENH-2 · Station barometric pressure, relative humidity & opt-in vertical Coriolis (Eötvös) · Physics · Size M [Must Have]
+### ~~ENH-2 · Station barometric pressure, relative humidity & opt-in vertical Coriolis (Eötvös) · Physics · Size M [Must Have]~~ ✅ Done
 
 External ballistics atmospheric correction currently models only altitude + temperature (`airDensityRatio`), omitting barometric pressure and relative humidity, while Coriolis deflection models horizontal drift (`coriolisDeflectionCm`) without vertical Eötvös deflection (`coriolisVerticalCm`). Care must be taken to keep all 28 existing cases in `tests/fixtures/spa1-golden.json` (including the horizontal Coriolis case) 100% key- and bit-identical.
 
