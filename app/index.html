@@ -56,10 +56,15 @@
   <aside class="sidebar" id="sidebar">
 
     <div class="section-label">Select Rounds</div>
-    <label class="select-all-label">
-      <input type="checkbox" id="selectAllBullets" aria-label="Select all rounds">
-      <span>Select all</span>
-    </label>
+    <div class="bullet-search-wrap">
+      <input type="search" id="bulletSearch" placeholder="Filter rounds..." aria-label="Filter rounds" autocomplete="off">
+      <button type="button" id="bulletSearchClear" aria-label="Clear filter" hidden>&times;</button>
+    </div>
+    <div class="selection-meta">
+      <span id="selectedCount">0 / 5 selected</span>
+      <button type="button" id="clearSelectionBtn">Clear</button>
+    </div>
+    <div id="bulletSearchEmpty" class="bullet-search-empty" hidden>No matching rounds</div>
     <div class="bullet-list" id="bulletList" role="group" aria-label="Select bullet">
       <!-- populated by JS -->
     </div>
@@ -230,6 +235,10 @@
       <button class="run-btn" id="runBtn">
         <span>▶ COMPUTE TRAJECTORIES</span>
       </button>
+      <label class="auto-compute-label">
+        <input type="checkbox" id="autoComputeToggle" checked>
+        <span>Auto-compute on change</span>
+      </label>
     </div>
     <div id="sweepControls" style="display:none; margin-top:8px;">
       <div class="param-row">

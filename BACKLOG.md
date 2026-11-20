@@ -1157,7 +1157,7 @@ The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter fo
 
 ### Icebox (future sprints)
 
-- **ACC-3 · Arrow-key roving tabindex in bullet list** — Follow-on to ACC-1; Up/Down arrows navigate within the bullet list. 2 pts.
+- **ACC-3 · Arrow-key roving tabindex in bullet list** — Follow-on to ACC-1; Up/Down arrows navigate within the bullet list. 2 pts. ✅ Done
 - **FEAT-4 · G7 BC on custom bullets** — Custom bullets with `dragModel: 'G7'` currently use the G1 reference table. Add optional `bcG7` to the custom bullet form. 3 pts.
 - **UX-7 · Print-friendly DOPE card** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts.
 - **DX-2 · Named session saves** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts.
@@ -1391,7 +1391,7 @@ The CI workflow has a workflow-level `permissions: contents: read` block but the
 
 ---
 
-### REL-6 · Arrow-key roving tabindex in bullet list (from icebox) · FE · Size XS [Should Have — stretch]
+### ~~REL-6 · Arrow-key roving tabindex in bullet list (from icebox) · FE · Size XS [Should Have — stretch]~~ ✅ Done
 
 ACC-1 (PR #140) made bullet cards reachable by Tab and activatable with Enter/Space, but left roving tabindex as an explicit out-of-scope follow-on. Users navigating the bullet list with keyboard currently must Tab through every card in sequence; there is no way to jump down with the arrow keys, which is the standard interaction pattern for a list of `role="checkbox"` items. The pattern and CSS are already established by ACC-1, making this a contained follow-on.
 
@@ -1420,7 +1420,7 @@ ACC-1 (PR #140) made bullet cards reachable by Tab and activatable with Enter/Sp
 
 ---
 
-### REL-7 · Remove select-all and enforce 5-munition selection limit · FE · Size S [Must Have]
+### ~~REL-7 · Remove select-all and enforce 5-munition selection limit · FE · Size S [Must Have]~~ ✅ Done
 
 The select-all / deselect-all checkbox currently allows every bullet in the catalog to be selected simultaneously. With an unbounded selection, the chart and physics worker receive an arbitrary number of trajectories, producing an overcrowded, unreadable chart and unbounded computation cost. The checkbox also adds UI complexity that conflicts with the more intentional per-bullet selection model. This story removes the select-all control entirely and caps simultaneous selection at five munitions; attempting to activate a sixth is silently ignored with a visual cue on the blocked card.
 
@@ -2215,7 +2215,7 @@ URL state allows sharing individual setups (`DX-2`), but users have no in-app wa
 
 ---
 
-### ENH-6 · Interactive sidebar UX — bullet search, 5-round cap (`REL-7`), roving arrow keys (`REL-6`), & debounced auto-compute · FE / ACC · Size M [Must Have]
+### ~~ENH-6 · Interactive sidebar UX — bullet search, 5-round cap (`REL-7`), roving arrow keys (`REL-6`), & debounced auto-compute · FE / ACC · Size M [Must Have]~~ ✅ Done
 
 Selecting all 37 catalog rounds at once via `#selectAllBullets` causes chart clutter (`REL-7`), browsing 37+ rounds lacks live search filtering, keyboard users lack ArrowDown/ArrowUp roving focus across cards (`REL-6` / `ACC-3`), and users must click Compute repeatedly after minor sidebar tweaks instead of getting debounced live updates.
 

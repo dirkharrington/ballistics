@@ -262,26 +262,117 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
-/* ── select-all checkbox ── */
-.select-all-label {
+/* ── bullet search & selection meta (ENH-6) ── */
+.bullet-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px 4px;
+}
+
+#bulletSearch {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: 12px;
+  padding: 6px 28px 6px 10px;
+  border-radius: var(--radius-xs);
+  outline: none;
+  transition: border-color 0.15s;
+}
+#bulletSearch:focus { border-color: var(--accent); }
+#bulletSearch::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#bulletSearchClear {
+  position: absolute;
+  right: 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  transition: color 0.15s;
+}
+#bulletSearchClear:hover { color: var(--accent); }
+#bulletSearchClear[hidden] { display: none; }
+
+.selection-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px 6px;
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+#clearSelectionBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+#clearSelectionBtn:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+#clearSelectionBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.bullet-search-empty {
+  padding: 12px 14px;
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  text-align: center;
+  letter-spacing: 1px;
+}
+.bullet-search-empty[hidden],
+.bullet-card[hidden] { display: none; }
+
+.auto-compute-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 20px;
+  padding: 0 12px;
   font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
   font-size: var(--font-xs);
   letter-spacing: 1px;
   color: var(--text-dim);
   cursor: pointer;
   user-select: none;
-  border-bottom: 1px solid var(--border);
 }
-.select-all-label input[type="checkbox"] {
+.auto-compute-label input[type="checkbox"] {
   accent-color: var(--accent);
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   cursor: pointer;
   flex-shrink: 0;
+}
+
+@keyframes bulletLimitShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
 }
 
 /* ── bullet cards ── */
@@ -310,7 +401,13 @@ header {
 }
 
 .bullet-card:hover { border-color: var(--accent); background: var(--bg3); }
-.bullet-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bullet-card:focus-visible,
+.bullet-card--custom:focus-visible,
+.bullet-custom-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bullet-card--limit-reached {
+  border-color: var(--danger);
+  animation: bulletLimitShake 0.3s ease;
+}
 .bullet-card.active {
   border-color: var(--bullet-color, var(--accent));
   background: var(--bg3);
@@ -1374,6 +1471,9 @@ tr:hover td { background: var(--bg3); }
   .empty-state .crosshair-big svg {
     animation: none;
   }
+  .bullet-card--limit-reached {
+    animation: none;
+  }
   .sidebar,
   .run-btn,
   .run-btn::before,
@@ -1382,6 +1482,9 @@ tr:hover td { background: var(--bg3); }
   .bullet-card--custom,
   .add-bullet-btn,
   .custom-bullet-form,
+  #bulletSearch,
+  #bulletSearchClear,
+  #clearSelectionBtn,
   .toast {
     transition: none;
   }

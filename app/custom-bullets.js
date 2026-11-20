@@ -387,6 +387,7 @@ export function renderCustomBulletGroup(listEl, customBullets, ctx) {
     group.appendChild(empty);
   }
 
+  let customIdx = 0;
   for (const b of customBullets) {
     const isSelected = selectedIds.has(b.id);
 
@@ -405,13 +406,40 @@ export function renderCustomBulletGroup(listEl, customBullets, ctx) {
     card.className = 'bullet-card bullet-card--custom' + (isSelected ? ' active' : '');
     card.style.setProperty('--bullet-color', customColor(b.id));
     card.setAttribute('role', 'button');
-    card.setAttribute('tabindex', '0');
+    card.setAttribute('tabindex', customIdx === 0 ? '0' : '-1');
+    customIdx++;
     card.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-    card.addEventListener('click', () => onToggle(b.id));
+    card.addEventListener('click', () => {
+      syncCustomRovingTabindex(group, card);
+      onToggle(b.id);
+    });
+    card.addEventListener('focusin', e => {
+      if (!e.target.closest('button')) {
+        syncCustomRovingTabindex(group, card);
+      }
+    });
     card.addEventListener('keydown', e => {
+      if (e.target.closest('button')) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         onToggle(b.id);
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+        const visible = [...group.querySelectorAll('.bullet-card--custom')].filter(c => !c.hidden);
+        /* istanbul ignore next -- card receiving keydown is always visible in DOM */
+        if (visible.length === 0) return;
+        e.preventDefault();
+        const cur = visible.indexOf(card);
+        /* istanbul ignore next -- cur is >= 0 for a visible card in group */
+        const base = cur === -1 ? 0 : cur;
+        let nextIdx = base;
+        if (e.key === 'ArrowDown') nextIdx = Math.min(base + 1, visible.length - 1);
+        else if (e.key === 'ArrowUp') nextIdx = Math.max(base - 1, 0);
+        else if (e.key === 'Home') nextIdx = 0;
+        else nextIdx = visible.length - 1;
+        syncCustomRovingTabindex(group, visible[nextIdx]);
+        visible[nextIdx].focus();
       }
     });
 
@@ -463,6 +491,26 @@ export function renderCustomBulletGroup(listEl, customBullets, ctx) {
   }
 
   listEl.appendChild(group);
+}
+
+/**
+ * Keep roving tabindex valid among visible custom bullet cards inside containerEl.
+ * Ensures at most one visible card has tabindex="0" and all others have tabindex="-1".
+ */
+export function syncCustomRovingTabindex(containerEl, preferredCard = null) {
+  if (!containerEl) return;
+  const cards = [...containerEl.querySelectorAll('.bullet-card--custom')];
+  if (cards.length === 0) return;
+  const visible = cards.filter(c => !c.hidden);
+  let target = null;
+  if (preferredCard && !preferredCard.hidden && visible.includes(preferredCard)) {
+    target = preferredCard;
+  } else if (visible.length > 0) {
+    target = visible.find(c => c.getAttribute('tabindex') === '0') || visible[0];
+  }
+  for (const c of cards) {
+    c.setAttribute('tabindex', c === target ? '0' : '-1');
+  }
 }
 
 /**
