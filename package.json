@@ -26,6 +26,7 @@
       "app/sw.js",
       "app/drag-csv.js",
       "app/ballistics.js",
+      "app/io.js",
       "app/custom-bullets.js",
       "app/tools.js",
       "app/url-state.js",

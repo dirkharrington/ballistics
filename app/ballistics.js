@@ -1,8 +1,6 @@
-import { parseDragCsv } from './drag-csv.js';
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { decodeState, mergeIntoSearch } from './url-state.js';
 import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
-import { initDopeCard, renderDopeCard, initBcSolver, initTools } from './tools.js';
 import { TrajectoryInputError } from './physics/errors.ts';
 import { simulateAsync, solveBCAsync, prewarmPhysicsWorker } from './physics/engine-async.ts';
 import {
@@ -55,13 +53,6 @@ function computeAdjustments(dropCm, rangeMeters) {
     moa:  Math.round(sign * angleRad * (180 / Math.PI) * 60 * 10) / 10,
     mrad: Math.round(sign * angleRad * 1000 * 10) / 10,
   };
-}
-
-// ── CSV cell escaping – doubles internal quotes, prefixes formula triggers ─────
-function csvCell(str) {
-  const s = String(str).replace(/"/g, '""');
-  // Prevent formula injection in spreadsheet apps (Excel, Google Sheets)
-  return /^[=+\-@\t\r]/.test(s) ? `"'${s}"` : `"${s}"`;
 }
 
 // ── Cached number formatter (PERF-22) ─────────────────────────────────────────
@@ -130,6 +121,50 @@ function _warmChart() {
 }
 
 const CHART_LOAD_ERROR_MSG = "Couldn't load the chart library. Check your connection and try again.";
+const IO_LOAD_ERROR_MSG = "Couldn't load export/import tools. Check your connection and try again.";
+const TOOLS_LOAD_ERROR_MSG = "Couldn't load the tools module. Check your connection and try again.";
+const DRAG_CSV_LOAD_ERROR_MSG = "Couldn't load CSV parser. Check your connection and try again.";
+
+// Memoised lazy chunk loaders for io.js, tools.js, and drag-csv.js (PERF-28).
+// Each evicts its cached promise on rejection so subsequent actions can retry.
+const _lazyModPromises = { io: null, tools: null, dragCsv: null };
+let _toolsInitialized = false;
+
+function _memoImport(key, loadFn) {
+  if (!_lazyModPromises[key]) {
+    _lazyModPromises[key] = loadFn().catch(err => {
+      _lazyModPromises[key] = null;
+      throw err;
+    });
+  }
+  return _lazyModPromises[key];
+}
+
+function _loadIo()      { return _memoImport('io',      () => import('./io.js')); }
+function _loadTools()   { return _memoImport('tools',   () => import('./tools.js')); }
+function _loadDragCsv() { return _memoImport('dragCsv', () => import('./drag-csv.js')); }
+
+async function _withIo(fn) {
+  let io;
+  try {
+    io = await _loadIo();
+  } catch (_) {
+    _setSimulationError(IO_LOAD_ERROR_MSG);
+    return;
+  }
+  return fn(io);
+}
+
+async function _ensureToolsLoaded() {
+  const toolsMod = await _loadTools();
+  if (!_toolsInitialized) {
+    _toolsInitialized = true;
+    toolsMod.initTools();
+    toolsMod.initDopeCard(simulateAsync);
+    toolsMod.initBcSolver(simulateAsync, solveBCAsync);
+  }
+  return toolsMod;
+}
 
 // UX-1: Custom bullet catalog state
 let customRecords       = [];    // CustomBulletRecordV1[] — mirror of storage
@@ -391,227 +426,44 @@ async function runSimulation() {
   }
 }
 
-// ── Export helpers ────────────────────────────────────────────────────────────
-function _downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a   = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ── Trajectory CSV export (UX-2) ─────────────────────────────────────────────
-// Columns: Distance (m), Velocity (m/s), Energy (J), Drop (m), Bullet
-// Supports compare mode — all selected bullets in one file, distinguished by
-// the Bullet column.  Filename includes a millisecond timestamp so each
-// download is unique.  Bullet names are RFC 4180-escaped via csvCell().
+// ── Export & import delegation (lazy-loaded via app/io.js, PERF-28) ───────────
 function exportTrajectoryCSV() {
-  if (!lastResults.length) return;
-  const rows = ['Distance (m),Velocity (m/s),Energy (J),Drop (m),Bullet'];
-  lastResults.forEach(r => {
-    r.points.forEach(p => {
-      rows.push(`${p.rangeMeters},${p.velocityMps},${p.energyJoules},${p.dropCm / 100},${csvCell(r.bullet.name)}`);
-    });
-  });
-  _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), `trajectory-${Date.now()}.csv`);
+  return _withIo(io => io.exportTrajectoryCSV(lastResults));
 }
 
-// ── CSV export ────────────────────────────────────────────────────────────────
 function exportCSV() {
-  if (!lastResults.length) return;
-  const rows = ['Round,Range (m),Drop (cm),Velocity (m/s),Energy (J),Wind Drift (cm),Time (s),MOA,MRAD'];
-  lastResults.forEach(r => {
-    r.points.forEach(p => {
-      const adj = computeAdjustments(p.dropCm, p.rangeMeters);
-      rows.push(`${csvCell(r.bullet.name)},${p.rangeMeters},${p.dropCm},${p.velocityMps},${p.energyJoules},${p.windDriftCm},${p.timeOfFlightSec},${adj.moa},${adj.mrad}`);
-    });
-  });
-  _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), 'trajectory.csv');
+  return _withIo(io => io.exportCSV(lastResults, computeAdjustments));
 }
 
-// ── JSON export ───────────────────────────────────────────────────────────────
 function exportJSON() {
-  if (!lastResults.length) return;
-  _downloadBlob(
-    new Blob([JSON.stringify(lastResults, null, 2)], { type: 'application/json' }),
-    'trajectory.json'
-  );
+  return _withIo(io => io.exportJSON(lastResults));
 }
-
-// ── JSON import (DM-1) ────────────────────────────────────────────────────────
-// Validates and sanitises the parsed value — must be a non-empty array of
-// trajectory result objects.  Every field is rebuilt from an allowlist so that
-// only known-safe values reach innerHTML / style sinks.
-//
-// Limits:  5 MB file, 10 results, 2000 points per result.
-// Strings: bullet.id and bullet.name capped at 200 chars.
-// Colours: bullet.hexColor must match /^#[0-9a-f]{6}$/i or is dropped.
-// Numbers: every numeric field checked with Number.isFinite().
-
-/** Bullet-level numeric fields we copy from the import. */
-const BULLET_NUMERIC_FIELDS = [
-  'muzzleVelocityMps', 'ballisticCoefficient', 'bulletWeightGrams',
-  'bulletDiameterMm', 'muzzleEnergyJoules',
-];
-
-/** Result-level numeric fields we copy from the import. */
-const RESULT_NUMERIC_FIELDS = [
-  'supersonicLimitMeters', 'maxOrdinateCm', 'maxOrdinateRangeMeters', 'densityAltitudeMeters',
-];
-
-/** Point-level numeric fields we copy from the import. */
-const POINT_NUMERIC_FIELDS = [
-  'rangeMeters', 'dropCm', 'velocityMps', 'energyJoules', 'windDriftCm',
-  'timeOfFlightSec', 'spinDriftCm', 'coriolisDeflectionCm',
-];
 
 function importResultsFromFile(file) {
-  if (!file) return;
-  if (file.size > 5 * 1024 * 1024) {
-    _setSimulationError('Import failed: file exceeds 5 MB limit.');
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    let parsed;
-    try {
-      parsed = JSON.parse(e.target.result);
-    } catch (_) {
-      _setSimulationError('Import failed: file is not valid JSON.');
-      return;
-    }
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      _setSimulationError('Import failed: JSON must be a non-empty array of trajectory results.');
-      return;
-    }
-    if (parsed.length > 10) {
-      _setSimulationError('Import failed: file contains more than 10 results.');
-      return;
-    }
-
-    const sanitized = [];
-    for (const item of parsed) {
-      if (!item || typeof item !== 'object' || !item.bullet || !item.points) {
-        _setSimulationError('Import failed: each result must have a "bullet" and "points" property.');
-        return;
+  return _withIo(io => io.importResultsFromFile(file, {
+    hexColorRe: HEX_COLOR_RE,
+    setError: _setSimulationError,
+    onImported: async (sanitized) => {
+      lastResults = sanitized;
+      try {
+        await renderResults(sanitized, {});
+      } catch (err) {
+        lastResults = [];
+        throw err;
       }
-      if (!Array.isArray(item.points)) {
-        _setSimulationError('Import failed: each result "points" must be an array.');
-        return;
-      }
-      if (item.points.length > 2000) {
-        _setSimulationError('Import failed: a result contains more than 2000 points.');
-        return;
-      }
-
-      // ── Validate & rebuild bullet ────────────────────────────────────────────
-      const rawBullet = item.bullet;
-      if (!rawBullet || typeof rawBullet !== 'object') {
-        _setSimulationError('Import failed: bullet must be an object.');
-        return;
-      }
-      if (typeof rawBullet.id !== 'string' || rawBullet.id.length > 200) {
-        _setSimulationError('Import failed: bullet.id must be a string of at most 200 characters.');
-        return;
-      }
-      if (typeof rawBullet.name !== 'string' || rawBullet.name.length > 200) {
-        _setSimulationError('Import failed: bullet.name must be a string of at most 200 characters.');
-        return;
-      }
-
-      const hexColorRaw = rawBullet.hexColor;
-      const hexColor = (typeof hexColorRaw === 'string' && HEX_COLOR_RE.test(hexColorRaw))
-        ? hexColorRaw : undefined;
-
-      const bullet = { id: rawBullet.id, name: rawBullet.name };
-      if (hexColor !== undefined) bullet.hexColor = hexColor;
-
-      for (const field of BULLET_NUMERIC_FIELDS) {
-        if (rawBullet[field] !== undefined) {
-          if (!Number.isFinite(rawBullet[field])) {
-            _setSimulationError(`Import failed: bullet.${field} must be a finite number.`);
-            return;
-          }
-          bullet[field] = rawBullet[field];
-        }
-      }
-
-      // ── Validate & rebuild result-level numeric fields ───────────────────────
-      const sanitizedResult = { bullet, points: [] };
-      for (const field of RESULT_NUMERIC_FIELDS) {
-        if (item[field] !== undefined) {
-          if (!Number.isFinite(item[field])) {
-            _setSimulationError(`Import failed: ${field} must be a finite number.`);
-            return;
-          }
-          sanitizedResult[field] = item[field];
-        }
-      }
-
-      // ── Validate & rebuild points ────────────────────────────────────────────
-      for (const pt of item.points) {
-        if (!pt || typeof pt !== 'object') {
-          _setSimulationError('Import failed: each point must be an object.');
-          return;
-        }
-        const sanitizedPoint = {};
-        for (const field of POINT_NUMERIC_FIELDS) {
-          if (pt[field] !== undefined) {
-            if (!Number.isFinite(pt[field])) {
-              _setSimulationError(`Import failed: point.${field} must be a finite number.`);
-              return;
-            }
-            sanitizedPoint[field] = pt[field];
-          }
-        }
-        sanitizedResult.points.push(sanitizedPoint);
-      }
-
-      sanitized.push(sanitizedResult);
-    }
-
-    _setSimulationError(null);
-    lastResults = sanitized;
-    try {
-      await renderResults(sanitized, {});
-    } catch (_) {
-      _setSimulationError('Import failed: could not render the imported data.');
-      lastResults = [];
-      return;
-    }
-    const exportBtn = document.getElementById('exportCsvBtn');
-    /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
-    if (exportBtn) exportBtn.style.display = '';
-  };
-  reader.readAsText(file);
+      const exportBtn = document.getElementById('exportCsvBtn');
+      /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
+      if (exportBtn) exportBtn.style.display = '';
+    },
+  }));
 }
 
-// ── Markdown export ───────────────────────────────────────────────────────────
 function exportMarkdown() {
-  if (!lastResults.length) return;
-  const lines = [];
-  lastResults.forEach(r => {
-    lines.push(`## ${escapeHtml(r.bullet.name)}\n`);
-    lines.push('| Range (m) | Drop (cm) | Velocity (m/s) | Energy (J) | Wind Drift (cm) | MOA | MRAD |');
-    lines.push('|----------:|----------:|---------------:|-----------:|----------------:|----:|-----:|');
-    r.points.forEach(p => {
-      const adj = computeAdjustments(p.dropCm, p.rangeMeters);
-      lines.push(`| ${p.rangeMeters} | ${p.dropCm} | ${p.velocityMps} | ${p.energyJoules} | ${p.windDriftCm} | ${adj.moa} | ${adj.mrad} |`);
-    });
-    lines.push('');
-  });
-  _downloadBlob(new Blob([lines.join('\n')], { type: 'text/markdown' }), 'trajectory.md');
+  return _withIo(io => io.exportMarkdown(lastResults, { computeAdjustments, escapeHtml }));
 }
 
-// ── PNG export ────────────────────────────────────────────────────────────────
 function exportPNG(chartId) {
-  const canvas = document.getElementById(chartId);
-  if (!canvas) return;
-  const a = document.createElement('a');
-  a.href = canvas.toDataURL('image/png');
-  a.download = chartId + '.png';
-  a.click();
+  return _withIo(io => io.exportPNG(chartId));
 }
 
 // ── Custom round ──────────────────────────────────────────────────────────────
@@ -1319,8 +1171,13 @@ async function renderResults(rawResults, req) {
     renderTable(results);
   }
   if (document.getElementById('toolsPanel')?.classList.contains('active')) {
-    _dopeDirty = false;
-    renderDopeCard(results, req);
+    try {
+      const toolsMod = await _ensureToolsLoaded();
+      _dopeDirty = false;
+      toolsMod.renderDopeCard(results, req);
+    } catch (_) {
+      _setSimulationError(TOOLS_LOAD_ERROR_MSG);
+    }
   }
 }
 
@@ -1606,7 +1463,7 @@ async function renderSweepCharts(sweepResultsList, sweepParam) {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
-function switchTab(name, el) {
+async function switchTab(name, el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('chartsPanel').classList.toggle('active', name === 'charts');
@@ -1617,9 +1474,16 @@ function switchTab(name, el) {
     _tableDirty = false;
     renderTable(tableResults);
   }
-  if (name === 'tools' && _dopeDirty && tableResults) {
-    _dopeDirty = false;
-    renderDopeCard(tableResults, _pendingDopeReq);
+  if (name === 'tools') {
+    try {
+      const toolsMod = await _ensureToolsLoaded();
+      if (_dopeDirty && tableResults) {
+        _dopeDirty = false;
+        toolsMod.renderDopeCard(tableResults, _pendingDopeReq);
+      }
+    } catch (_) {
+      _setSimulationError(TOOLS_LOAD_ERROR_MSG);
+    }
   }
 }
 
@@ -1909,11 +1773,6 @@ function init() {
   document.getElementById('latitudeDeg')?.addEventListener('input', _persistInputs, { signal });
   document.getElementById('azimuthDeg')?.addEventListener('input', _persistInputs, { signal });
 
-  // MH-3, SH-2, PERF-17, PERF-24: Tools tab (unified into main module entry)
-  initTools();
-  initDopeCard(simulateAsync);
-  initBcSolver(simulateAsync, solveBCAsync);
-
   // WA-12: Load custom drag table from localStorage on startup
   try {
     const stored = localStorage.getItem(CUSTOM_DRAG_TABLE_KEY);
@@ -1937,14 +1796,22 @@ function init() {
     try { localStorage.removeItem(CUSTOM_DRAG_TABLE_KEY); } catch (_2) {}
   }
 
-  // WA-12: Wire file input for custom drag table
-  document.getElementById('dragTableFile')?.addEventListener('change', e => {
+  // WA-12: Wire file input for custom drag table (lazy-loads drag-csv.js, PERF-28)
+  document.getElementById('dragTableFile')?.addEventListener('change', async e => {
     const file = e.target.files?.[0];
     if (!file) return;
     const helpEl = document.getElementById('dragTableHelp');
     if (file.size > 64 * 1024) {
       /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
       if (helpEl) helpEl.textContent = 'File too large (max 64 KB).';
+      return;
+    }
+    let parseDragCsv;
+    try {
+      ({ parseDragCsv } = await _loadDragCsv());
+    } catch (_) {
+      /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
+      if (helpEl) helpEl.textContent = DRAG_CSV_LOAD_ERROR_MSG;
       return;
     }
     const reader = new FileReader();
@@ -2393,6 +2260,10 @@ function _resetState()   {
   customRecords = []; customStorageStatus = 'ok';
   editingCustomId = null; pendingDeleteId = null;
   _chartModPromise = null;
+  _lazyModPromises.io = null;
+  _lazyModPromises.tools = null;
+  _lazyModPromises.dragCsv = null;
+  _toolsInitialized = false;
   _lastSavedPrefs = new Map();
   if (_simAbortController) { _simAbortController.abort(); _simAbortController = null; }
   if (_initListenerController) { _initListenerController.abort(); _initListenerController = null; }
@@ -2419,8 +2290,7 @@ export {
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
   exportTrajectoryCSV,
   exportCSV, exportJSON, exportMarkdown, exportPNG, importResultsFromFile, runCustom, showToast,
-  _downloadBlob,
-  BULLET_COLORS, SWEEP_COLORS, escapeHtml, csvCell, computeAdjustments, crosshairPlugin,
+  BULLET_COLORS, SWEEP_COLORS, escapeHtml, computeAdjustments, crosshairPlugin,
   drawVLine, drawHLine, annotationPlugin, windChartSubtitle,
   savePrefs, loadPrefs, PREF_KEYS, PREF_DEFAULTS,
   openSidebar, closeSidebar,
@@ -2428,7 +2298,7 @@ export {
   updateSweepButtonVisibility, buildSweepRequests, runSweep, clearSweep, renderSweepCharts,
   SWEEP_RANGES,
   _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
-  _setSimulationError, _setSimStatus, _loadChart, _warmChart,
+  _setSimulationError, _setSimStatus, _loadChart, _warmChart, _loadIo, _loadTools, _loadDragCsv,
   scheduleCrosshairSync, debounce, TABLE_CHUNK_THRESHOLD, TABLE_CHUNK_SIZE,
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
   // UX-1 test helpers (openCustomBulletAdd/Edit/close/requestDelete are exported at declaration)

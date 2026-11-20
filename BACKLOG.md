@@ -1865,7 +1865,7 @@ Audit of `app/ballistics.css` revealed four concrete layout/paint inefficiencies
 
 ---
 
-### PERF-28 · Lazy-load secondary feature modules (`tools.js`, `drag-csv.js`, extracted `io.js`) out of initial entry bundle · FE · Size M
+### ~~PERF-28 · Lazy-load secondary feature modules (`tools.js`, `drag-csv.js`, extracted `io.js`) out of initial entry bundle · FE · Size M~~ ✅ Done
 
 Even after `PERF-27`, `app/ballistics.js:1-13` eagerly statically imports modules that are hidden or unused on initial page load:
 - `app/tools.js` (**15,397 B** source) — only used when the user opens the hidden **Tools** tab (`#toolsPanel`), yet initialized eagerly inside `init()` (`app/ballistics.js:1926-1928`).
