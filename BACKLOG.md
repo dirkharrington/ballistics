@@ -1947,7 +1947,7 @@ Two CPU hot paths remain in `app/physics/engine.ts`:
 
 ---
 
-### PERF-31 · Sidebar event delegation, O(1) bullet Map lookup, targeted single-card toggle & single-pass boot render · FE · Size S
+### ~~PERF-31 · Sidebar event delegation, O(1) bullet Map lookup, targeted single-card toggle & single-pass boot render · FE · Size S~~ ✅ Done
 
 Four unnecessary `O(N)` DOM and JS loops remain in the sidebar and lookup paths of `app/ballistics.js`:
 1. `renderBulletList()` (`app/ballistics.js:218-260`) runs 37 `document.getElementById('card-' + b.id)` queries and registers **74 individual `click`/`keydown` closures** on every render.
