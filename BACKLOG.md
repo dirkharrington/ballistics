@@ -1159,7 +1159,7 @@ The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter fo
 
 - **ACC-3 · Arrow-key roving tabindex in bullet list** — Follow-on to ACC-1; Up/Down arrows navigate within the bullet list. 2 pts. ✅ Done
 - **FEAT-4 · G7 BC on custom bullets** — Custom bullets with `dragModel: 'G7'` currently use the G1 reference table. Add optional `bcG7` to the custom bullet form. 3 pts.
-- **UX-7 · Print-friendly DOPE card** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts.
+- **UX-7 · Print-friendly DOPE card** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts. ✅ Done
 - **DX-2 · Named session saves** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts.
 - **SEC-3 · Content Security Policy header audit** — GitHub Pages does not support custom headers; evaluate `<meta http-equiv="Content-Security-Policy">` or Cloudflare Pages migration. 3 pts.
 
@@ -2167,7 +2167,7 @@ Long-range shooters frequently work in yards, grains, feet per second, inches, �
 
 ---
 
-### ENH-4 · Field DOPE windage MOA/MRAD, `@media print` pocket DOPE card (`UX-7`), & MPBR calculator · FE / UX · Size S [Must Have]
+### ~~ENH-4 · Field DOPE windage MOA/MRAD, `@media print` pocket DOPE card (`UX-7`), & MPBR calculator · FE / UX · Size S [Must Have]~~ ✅ Done
 
 The Tools tab DOPE card currently outputs elevation come-ups (MOA↑ / MRAD↑) only and lacks windage holds or a clean printable pocket card (`UX-7`). Hunters and field shooters also rely on Maximum Point-Blank Range (MPBR) for a target vital-zone diameter (`20 cm` / `8 in` default).
 

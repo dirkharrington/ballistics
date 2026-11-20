@@ -3,6 +3,7 @@
 const {
   calcMoaMrad, convertUnit, initTools, CONVERSIONS,
   interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC,
+  calcMpbr, initMpbrTool, renderMpbrTool,
 } = require('../app/tools.js');
 
 function flushPromises() {
@@ -307,6 +308,11 @@ function buildDopeDOM() {
       <button id="dopeAddDistBtn">+ Add distance</button>
       <table id="dopeTable"></table>
       <button id="dopeCopyBtn">COPY TEXT</button>
+      <button id="dopePrintBtn" type="button">PRINT DOPE</button>
+    </div>
+    <div id="mpbrCard">
+      <input id="mpbrVitalCm" value="20" />
+      <div id="mpbrResults" class="tool-results"></div>
     </div>
     <div id="bcCalcCard">
       <input id="bcCalcWeightG" value="" />
@@ -657,6 +663,103 @@ describe('renderDopeCard', () => {
     expect(html).toContain('<td>–</td><td>–</td>');
     expect(html).not.toContain('<td>–</td><td>–</td><td>–</td>');
   });
+
+  test('omits Wind MOA / Wind MRAD columns when all windDriftCm values are 0', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100]');
+    initDopeCard(makeSimFn());
+    renderDopeCard([{
+      bullet: { id: 'a', name: 'Zero Wind' },
+      points: [
+        { rangeMeters: 0, dropCm: 0, windDriftCm: 0 },
+        { rangeMeters: 100, dropCm: -5, windDriftCm: 0 },
+      ],
+    }], {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('colspan="2"');
+    expect(html).not.toContain('Wind MOA');
+    expect(html).not.toContain('Wind MRAD');
+  });
+
+  test('renders Wind MOA and Wind MRAD columns with exact signed math when wind is non-zero', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100,200,300]');
+    initDopeCard(makeSimFn());
+    // At 100m, +10cm -> atan2(0.1, 100) ≈ 0.001 rad -> +3.4 MOA, +1.0 MRAD
+    // At 200m, -20cm -> atan2(-0.2, 200) ≈ -0.001 rad -> -3.4 MOA, -1.0 MRAD
+    // At 300m, 0cm -> 0 MOA, 0 MRAD
+    renderDopeCard([{
+      bullet: { id: 'a', name: 'Windy' },
+      points: [
+        { rangeMeters: 0, dropCm: 0, windDriftCm: 0 },
+        { rangeMeters: 100, dropCm: -5, windDriftCm: 10 },
+        { rangeMeters: 200, dropCm: -20, windDriftCm: -20 },
+        { rangeMeters: 300, dropCm: -50, windDriftCm: 0 },
+      ],
+    }], {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('colspan="4"');
+    expect(html).toContain('<th>Wind MOA</th><th>Wind MRAD</th>');
+    expect(html).toContain('<td>+3.4</td><td>+1</td>');
+    expect(html).toContain('<td>-3.4</td><td>-1</td>');
+    expect(html).toContain('<td>0</td><td>0</td>');
+  });
+
+  test('renders dynamic colSpan=5 with both wind and Coriolis, and pads null drop with 5 dashes', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100,200]');
+    initDopeCard(makeSimFn());
+    renderDopeCard([
+      {
+        bullet: { id: 'a', name: 'Full' },
+        points: [
+          { rangeMeters: 0, dropCm: 0, windDriftCm: 0, coriolisDeflectionCm: 0 },
+          { rangeMeters: 100, dropCm: -10, windDriftCm: 10, coriolisDeflectionCm: 2.5 },
+          { rangeMeters: 200, dropCm: -20, windDriftCm: -20, coriolisDeflectionCm: -1.5 },
+        ],
+      },
+      {
+        bullet: { id: 'b', name: 'Empty' },
+        points: [],
+      },
+    ], {});
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('colspan="5"');
+    expect(html).toContain('<th>MOA↑</th><th>MRAD↑</th><th>Wind MOA</th><th>Wind MRAD</th><th>Cor. (cm)</th>');
+    expect(html).toContain('<td>+3.4</td><td>+1</td><td>+3.4</td><td>+1</td><td>+2.5</td>');
+    expect(html).toContain('<td>+3.4</td><td>+1</td><td>-3.4</td><td>-1</td><td>-1.5</td>');
+    expect(html).toContain('<td>–</td><td>–</td><td>–</td><td>–</td><td>–</td>');
+  });
+
+  test('renders dash cells for Wind MOA / Wind MRAD when wind interpolation is null but drop is valid', () => {
+    history.replaceState(null, '', '/?dopeDistances=[50]');
+    initDopeCard(makeSimFn());
+    renderDopeCard([
+      {
+        bullet: { id: 'a', name: 'HasWind' },
+        points: [
+          { rangeMeters: 0, dropCm: 0, windDriftCm: 0 },
+          { rangeMeters: 100, dropCm: -10, windDriftCm: 10 },
+        ],
+      },
+      {
+        bullet: { id: 'b', name: 'MissingWind' },
+        points: [
+          { rangeMeters: 0, dropCm: 0, windDriftCm: 1 },
+          { rangeMeters: 100, dropCm: -10, windDriftCm: undefined },
+        ],
+      },
+    ], {});
+    const rows = document.querySelectorAll('#dopeTable tbody tr');
+    const cells = Array.from(rows[0].querySelectorAll('td')).map(td => td.textContent);
+    // Bullet b drop at 50m = -5cm -> +3.4 MOA, +1 MRAD, then – and – for wind
+    expect(cells.slice(5)).toEqual(['+3.4', '+1', '–', '–']);
+  });
+
+  test('dopePrintBtn invokes window.print()', () => {
+    const printSpy = jest.fn();
+    Object.defineProperty(window, 'print', { value: printSpy, configurable: true });
+    initDopeCard(makeSimFn());
+    document.getElementById('dopePrintBtn').click();
+    expect(printSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -884,5 +987,187 @@ describe('initBcSolver', () => {
     btn.click(); // fire on detached element: document.getElementById('bcCalcBtn') = null
     await flushPromises();
     // No crash — btn guard covers null case
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// calcMpbr / initMpbrTool / renderMpbrTool (ENH-4)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('calcMpbr', () => {
+  test('returns null for invalid points or vitalZoneCm', () => {
+    const valid = [{ rangeMeters: 0, dropCm: 0 }, { rangeMeters: 100, dropCm: -5 }];
+    expect(calcMpbr(null)).toBeNull();
+    expect(calcMpbr(undefined)).toBeNull();
+    expect(calcMpbr('not-array')).toBeNull();
+    expect(calcMpbr([])).toBeNull();
+    expect(calcMpbr(valid, 0)).toBeNull();
+    expect(calcMpbr(valid, -10)).toBeNull();
+    expect(calcMpbr(valid, NaN)).toBeNull();
+    expect(calcMpbr(valid, Infinity)).toBeNull();
+  });
+
+  test('returns max range with truncatedAtMaxRange=true when trajectory stays inside vital zone', () => {
+    const pts = [
+      { rangeMeters: 0, dropCm: 0 },
+      { rangeMeters: 100, dropCm: 4.2 },
+      { rangeMeters: 200, dropCm: -8.5 },
+    ];
+    expect(calcMpbr(pts)).toEqual({
+      vitalZoneCm: 20,
+      radiusCm: 10,
+      mpbrMeters: 200,
+      maxRiseCm: 4.2,
+      maxRiseRangeM: 100,
+      exceedsVitalZone: false,
+      truncatedAtMaxRange: true,
+    });
+  });
+
+  test('linearly interpolates exact range where drop crosses -radius after peak rise', () => {
+    const pts = [
+      { rangeMeters: 0, dropCm: -3.8 },
+      { rangeMeters: 100, dropCm: 5.5 },
+      { rangeMeters: 200, dropCm: 0 },
+      { rangeMeters: 300, dropCm: -20 },
+    ];
+    // radius = 10; crossing between 200 (0) and 300 (-20) at -10 -> t = 0.5 -> 250 m
+    expect(calcMpbr(pts, 20)).toEqual({
+      vitalZoneCm: 20,
+      radiusCm: 10,
+      mpbrMeters: 250,
+      maxRiseCm: 5.5,
+      maxRiseRangeM: 100,
+      exceedsVitalZone: false,
+      truncatedAtMaxRange: false,
+    });
+  });
+
+  test('does not terminate MPBR at range 0 when muzzle sight height is below -radius, and flags exceedsVitalZone', () => {
+    const pts = [
+      { rangeMeters: 0, dropCm: -3.81 },
+      { rangeMeters: 100, dropCm: 4.5 },
+      { rangeMeters: 200, dropCm: -1.0 },
+      { rangeMeters: 300, dropCm: -5.0 },
+    ];
+    // vitalZoneCm = 4 -> radius = 2. Muzzle -3.81 < -2, peak 4.5 > 2 (exceedsVitalZone=true).
+    // Crosses -2 between 200 (-1) and 300 (-5): t = (-2 - (-1)) / (-5 - (-1)) = 0.25 -> 225 m.
+    expect(calcMpbr(pts, 4)).toEqual({
+      vitalZoneCm: 4,
+      radiusCm: 2,
+      mpbrMeters: 225,
+      maxRiseCm: 4.5,
+      maxRiseRangeM: 100,
+      exceedsVitalZone: true,
+      truncatedAtMaxRange: false,
+    });
+  });
+
+  test('handles single-point trajectory and trajectory entirely below -radius', () => {
+    expect(calcMpbr([{ rangeMeters: 0, dropCm: 0 }], 20)).toEqual({
+      vitalZoneCm: 20,
+      radiusCm: 10,
+      mpbrMeters: 0,
+      maxRiseCm: 0,
+      maxRiseRangeM: 0,
+      exceedsVitalZone: false,
+      truncatedAtMaxRange: true,
+    });
+
+    const allBelow = [
+      { rangeMeters: 0, dropCm: -5 },
+      { rangeMeters: 100, dropCm: -15 },
+    ];
+    expect(calcMpbr(allBelow, 4)).toEqual({
+      vitalZoneCm: 4,
+      radiusCm: 2,
+      mpbrMeters: 0,
+      maxRiseCm: -5,
+      maxRiseRangeM: 0,
+      exceedsVitalZone: false,
+      truncatedAtMaxRange: false,
+    });
+  });
+});
+
+describe('initMpbrTool and renderMpbrTool', () => {
+  beforeEach(() => {
+    buildDopeDOM();
+    renderMpbrTool(null);
+  });
+
+  test('missing DOM elements are handled safely without throwing', () => {
+    document.body.innerHTML = '';
+    expect(() => initMpbrTool()).not.toThrow();
+    expect(() => renderMpbrTool([{ bullet: { name: 'A' }, points: [{ rangeMeters: 0, dropCm: 0 }] }])).not.toThrow();
+  });
+
+  test('input and change events are no-ops before any results are rendered', () => {
+    initMpbrTool();
+    const inp = document.getElementById('mpbrVitalCm');
+    inp.value = '15';
+    inp.dispatchEvent(new Event('input'));
+    inp.dispatchEvent(new Event('change'));
+    expect(document.getElementById('mpbrResults').innerHTML).toBe('');
+  });
+
+  test('clears results for null or empty array', () => {
+    document.getElementById('mpbrResults').innerHTML = '<div>stale</div>';
+    renderMpbrTool([]);
+    expect(document.getElementById('mpbrResults').innerHTML).toBe('');
+    document.getElementById('mpbrResults').innerHTML = '<div>stale</div>';
+    renderMpbrTool(null);
+    expect(document.getElementById('mpbrResults').innerHTML).toBe('');
+  });
+
+  test('renders MPBR, Max Rise, truncation note, warning badge, and escapes bullet name', () => {
+    const results = [
+      {
+        bullet: { id: 'a', name: '<script>308</script>' },
+        points: [
+          { rangeMeters: 0, dropCm: -3.8 },
+          { rangeMeters: 120, dropCm: 12.5 },
+          { rangeMeters: 300, dropCm: -27.5 },
+        ],
+      },
+      {
+        bullet: { id: 'b', name: 'Flat Laser' },
+        points: [
+          { rangeMeters: 0, dropCm: 0 },
+          { rangeMeters: 400, dropCm: -2 },
+        ],
+      },
+      {
+        bullet: { id: 'c', name: 'Empty' },
+        points: [],
+      },
+    ];
+    initMpbrTool();
+    renderMpbrTool(results);
+
+    const container = document.getElementById('mpbrResults');
+    expect(container.querySelector('script')).toBeNull();
+    expect(container.innerHTML).toContain('&lt;script&gt;308&lt;/script&gt;');
+    // For bullet a: 120 (12.5) -> 300 (-27.5), crossing -10: t = (-10 - 12.5)/(-27.5 - 12.5) = -22.5/-40 = 0.5625 -> 120 + 101.25 = 221.3 m
+    expect(container.textContent).toContain('MPBR: 221.3 m');
+    expect(container.textContent).toContain('Max Rise: 12.5 cm @ 120 m');
+    expect(container.textContent).toContain('Exceeds ±10 cm vital zone');
+    expect(container.textContent).toContain('MPBR: 400 m (max range)');
+    expect(container.textContent).not.toContain('Empty');
+
+    // Updating #mpbrVitalCm re-renders cached results
+    const inp = document.getElementById('mpbrVitalCm');
+    inp.value = '30';
+    inp.dispatchEvent(new Event('input'));
+    expect(container.textContent).not.toContain('Exceeds ±');
+
+    // Invalid vital zone falls back to 20 cm
+    inp.value = '0';
+    inp.dispatchEvent(new Event('change'));
+    expect(container.textContent).toContain('Exceeds ±10 cm vital zone');
+
+    // Missing #mpbrVitalCm falls back to 20 cm
+    inp.remove();
+    renderMpbrTool(results);
+    expect(container.textContent).toContain('Exceeds ±10 cm vital zone');
   });
 });
