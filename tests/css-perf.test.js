@@ -72,4 +72,8 @@ describe('CSS compositor & paint hygiene (PERF-25)', () => {
   test('prefers-reduced-motion disables .empty-state .crosshair-big svg animation', () => {
     expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.empty-state\s+\.crosshair-big\s+svg[\s\S]*?animation\s*:\s*none/);
   });
+
+  test('dead .retry-btn rules are absent (PERF-34)', () => {
+    expect(css).not.toMatch(/\.retry-btn\b/);
+  });
 });

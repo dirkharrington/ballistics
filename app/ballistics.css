@@ -766,8 +766,7 @@ tr:hover td { background: var(--bg3); }
   .param-group select { font-size: 16px; }
 
   /* Item 3: enforce 44 × 44 px minimum touch targets */
-  .readout-pin-btn,
-  .retry-btn          { min-height: 44px; padding: 10px 16px; }
+  .readout-pin-btn    { min-height: 44px; padding: 10px 16px; }
   .bullet-card        { min-height: 44px; }
   .tab                { padding: 16px 24px; }
   .param-group label span {
@@ -988,22 +987,6 @@ tr:hover td { background: var(--bg3); }
   margin-right: 6px;
   vertical-align: middle;
 }
-
-/* ── offline retry button ── */
-.retry-btn {
-  background: transparent;
-  border: 1px solid var(--accent);
-  color: var(--accent);
-  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
-  font-size: var(--font-sm);
-  letter-spacing: 1px;
-  padding: 3px 10px;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: background 0.2s, opacity 0.2s;
-  margin-left: 6px;
-}
-.retry-btn:hover { background: rgba(0,212,255,0.12); }
 
 /* ── reconnect toast ── */
 .toast {

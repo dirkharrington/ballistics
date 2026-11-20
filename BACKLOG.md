@@ -2030,7 +2030,7 @@ Audit of `app/fonts/`, `app/ballistics.css`, and `app/index.html` revealed three
 
 ---
 
-### PERF-34 · Build pipeline optimization: native ESM `vite.config.mjs`, HTML/SW minification & Lightning CSS · FE / DevOps · Size S
+### ~~PERF-34 · Build pipeline optimization: native ESM `vite.config.mjs`, HTML/SW minification & Lightning CSS · FE / DevOps · Size S~~ ✅ Done
 
 Four build-output and build-speed inefficiencies remain in `vite.config.js`:
 1. `vite.config.js` uses ESM `import`/`export` without `"type": "module"` in `package.json`, forcing Vite 8 to log an `ESM syntax in a file loaded as CommonJS` warning and bundle the config via CJS fallback on every run.
