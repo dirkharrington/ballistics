@@ -2241,7 +2241,7 @@ Selecting all 37 catalog rounds at once via `#selectAllBullets` causes chart clu
 
 ---
 
-### ENH-7 · Decompose `app/ballistics.js` monolith into `prefs`, `charts`, `table` & lazy `sweep` · FE / Architecture · Size M [Should Have]
+### ~~ENH-7 · Decompose `app/ballistics.js` monolith into `prefs`, `charts`, `table` & lazy `sweep` · FE / Architecture · Size M [Should Have]~~ ✅ Done
 
 `app/ballistics.js` has grown to ~2,500 lines mixing `localStorage`/theme/toast helpers, Chart.js rendering & crosshair management, Data Table DOM construction/sorting, and Parameter Sensitivity Sweep calculation/rendering (which is loaded eagerly on initial boot even though Sweep is secondary). Splitting these concerns clarifies ownership and reduces initial critical-path JS.
 

@@ -4756,59 +4756,7 @@ describe('MH-4: updateSweepButtonVisibility', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MH-4: SWEEP_RANGES and buildSweepRequests
-// ─────────────────────────────────────────────────────────────────────────────
-describe('MH-4: SWEEP_RANGES', () => {
-  test('has wind, altitude, temperature keys with 5 values each', () => {
-    expect(mod.SWEEP_RANGES.wind).toHaveLength(5);
-    expect(mod.SWEEP_RANGES.altitude).toHaveLength(5);
-    expect(mod.SWEEP_RANGES.temperature).toHaveLength(5);
-  });
-});
-
-describe('MH-4: buildSweepRequests', () => {
-  const baseReq = {
-    bulletIds: ['308-win-168gr'], zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 25,
-    windSpeedKph: 0, windDirectionDeg: 90, altitudeMeters: 0, temperatureC: 15,
-    sightHeightMm: 38.1, shootingAngleDegrees: 0, dragModel: 'G1',
-  };
-
-  test('returns 5 requests for wind sweep', () => {
-    const reqs = mod.buildSweepRequests(baseReq, 'wind', '308-win-168gr');
-    expect(reqs).toHaveLength(5);
-    reqs.forEach((r, i) => {
-      expect(r.windSpeedKph).toBe(mod.SWEEP_RANGES.wind[i]);
-      expect(r.bulletIds).toEqual(['308-win-168gr']);
-    });
-  });
-
-  test('returns 5 requests for altitude sweep', () => {
-    const reqs = mod.buildSweepRequests(baseReq, 'altitude', '308-win-168gr');
-    expect(reqs).toHaveLength(5);
-    reqs.forEach((r, i) => {
-      expect(r.altitudeMeters).toBe(mod.SWEEP_RANGES.altitude[i]);
-    });
-  });
-
-  test('returns 5 requests for temperature sweep', () => {
-    const reqs = mod.buildSweepRequests(baseReq, 'temperature', '308-win-168gr');
-    expect(reqs).toHaveLength(5);
-    reqs.forEach((r, i) => {
-      expect(r.temperatureC).toBe(mod.SWEEP_RANGES.temperature[i]);
-    });
-  });
-
-  test('falls back to wind range for unknown sweepParam (5 requests, bulletIds set)', () => {
-    const reqs = mod.buildSweepRequests(baseReq, 'unknown', '308-win-168gr');
-    expect(reqs).toHaveLength(5);
-    reqs.forEach(r => {
-      expect(r.bulletIds).toEqual(['308-win-168gr']);
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MH-4: runSweep
+// MH-4: runSweep (delegates to lazy-loaded app/sweep.js)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('MH-4: runSweep', () => {
   function makeSweepApiResult() {
@@ -5053,11 +5001,12 @@ describe('MH-4: renderSweepCharts', () => {
   });
 
   test('uses SWEEP_COLORS for datasets', async () => {
+    const { SWEEP_COLORS } = require('../app/sweep.js');
     MockChart.mockClear();
     await mod.renderSweepCharts(makeSweepList(), 'wind');
     const cfg = MockChart.mock.calls[0][1];
     cfg.data.datasets.forEach((ds, i) => {
-      expect(ds.borderColor).toBe(mod.SWEEP_COLORS[i % mod.SWEEP_COLORS.length]);
+      expect(ds.borderColor).toBe(SWEEP_COLORS[i % SWEEP_COLORS.length]);
     });
   });
 
@@ -6332,18 +6281,20 @@ describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSw
     let resCustom;
     simulateAsync.mockImplementationOnce(() => new Promise(r => { resCustom = r; }));
     const pc = mod.runCustom();
-    const ps = mod.runSweep(); // aborts custom run
+    const pSim = mod.runSimulation(); // aborts custom run synchronously
     resCustom({ bullet: mod.getMockBullets()[0], request: {}, points: [] });
-    await Promise.all([pc, ps]);
+    await Promise.all([pc, pSim]);
 
     // runSweep AbortError
     simulateAsync.mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'));
     await expect(mod.runSweep()).resolves.toBeUndefined();
 
     // runSweep post-resolve abort (all 5 sweep promises resolve after abort)
+    await mod._loadSweep();
     const sweepResolvers = [];
     simulateAsync.mockImplementation(() => new Promise(r => { sweepResolvers.push(r); }));
     const ps1 = mod.runSweep();
+    await flushMicrotasks();
     mod._resetState(); // aborts sweep controller
     sweepResolvers.forEach(r => r({ bullet: mod.getMockBullets()[0], request: {}, points: [] }));
     await ps1;
@@ -6490,6 +6441,48 @@ describe('PERF-28: lazy loading & retry on failed chunk import', () => {
 
     fail = false;
     await expect(isoMod._loadDragCsv()).resolves.toHaveProperty('parseDragCsv');
+  });
+
+  test('ENH-7: _loadSweep is not called on init(), warms on #sweepParam change, shows error & retries on failure', async () => {
+    let fail = true;
+    let loadCalls = 0;
+    let isoMod;
+    document.body.innerHTML = '';
+    jest.isolateModules(() => {
+      jest.doMock('../app/physics/engine-async.ts', () => ({
+        simulateAsync: jest.fn(),
+        solveBCAsync: jest.fn(),
+        prewarmPhysicsWorker: jest.fn(),
+      }));
+      jest.doMock('../app/sweep.js', () => {
+        loadCalls++;
+        if (fail) throw new Error('sweep chunk offline');
+        return jest.requireActual('../app/sweep.js');
+      });
+      isoMod = require('../app/ballistics.js');
+    });
+    buildDOM();
+    isoMod._resetState();
+
+    isoMod.init();
+    expect(loadCalls).toBe(0);
+
+    // Toggling #sweepParam attempts lazy load and swallows warm-up error silently
+    const sweepParam = document.getElementById('sweepParam');
+    sweepParam.value = 'altitude';
+    sweepParam.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    expect(loadCalls).toBe(1);
+    expect(document.getElementById('simulationError').textContent).toBe('');
+
+    // Clicking/invoking runSweep when sweep chunk fails sets simulationError
+    await isoMod.runSweep();
+    expect(document.getElementById('simulationError').textContent).toContain("Couldn't load parameter sweep tools");
+
+    // Retrying succeeds once chunk is available
+    fail = false;
+    await expect(isoMod._loadSweep()).resolves.toHaveProperty('runSweep');
+    await expect(isoMod.clearSweep()).resolves.toBeUndefined();
   });
 });
 
