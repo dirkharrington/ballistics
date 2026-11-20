@@ -11,26 +11,91 @@ const { projectBulletCatalog } = catalogProjection
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 function htmlMinifyPlugin() {
+  const RAW_TAGS = new Set(['script', 'style', 'pre', 'textarea'])
   return {
     name: 'html-minify',
     transformIndexHtml: {
       order: 'post',
       handler(html) {
-        const preserved = []
-        let out = html.replace(/<(script|style|pre|textarea)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, (match) => {
-          const idx = preserved.push(match) - 1
-          return `\u0000__HTML_MINIFY_RAW_${idx}__\u0000`
-        })
-        out = out.replace(/<!--[\s\S]*?-->/g, '')
-        out = out.replace(/(<(?:[^>"']|"[^"]*"|'[^']*')*>)|([^<]+)/g, (_, tag, text) => {
-          if (tag) {
-            return tag
-              .replace(/"[^"]*"|'[^']*'|\s+/g, (tok) => (tok[0] === '"' || tok[0] === "'" ? tok : ' '))
-              .replace(/\s+>$/, '>')
+        const out = []
+        const len = html.length
+        const lower = html.toLowerCase()
+        let i = 0
+        while (i < len) {
+          if (html.startsWith('<!--', i)) {
+            const end = html.indexOf('-->', i + 4)
+            i = end === -1 ? len : end + 3
+            continue
           }
-          return /^\s+$/.test(text) ? '' : text.replace(/\s+/g, ' ')
-        })
-        return out.replace(/\u0000__HTML_MINIFY_RAW_(\d+)__\u0000/g, (_, idx) => preserved[Number(idx)]).trim()
+          if (html[i] === '<') {
+            let j = i + 1
+            let quote = ''
+            while (j < len) {
+              const ch = html[j]
+              if (quote) {
+                if (ch === quote) quote = ''
+              } else if (ch === '"' || ch === "'") {
+                quote = ch
+              } else if (ch === '>') {
+                break
+              }
+              j++
+            }
+            const tagEnd = j < len ? j + 1 : len
+            const rawTag = html.slice(i, tagEnd)
+            let cleanTag = ''
+            let inQuote = ''
+            let prevSpace = false
+            for (let k = 0; k < rawTag.length; k++) {
+              const ch = rawTag[k]
+              if (inQuote) {
+                cleanTag += ch
+                if (ch === inQuote) inQuote = ''
+              } else if (ch === '"' || ch === "'") {
+                inQuote = ch
+                prevSpace = false
+                cleanTag += ch
+              } else if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+                if (!prevSpace) {
+                  cleanTag += ' '
+                  prevSpace = true
+                }
+              } else {
+                if (ch === '>' && prevSpace && cleanTag.endsWith(' ')) {
+                  cleanTag = cleanTag.slice(0, -1)
+                }
+                prevSpace = false
+                cleanTag += ch
+              }
+            }
+            out.push(cleanTag)
+            i = tagEnd
+
+            // Preserve raw-text element contents verbatim
+            let nameEnd = 1
+            while (nameEnd < cleanTag.length && /[a-zA-Z0-9]/.test(cleanTag[nameEnd])) nameEnd++
+            const tagName = cleanTag.slice(1, nameEnd).toLowerCase()
+            if (RAW_TAGS.has(tagName) && !cleanTag.endsWith('/>')) {
+              const closeNeedle = `</${tagName}`
+              const closeStart = lower.indexOf(closeNeedle, i)
+              if (closeStart !== -1) {
+                const closeGt = html.indexOf('>', closeStart + closeNeedle.length)
+                const rawEnd = closeGt === -1 ? len : closeGt + 1
+                out.push(html.slice(i, rawEnd))
+                i = rawEnd
+              }
+            }
+            continue
+          }
+          const nextLt = html.indexOf('<', i)
+          const textEnd = nextLt === -1 ? len : nextLt
+          const text = html.slice(i, textEnd)
+          if (text.trim().length > 0) {
+            out.push(text.replace(/\s+/g, ' '))
+          }
+          i = textEnd
+        }
+        return out.join('').trim()
       },
     },
   }
