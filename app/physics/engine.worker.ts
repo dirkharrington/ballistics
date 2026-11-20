@@ -1,7 +1,8 @@
 /// <reference no-default-lib="true" />
 /// <reference lib="webworker" />
 import { simulate, solveBC, TrajectoryInputError } from './engine.ts';
-import type { Bullet, TrajectoryParams, TrajectoryResult, SolveBCParams } from './types.ts';
+import { packPoints } from './packed-points.ts';
+import type { Bullet, EffectiveDragModel, TrajectoryParams, SolveBCParams } from './types.ts';
 
 interface SimulateRequest {
   type?: 'simulate';
@@ -20,7 +21,13 @@ type WorkerRequest = SimulateRequest | SolveBCRequest;
 
 interface WorkerSuccessResponse {
   id: number;
-  result: TrajectoryResult;
+  maxOrdinateCm: number;
+  maxOrdinateRangeMeters: number;
+  supersonicLimitMeters: number;
+  densityAltitudeMeters: number;
+  dragModel: EffectiveDragModel;
+  pointsBuffer: Float64Array;
+  hasCoriolis: boolean;
 }
 
 interface WorkerSolveBCResponse {
@@ -50,7 +57,18 @@ self.addEventListener('message', (evt: MessageEvent<WorkerRequest>) => {
   const { id, bullet, params } = evt.data;
   try {
     const result = simulate(bullet, params);
-    self.postMessage({ id, result } satisfies WorkerSuccessResponse);
+    const { buffer, hasCoriolis } = packPoints(result.points);
+    const response: WorkerSuccessResponse = {
+      id,
+      maxOrdinateCm: result.maxOrdinateCm,
+      maxOrdinateRangeMeters: result.maxOrdinateRangeMeters,
+      supersonicLimitMeters: result.supersonicLimitMeters,
+      densityAltitudeMeters: result.densityAltitudeMeters,
+      dragModel: result.dragModel,
+      pointsBuffer: buffer,
+      hasCoriolis,
+    };
+    self.postMessage(response, [buffer.buffer]);
   } catch (err) {
     if (err instanceof TrajectoryInputError) {
       self.postMessage({
