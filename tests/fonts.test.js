@@ -1,3 +1,4 @@
+const { createHash } = require('crypto');
 const { readFileSync, readdirSync, existsSync } = require('fs');
 const { resolve } = require('path');
 
@@ -8,13 +9,32 @@ const HTML_PATH  = resolve(__dirname, '../app/index.html');
 const css  = readFileSync(CSS_PATH,  'utf-8');
 const html = readFileSync(HTML_PATH, 'utf-8');
 
-// Extract all src: url('/fonts/...') references from @font-face blocks
-function extractFontFaceSrcs(cssText) {
-  const srcs = [];
-  const re = /src:\s*url\('([^']+\.woff2)'\)/g;
+// Extract parsed @font-face blocks from CSS
+function extractFontFaces(cssText) {
+  const faces = [];
+  const blockRe = /@font-face\s*\{([^}]*)\}/g;
   let m;
-  while ((m = re.exec(cssText)) !== null) srcs.push(m[1]);
-  return srcs;
+  while ((m = blockRe.exec(cssText)) !== null) {
+    const body = m[1];
+    const familyMatch = body.match(/font-family:\s*'([^']+)'/);
+    const weightMatch = body.match(/font-weight:\s*(\d+(?:\s+\d+)?)/);
+    const urlMatch    = body.match(/src:\s*url\('([^']+\.woff2)'\)/);
+    const isLocalOnly = !urlMatch && /src:\s*[^;]*local\(/i.test(body);
+    faces.push({
+      family: familyMatch ? familyMatch[1] : null,
+      weight: weightMatch ? weightMatch[1].replace(/\s+/g, ' ').trim() : '400',
+      src: urlMatch ? urlMatch[1] : null,
+      isLocalOnly,
+    });
+  }
+  return faces;
+}
+
+// Extract all src: url('/fonts/...') references from non-local @font-face blocks
+function extractFontFaceSrcs(cssText) {
+  return extractFontFaces(cssText)
+    .filter(face => !face.isLocalOnly && face.src)
+    .map(face => face.src);
 }
 
 // Extract font filenames on disk
@@ -35,12 +55,16 @@ function extractPreloadHrefs(htmlText) {
 }
 
 describe('font files', () => {
+  const faces    = extractFontFaces(css);
   const declared = extractFontFaceSrcs(css);
   const onDisk   = listFontFiles();
 
-  test('every @font-face src exists on disk', () => {
-    for (const src of declared) {
-      const filename = src.replace(/^\/fonts\//, '');
+  test('every non-local @font-face src exists on disk', () => {
+    const nonLocalFaces = faces.filter(f => !f.isLocalOnly);
+    expect(nonLocalFaces.length).toBeGreaterThan(0);
+    for (const face of nonLocalFaces) {
+      expect(face.src).not.toBeNull();
+      const filename = face.src.replace(/^\/fonts\//, '');
       expect(existsSync(resolve(FONTS_DIR, filename))).toBe(true);
     }
   });
@@ -53,13 +77,24 @@ describe('font files', () => {
   });
 
   test('no duplicate family/weight combinations in @font-face', () => {
+    expect(faces.length).toBeGreaterThan(0);
     const seen = new Set();
-    const re = /@font-face\s*\{[^}]*font-family:\s*'([^']+)'[^}]*font-weight:\s*(\d+)[^}]*\}/g;
-    let m;
-    while ((m = re.exec(css)) !== null) {
-      const key = `${m[1]}:${m[2]}`;
+    for (const face of faces) {
+      expect(face.family).not.toBeNull();
+      const key = `${face.family}:${face.weight}`;
       expect(seen.has(key)).toBe(false);
       seen.add(key);
+    }
+  });
+
+  test('no two .woff2 files in app/fonts/ have identical SHA-256 hashes', () => {
+    const hashes = new Map();
+    for (const file of onDisk) {
+      const hash = createHash('sha256')
+        .update(readFileSync(resolve(FONTS_DIR, file)))
+        .digest('hex');
+      expect(hashes.has(hash)).toBe(false);
+      hashes.set(hash, file);
     }
   });
 
@@ -68,5 +103,12 @@ describe('font files', () => {
     for (const href of preloads) {
       expect(declared).toContain(href);
     }
+  });
+
+  test('metric-matched fallback @font-face blocks exist for all font families', () => {
+    const fallbackFamilies = faces.filter(f => f.isLocalOnly).map(f => f.family);
+    expect(fallbackFamilies).toEqual(
+      expect.arrayContaining(['Orbitron Fallback', 'Rajdhani Fallback', 'Share Tech Mono Fallback']),
+    );
   });
 });

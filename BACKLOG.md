@@ -2002,7 +2002,7 @@ Three rendering hot spots remain after `PERF-20` and `PERF-21`:
 
 ---
 
-### PERF-33 · Font deduplication, dead weight removal (`rajdhani-700`) & metric-matched fallback fonts for 0.000 CLS · FE · Size XS
+### ~~PERF-33 · Font deduplication, dead weight removal (`rajdhani-700`) & metric-matched fallback fonts for 0.000 CLS · FE · Size XS~~ ✅ Done
 
 Audit of `app/fonts/`, `app/ballistics.css`, and `app/index.html` revealed three concrete font wastes:
 1. `app/fonts/orbitron-400.woff2`, `orbitron-700.woff2`, and `orbitron-900.woff2` are **3 byte-for-byte identical copies** (11,800 B each, SHA-256 `c25a9f9da5d9f3db...`) of the Orbitron variable font, emitting 3 redundant `@font-face` blocks in `dist/assets/index-*.css`.
