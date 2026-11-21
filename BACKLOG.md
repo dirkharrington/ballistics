@@ -2290,7 +2290,7 @@ Selecting all 37 catalog rounds at once via `#selectAllBullets` causes chart clu
 
 ---
 
-### ENH-9 · Release hygiene (`REL-1`–`REL-3`) & Content-Security-Policy meta tag (`SEC-3`) · DevSecOps / DX · Size S [Must Have]
+### ~~ENH-9 · Release hygiene (`REL-1`–`REL-3`) & Content-Security-Policy meta tag (`SEC-3`) · DevSecOps / DX · Size S [Must Have]~~ ✅ Done
 
 Consolidates Sprint 11 documentation cleanup and Icebox security hardening: removes the 28 dead backend/WASM/Rust specs in `contracts/` (`REL-1`), creates root `CHANGELOG.md` (`REL-2`), brings `README.md` up to date (`REL-3`), and adds a strict `<meta http-equiv="Content-Security-Policy">` tag (`SEC-3`) compatible with static GitHub Pages hosting and Vite 8 assets/module workers.
 

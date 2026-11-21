@@ -54,3 +54,24 @@ describe('ENH-5: profile bar, atmosphere/Eotvos controls, custom drag CSV & clea
     expect(html).toContain('id="eotvosColHeader"');
   });
 });
+
+describe('SEC-3: index.html Content-Security-Policy meta tag', () => {
+  const cspMatch = html.match(/<meta\s+http-equiv=["']Content-Security-Policy["'][^>]*>/i);
+
+  test('includes a Content-Security-Policy <meta> tag', () => {
+    expect(cspMatch).not.toBeNull();
+  });
+
+  test('enforces strict directives without unsafe-eval or frame-ancestors', () => {
+    const tag = cspMatch[0];
+    const contentMatch = tag.match(/content="([^"]*)"/i);
+    expect(contentMatch).not.toBeNull();
+    const policy = contentMatch[1];
+    expect(policy).toContain("default-src 'self'");
+    expect(policy).toContain("script-src 'self'");
+    expect(policy).toContain("worker-src 'self'");
+    expect(policy).toContain("object-src 'none'");
+    expect(policy).not.toContain('unsafe-eval');
+    expect(policy).not.toContain('frame-ancestors');
+  });
+});
