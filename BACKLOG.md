@@ -2190,7 +2190,7 @@ The Tools tab DOPE card currently outputs elevation come-ups (MOA↑ / MRAD↑) 
 
 ---
 
-### ENH-5 · Named rifle/setup profiles (`DX-2`), atmosphere & Eötvös controls, & unified custom drag-CSV · FE · Size M [Should Have]
+### ~~ENH-5 · Named rifle/setup profiles (`DX-2`), atmosphere & Eötvös controls, & unified custom drag-CSV · FE · Size M [Should Have]~~ ✅ Done
 
 URL state allows sharing individual setups (`DX-2`), but users have no in-app way to save, switch, and delete named rifle/load profiles locally. Meanwhile, the new `ENH-2` atmosphere & Eötvös physics parameters need clean sidebar inputs, `#latitudeDeg` still displays an obsolete `"sent with computation requests over HTTPS"` tooltip from the deleted server era, and uploading a custom Mach→Cd drag CSV lives inside the legacy custom accordion rather than `#customBulletForm`.
 

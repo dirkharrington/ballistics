@@ -1483,6 +1483,95 @@ tr:hover td { background: var(--bg3); }
   border-color: var(--accent, #00d4ff);
 }
 
+/* ── rifle profiles (ENH-5) ── */
+.profile-bar {
+  padding: 10px 12px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.profile-bar select,
+.profile-bar input {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: 11px;
+  padding: 5px 8px;
+  border-radius: var(--radius-xs);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.profile-bar select:focus,
+.profile-bar input:focus { border-color: var(--accent); }
+.profile-bar-controls {
+  display: flex;
+  gap: 4px;
+}
+.profile-bar-controls input { flex: 1; min-width: 0; }
+.profile-bar-controls button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 1px;
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.profile-bar-controls button:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.profile-bar-controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.eotvos-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.eotvos-label input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.cb-drag-csv-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: 10px;
+  color: #4ade80;
+}
+.cb-drag-csv-status[hidden] { display: none; }
+.cb-drag-csv-status button {
+  background: none;
+  border: 1px solid var(--border, #1e3040);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
 #customBulletSaveBtn:hover { background: rgba(0, 212, 255, 0.08); }
 #customBulletCancelBtn:hover { color: #c8dde8; border-color: #3a5060; }
 
@@ -1504,6 +1593,9 @@ tr:hover td { background: var(--bg3); }
   #bulletSearch,
   #bulletSearchClear,
   #clearSelectionBtn,
+  .profile-bar select,
+  .profile-bar input,
+  .profile-bar-controls button,
   .unit-toggle,
   .toast {
     transition: none;

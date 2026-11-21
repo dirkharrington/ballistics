@@ -1238,4 +1238,38 @@ describe('initMpbrTool and renderMpbrTool', () => {
     // Default reset back to metric
     setToolsUnitSystem();
   });
+
+  test('ENH-5: DOPE card displays Eotvos column when coriolisVerticalCm is active', () => {
+    history.replaceState(null, '', '/?dopeDistances=[100]');
+    initDopeCard(makeSimFn());
+    renderDopeCard([
+      {
+        bullet: { id: 'a', name: 'East Shot' },
+        points: [
+          { rangeMeters: 0, dropCm: 0, coriolisVerticalCm: 0 },
+          { rangeMeters: 200, dropCm: -20, coriolisVerticalCm: 5.08 },
+        ],
+      },
+      {
+        bullet: { id: 'b', name: 'West Shot' },
+        points: [
+          { rangeMeters: 0, dropCm: 0, coriolisVerticalCm: 0 },
+          { rangeMeters: 200, dropCm: -20, coriolisVerticalCm: -5.08 },
+        ],
+      },
+      {
+        bullet: { id: 'c', name: 'West Missing' },
+        points: [
+          { rangeMeters: 0, dropCm: 0, coriolisVerticalCm: -2.0 },
+          { rangeMeters: 200, dropCm: -20 },
+        ],
+      },
+    ], {}, 'imperial');
+
+    const html = document.getElementById('dopeTable').innerHTML;
+    expect(html).toContain('Eötvös (in)');
+    expect(html).toContain('+0.9');
+    expect(html).toContain('-0.9');
+    expect(html).toContain('<td>–</td>');
+  });
 });

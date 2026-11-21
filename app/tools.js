@@ -112,15 +112,17 @@ function _buildDopeTable(results, unitSystem) {
 
   const sys   = normalizeUnitSystem(unitSystem);
   const rUnit = unitLabel('range', sys);
+  const dUnit = unitLabel('drop', sys);
   const drUnit = unitLabel('drift', sys);
   const dists = [..._dopeDistances].sort((a, b) => a - b);
   const hasWind = results.some(r => r.points.some(p => p.windDriftCm != null && p.windDriftCm !== 0));
   const hasCoriolis = results.some(r => r.points.some(p => p.coriolisDeflectionCm !== undefined && p.coriolisDeflectionCm !== 0));
-  const colSpan = 2 + (hasWind ? 2 : 0) + (hasCoriolis ? 1 : 0);
+  const hasEotvos = results.some(r => r.points.some(p => p.coriolisVerticalCm !== undefined));
+  const colSpan = 2 + (hasWind ? 2 : 0) + (hasCoriolis ? 1 : 0) + (hasEotvos ? 1 : 0);
 
   const thCols = results.map(r => `<th colspan="${colSpan}">${_esc(r.bullet.name)}</th>`).join('');
   const thSub  = results.map(() =>
-    `<th>MOA↑</th><th>MRAD↑</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th>' : ''}${hasCoriolis ? `<th>Cor. (${drUnit})</th>` : ''}`
+    `<th>MOA↑</th><th>MRAD↑</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th>' : ''}${hasCoriolis ? `<th>Cor. (${drUnit})</th>` : ''}${hasEotvos ? `<th>Eötvös (${dUnit})</th>` : ''}`
   ).join('');
 
   const bodyRows = dists.map(dist => {
@@ -152,7 +154,15 @@ function _buildDopeTable(results, unitSystem) {
           ? `<td>${corDisp >= 0 ? '+' : ''}${corDisp.toFixed(1)}</td>`
           : '<td>–</td>';
       }
-      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td>${windCells}${corCell}`;
+      let eotCell = '';
+      if (hasEotvos) {
+        const eot = interpolateAt(r.points, distMeters, 'coriolisVerticalCm');
+        const eotDisp = eot != null ? toDisplay('drop', eot, sys) : null;
+        eotCell = eotDisp != null
+          ? `<td>${eotDisp >= 0 ? '+' : ''}${eotDisp.toFixed(1)}</td>`
+          : '<td>–</td>';
+      }
+      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td>${windCells}${corCell}${eotCell}`;
     }).join('');
     return `<tr><td><strong>${dist}</strong></td>${tds}</tr>`;
   }).join('');

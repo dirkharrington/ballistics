@@ -42,7 +42,7 @@ function _updateTableHeaders(unitSystem) {
   });
 }
 
-function _formatTableRow({ p, adj, color, escapedName }, showSpinDrift, showCoriolis, unitSystem) {
+function _formatTableRow({ p, adj, color, escapedName }, showSpinDrift, showCoriolis, showEotvos, unitSystem) {
   const dUnit  = unitLabel('drop', unitSystem);
   const drUnit = unitLabel('drift', unitSystem);
   const rangeVal = toDisplay('range', p.rangeMeters, unitSystem);
@@ -52,6 +52,7 @@ function _formatTableRow({ p, adj, color, escapedName }, showSpinDrift, showCori
   const windVal  = toDisplay('drift', p.windDriftCm, unitSystem);
   const spinVal  = toDisplay('drift', p.spinDriftCm ?? 0, unitSystem);
   const corVal   = toDisplay('drift', p.coriolisDeflectionCm ?? 0, unitSystem);
+  const eotVal   = toDisplay('drop', p.coriolisVerticalCm ?? 0, unitSystem);
   return `
         <tr>
           <td><span class="bullet-tag" style="background:${color}"></span>${escapedName}</td>
@@ -65,6 +66,7 @@ function _formatTableRow({ p, adj, color, escapedName }, showSpinDrift, showCori
           <td>${adj.mrad > 0 ? '+' : ''}${adj.mrad}</td>
           ${showSpinDrift ? `<td>${spinVal.toFixed(1)} ${drUnit}</td>` : ''}
           ${showCoriolis ? `<td>${corVal >= 0 ? '+' : ''}${corVal.toFixed(1)} ${drUnit}</td>` : ''}
+          ${showEotvos ? `<td>${eotVal >= 0 ? '+' : ''}${eotVal.toFixed(1)} ${dUnit}</td>` : ''}
         </tr>`;
 }
 
@@ -85,6 +87,11 @@ export function renderTable(results, unitSystem = _tableUnitSystem) {
   const coriolisHeader = document.getElementById('coriolisColHeader');
   /* istanbul ignore else -- #coriolisColHeader is always present in the app shell */
   if (coriolisHeader) coriolisHeader.style.display = showCoriolis ? '' : 'none';
+
+  const showEotvos = results.some(r => r.points.some(p => p.coriolisVerticalCm !== undefined));
+  const eotvosHeader = document.getElementById('eotvosColHeader');
+  /* istanbul ignore else -- #eotvosColHeader is always present in the app shell */
+  if (eotvosHeader) eotvosHeader.style.display = showEotvos ? '' : 'none';
 
   // PERF-22: cache precomputed row objects across sort clicks for the same results
   if (results !== tableResults || _cachedTableRows === null) {
@@ -118,17 +125,17 @@ export function renderTable(results, unitSystem = _tableUnitSystem) {
   }
 
   if (rows.length <= TABLE_CHUNK_THRESHOLD) {
-    tbody.innerHTML = rows.map(row => _formatTableRow(row, showSpinDrift, showCoriolis, sys)).join('');
+    tbody.innerHTML = rows.map(row => _formatTableRow(row, showSpinDrift, showCoriolis, showEotvos, sys)).join('');
   } else {
     // PERF-22: render first chunk synchronously and stream remaining rows via rAF
     let offset = TABLE_CHUNK_SIZE;
-    tbody.innerHTML = rows.slice(0, offset).map(row => _formatTableRow(row, showSpinDrift, showCoriolis, sys)).join('');
+    tbody.innerHTML = rows.slice(0, offset).map(row => _formatTableRow(row, showSpinDrift, showCoriolis, showEotvos, sys)).join('');
     const appendChunk = () => {
       _tableChunkRafId = null;
       const end = Math.min(offset + TABLE_CHUNK_SIZE, rows.length);
       let chunk = '';
       for (let i = offset; i < end; i++) {
-        chunk += _formatTableRow(rows[i], showSpinDrift, showCoriolis, sys);
+        chunk += _formatTableRow(rows[i], showSpinDrift, showCoriolis, showEotvos, sys);
       }
       tbody.insertAdjacentHTML('beforeend', chunk);
       offset = end;

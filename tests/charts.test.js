@@ -379,5 +379,9 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     updateReadout([res], 1, 'imperial');
     expect(document.getElementById('readoutRange').textContent).toBe('109 yd');
     expect(document.getElementById('readoutBody').textContent).toContain('ft·lb');
+
+    // ENH-5: per-bullet custom dragModel sets MODEL: CUSTOM pill
+    await renderCharts([makeResult(2, { dragModel: 'custom' })], { zeroRangeMeters: 100 });
+    expect(document.getElementById('modelStatus').textContent).toBe('MODEL: CUSTOM');
   });
 });

@@ -48,10 +48,19 @@ function buildDOM() {
         <input id="cbBcG7" /><small id="cbBcG7-error" class="field-error"></small>
         <input id="cbBulletDiameterInches" /><small id="cbBulletDiameterInches-error" class="field-error"></small>
         <input id="cbMuzzleVelocityFps" /><small id="cbMuzzleVelocityFps-error" class="field-error"></small>
+        <input type="file" id="cbDragCsv" accept=".csv,text/csv" />
+        <div id="cbDragCsvStatus" hidden><span id="cbDragCsvName"></span><button type="button" id="cbDragCsvClearBtn">Clear</button></div>
+        <small id="cbDragCsv-error" class="field-error"></small>
         <div id="customBulletFormError" role="alert"></div>
         <button type="submit" id="customBulletSaveBtn">SAVE</button>
         <button type="button" id="customBulletCancelBtn">CANCEL</button>
       </form>
+    </div>
+    <div id="profileBar" class="profile-bar">
+      <select id="profileSelect"><option value="">— Saved profiles —</option></select>
+      <input type="text" id="profileNameInput" />
+      <button type="button" id="saveProfileBtn">SAVE</button>
+      <button type="button" id="deleteProfileBtn" disabled>DEL</button>
     </div>
     <input id="zeroRange"   value="100" />
     <input id="maxRange"    value="500" />
@@ -67,7 +76,9 @@ function buildDOM() {
       <option value="315">NW</option>
     </select>
     <input id="altitude"    value="0"   />
+    <input id="pressureHpa" value=""    />
     <input id="temperature" value="59"  />
+    <input id="humidityPercent" value="" />
     <input id="step"        value="25"  />
     <input id="sightHeight"    value="38.1" />
     <input id="shootingAngle" value="0"    />
@@ -110,6 +121,7 @@ function buildDOM() {
           <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
           <th id="spinDriftColHeader" style="display:none">Spin Drift (<span data-unit-kind="drift">cm</span>)</th>
           <th id="coriolisColHeader" style="display:none">Coriolis (<span data-unit-kind="drift">cm</span>)</th>
+          <th id="eotvosColHeader" style="display:none">Eötvös (<span data-unit-kind="drop">cm</span>)</th>
         </tr>
       </thead>
       <tbody id="tableBody"><tr><td colspan="9">NO DATA</td></tr></tbody>
@@ -144,6 +156,7 @@ function buildDOM() {
     <input id="twistRate" value="" />
     <input id="latitudeDeg" value="" />
     <input id="azimuthDeg"  value="" />
+    <input type="checkbox" id="includeEotvos" />
     <div id="sweepControls" style="display:none">
       <select id="sweepParam">
         <option value="wind" data-unit-label="windSpeed" data-label-prefix="Wind" selected>Wind (km/h)</option>
@@ -7444,5 +7457,239 @@ describe('ENH-3: global Metric/Imperial unit system', () => {
     mod.init();
     expect(mod.getUnitSystem()).toBe('imperial');
     expect(document.getElementById('unitToggle').textContent).toBe('IMPERIAL');
+  });
+});
+
+// ── ENH-5: Profiles, atmosphere/Eotvos controls, and unified custom drag CSV ──
+describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CSV', () => {
+  afterEach(() => {
+    history.replaceState(null, '', '/');
+    jest.restoreAllMocks();
+  });
+
+  test('validates and propagates pressureHpa, humidityPercent, and includeEotvos in runSimulation, runCustom, and URL state', async () => {
+    mod.init();
+
+    // Out-of-range pressure & humidity in runSimulation
+    document.getElementById('pressureHpa').value = '400';
+    await mod.runSimulation();
+    expect(document.getElementById('simulationError').textContent).toMatch(/Pressure/);
+    document.getElementById('pressureHpa').value = '1013.25';
+
+    document.getElementById('humidityPercent').value = '120';
+    await mod.runSimulation();
+    expect(document.getElementById('simulationError').textContent).toMatch(/Humidity/);
+    document.getElementById('humidityPercent').value = '65';
+    document.getElementById('includeEotvos').checked = true;
+
+    // Valid runSimulation passes all three fields
+    await mod.runSimulation();
+    jest.runAllTimers();
+    await flushMicrotasks();
+    expect(mod._getState().lastReq.pressureHpa).toBe(1013.25);
+    expect(mod._getState().lastReq.humidityPercent).toBe(65);
+    expect(mod._getState().lastReq.includeEotvos).toBe(true);
+    expect(mod.currentState().pressureHpa).toBe(1013.25);
+    expect(mod.currentState().humidityPercent).toBe(65);
+    expect(mod.currentState().includeEotvos).toBe(true);
+
+    // Out-of-range in runCustom shows customError, valid passes through
+    document.getElementById('humidityPercent').value = '-5';
+    await mod.runCustom();
+    expect(document.getElementById('customError').textContent).toMatch(/Humidity/);
+    document.getElementById('humidityPercent').value = '50';
+    await mod.runCustom();
+    expect(mod._getState().lastReq.humidityPercent).toBe(50);
+
+    // URL restore on init
+    history.replaceState(null, '', '/?pressureHpa=990&humidityPercent=40&includeEotvos=1');
+    buildDOM();
+    mod._resetState();
+    mod.init();
+    expect(document.getElementById('pressureHpa').value).toBe('990');
+    expect(document.getElementById('humidityPercent').value).toBe('40');
+    expect(document.getElementById('includeEotvos').checked).toBe(true);
+  });
+
+  test('saves, updates, loads (across units & optional fields), and deletes named rifle profiles', async () => {
+    mod.init();
+
+    // Empty name triggers invalid toast
+    document.getElementById('profileNameInput').value = '   ';
+    document.getElementById('saveProfileBtn').click();
+    expect(document.getElementById('toast').textContent).toMatch(/required/i);
+
+    // Save full imperial profile
+    await mod.setUnitSystem('imperial');
+    document.getElementById('twistRate').value = '10';
+    document.getElementById('latitudeDeg').value = '44.5';
+    document.getElementById('azimuthDeg').value = '90';
+    document.getElementById('pressureHpa').value = '29.92';
+    document.getElementById('humidityPercent').value = '55';
+    document.getElementById('includeEotvos').checked = true;
+    document.getElementById('profileNameInput').value = 'Long Range 308';
+    document.getElementById('saveProfileBtn').click();
+
+    expect(document.getElementById('toast').textContent).toBe('Profile saved');
+    expect(document.getElementById('profileSelect').value).toBe('Long Range 308');
+    expect(document.getElementById('deleteProfileBtn').disabled).toBe(false);
+
+    // Save again with blank nameInput uses selected option -> updates profile
+    document.getElementById('profileNameInput').value = '';
+    document.getElementById('saveProfileBtn').click();
+    expect(document.getElementById('toast').textContent).toBe('Profile updated');
+
+    // Save a minimal metric profile (no optional fields)
+    await mod.setUnitSystem('metric');
+    document.getElementById('twistRate').value = '';
+    document.getElementById('latitudeDeg').value = '';
+    document.getElementById('azimuthDeg').value = '';
+    document.getElementById('pressureHpa').value = '';
+    document.getElementById('humidityPercent').value = '';
+    document.getElementById('includeEotvos').checked = false;
+    document.getElementById('profileNameInput').value = 'Plain Metric';
+    document.getElementById('saveProfileBtn').click();
+    expect(document.getElementById('toast').textContent).toBe('Profile saved');
+
+    // Selecting empty placeholder disables delete button and does not load
+    const select = document.getElementById('profileSelect');
+    select.value = '';
+    select.dispatchEvent(new Event('change'));
+    expect(document.getElementById('deleteProfileBtn').disabled).toBe(true);
+
+    // Clicking delete when nothing selected is a no-op
+    document.getElementById('deleteProfileBtn').disabled = false;
+    document.getElementById('deleteProfileBtn').click();
+
+    // Load imperial profile while in metric -> switches units, sets optional fields, triggers auto-compute
+    simulateAsync.mockClear();
+    select.value = 'Long Range 308';
+    select.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(document.getElementById('twistRate').value).toBe('10');
+    expect(document.getElementById('latitudeDeg').value).toBe('44.5');
+    expect(document.getElementById('includeEotvos').checked).toBe(true);
+    expect(document.getElementById('toast').textContent).toBe('Profile loaded');
+    jest.advanceTimersByTime(300);
+    expect(simulateAsync).toHaveBeenCalled();
+    await flushMicrotasks();
+    jest.runAllTimers();
+
+    // Load plain metric profile with autoCompute off -> clears optional fields and skips auto-compute
+    document.getElementById('autoComputeToggle').checked = false;
+    select.value = 'Plain Metric';
+    select.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    expect(mod.getUnitSystem()).toBe('metric');
+    expect(document.getElementById('twistRate').value).toBe('');
+    expect(document.getElementById('includeEotvos').checked).toBe(false);
+
+    // Delete storage error toast
+    const setSpy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    document.getElementById('deleteProfileBtn').click();
+    expect(document.getElementById('toast').textContent).toMatch(/storage unavailable/i);
+    setSpy.mockRestore();
+
+    // Delete succeeds cleanly
+    document.getElementById('deleteProfileBtn').click();
+    expect(document.getElementById('toast').textContent).toBe('Profile deleted');
+    expect(document.getElementById('profileNameInput').value).toBe('');
+
+    // Load a stored profile without p.units field while in metric -> skips setUnitSystem
+    localStorage.setItem('ballistics_profiles', JSON.stringify([{
+      name: 'Legacy No Units',
+      params: {
+        bulletIds: ['308-win-168gr'],
+        zero: 100, maxRange: 800, wind: 10, windDir: 90, altitude: 0,
+        temp: 15, step: 25, sightHeight: 38.1, angle: 0, dragModel: 'G1',
+      },
+    }]));
+    mod.init();
+    const sel2 = document.getElementById('profileSelect');
+    sel2.value = 'Legacy No Units';
+    sel2.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    expect(document.getElementById('maxRange').value).toBe('800');
+
+    // Missing #profileSelect / #profileNameInput / #includeEotvos handled safely
+    mod._resetState();
+    document.getElementById('includeEotvos').remove();
+    history.replaceState(null, '', '/?includeEotvos=1');
+    mod.init();
+    document.getElementById('profileNameInput').remove();
+    document.getElementById('profileSelect').remove();
+    document.getElementById('saveProfileBtn').click();
+    mod._resetState();
+    expect(() => mod.init()).not.toThrow();
+  });
+
+  test('attaches, edits, clears, and simulates custom bullet drag CSV in #customBulletForm', async () => {
+    mod.init();
+    mod.openCustomBulletAdd();
+
+    const csvText = 'Mach,CD\n0.4,0.19\n1.0,0.42\n2.5,0.31\n';
+    let capturedOnload = null;
+    let capturedOnerror = null;
+    jest.spyOn(global, 'FileReader').mockImplementation(() => ({
+      set onload(fn) { capturedOnload = fn; },
+      set onerror(fn) { capturedOnerror = fn; },
+      readAsText: jest.fn(),
+    }));
+
+    const csvInput = document.getElementById('cbDragCsv');
+    // 1. Oversized file error
+    Object.defineProperty(csvInput, 'files', { configurable: true, get: () => [{ name: 'big.csv', size: 70 * 1024 }] });
+    csvInput.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    expect(document.getElementById('cbDragCsv-error').textContent).toMatch(/too large/i);
+
+    // 2. Valid CSV file loads and shows status
+    Object.defineProperty(csvInput, 'files', { configurable: true, get: () => [{ name: 'g7-custom.csv', size: 128 }] });
+    csvInput.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    capturedOnload({ target: { result: csvText } });
+    expect(document.getElementById('cbDragCsvStatus').hasAttribute('hidden')).toBe(false);
+    expect(document.getElementById('cbDragCsvName').textContent).toBe('g7-custom.csv (3 rows)');
+
+    // 3. Submit custom bullet with attached drag curve, select it, and computeClientSide forwards customDragTable
+    document.getElementById('cbName').value = 'My CSV Load';
+    document.getElementById('cbShortName').value = 'CSV1';
+    document.getElementById('cbBulletWeightGrains').value = '168';
+    document.getElementById('cbBcG1').value = '0.475';
+    document.getElementById('cbBulletDiameterInches').value = '0.308';
+    document.getElementById('cbMuzzleVelocityFps').value = '2650';
+    document.getElementById('customBulletForm').dispatchEvent(new Event('submit', { cancelable: true }));
+
+    const added = mod._getState().customRecords[0];
+    expect(added.customDragTable).toHaveLength(3);
+
+    simulateAsync.mockClear();
+    await mod.computeClientSide({ bulletIds: [added.id], dragModel: 'G1' });
+    expect(simulateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ id: added.id }),
+      expect.objectContaining({ customDragTable: added.customDragTable }),
+    );
+
+    // 4. Edit custom bullet restores customDragTable UI ("Custom curve (3 rows)") and Clear removes it
+    mod.openCustomBulletEdit(added.id);
+    expect(document.getElementById('cbDragCsvStatus').hasAttribute('hidden')).toBe(false);
+    expect(document.getElementById('cbDragCsvName').textContent).toBe('Custom curve (3 rows)');
+    document.getElementById('cbDragCsvClearBtn').click();
+    expect(document.getElementById('cbDragCsvStatus').hasAttribute('hidden')).toBe(true);
+    document.getElementById('customBulletForm').dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(mod._getState().customRecords[0].customDragTable).toBeUndefined();
+
+    // 5. Invalid CSV and FileReader error show inline error in #cbDragCsv-error
+    mod.openCustomBulletAdd();
+    csvInput.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    capturedOnload({ target: { result: 'bad,csv' } });
+    expect(document.getElementById('cbDragCsv-error').textContent).toBeTruthy();
+
+    csvInput.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
+    capturedOnerror();
+    expect(document.getElementById('cbDragCsv-error').textContent).toBe('Error reading file.');
   });
 });

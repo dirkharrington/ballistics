@@ -19,7 +19,7 @@ const {
   CUSTOM_BULLETS_KEY, CUSTOM_BULLET_ID_RE, MAX_CUSTOM_BULLETS,
   CUSTOM_BULLET_LIMITS, CUSTOM_BULLET_PALETTE, GRAINS_TO_GRAMS, FPS_TO_MPS, INCH_TO_MM,
   newCustomBulletId, isCustomBulletId, customColor,
-  validateCustomBulletInput, isValidCustomBulletRecord,
+  validateCustomBulletInput, isValidCustomBulletRecord, isValidCustomDragTable,
   loadCustomBullets, saveCustomBullets,
   upsertCustomBullet, removeCustomBullet,
   toBullet, mergeCatalog, bulletForDragModel,
@@ -1253,5 +1253,58 @@ describe('syncCustomDeleteGuards', () => {
   test('missing listEl => no-op', () => {
     expect(() => syncCustomDeleteGuards(null, new Set())).not.toThrow();
     expect(() => syncCustomDeleteGuards(undefined, new Set())).not.toThrow();
+  });
+});
+
+describe('ENH-5: optional customDragTable on custom bullets', () => {
+  const sampleDrag = [
+    { mach: 0.4, cd: 0.19 },
+    { mach: 1.0, cd: 0.42 },
+    { mach: 2.5, cd: 0.31 },
+  ];
+
+  test('isValidCustomDragTable validates array, length, point objects, monotonic mach, and coverage', () => {
+    expect(isValidCustomDragTable(sampleDrag)).toBe(true);
+    expect(isValidCustomDragTable(null)).toBe(false);
+    expect(isValidCustomDragTable([{ mach: 0.4, cd: 0.2 }, { mach: 2.0, cd: 0.3 }])).toBe(false);
+    expect(isValidCustomDragTable(Array.from({ length: 101 }, (_, i) => ({ mach: i * 0.04, cd: 0.2 })))).toBe(false);
+    expect(isValidCustomDragTable([null, { mach: 1, cd: 0.2 }, { mach: 2, cd: 0.3 }])).toBe(false);
+    expect(isValidCustomDragTable([[], { mach: 1, cd: 0.2 }, { mach: 2, cd: 0.3 }])).toBe(false);
+    expect(isValidCustomDragTable([{ mach: -0.1, cd: 0.2 }, { mach: 1, cd: 0.2 }, { mach: 2, cd: 0.3 }])).toBe(false);
+    expect(isValidCustomDragTable([{ mach: 0.4, cd: 0.2 }, { mach: 1, cd: 0 }, { mach: 2, cd: 0.3 }])).toBe(false);
+    expect(isValidCustomDragTable([{ mach: 0.4, cd: 0.2 }, { mach: 0.4, cd: 0.3 }, { mach: 2, cd: 0.3 }])).toBe(false);
+    expect(isValidCustomDragTable([{ mach: 0.6, cd: 0.2 }, { mach: 1.0, cd: 0.3 }, { mach: 2.5, cd: 0.3 }])).toBe(false);
+    expect(isValidCustomDragTable([{ mach: 0.4, cd: 0.2 }, { mach: 1.0, cd: 0.3 }, { mach: 1.8, cd: 0.3 }])).toBe(false);
+  });
+
+  test('isValidCustomBulletRecord, loadCustomBullets, upsertCustomBullet, toBullet, and render handle customDragTable', () => {
+    expect(isValidCustomBulletRecord(makeRecord({ customDragTable: sampleDrag }))).toBe(true);
+    expect(isValidCustomBulletRecord(makeRecord({ customDragTable: null }))).toBe(true);
+    expect(isValidCustomBulletRecord(makeRecord({ customDragTable: [] }))).toBe(false);
+
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([
+      makeRecord({ customDragTable: sampleDrag.map(p => ({ ...p, extra: 'drop' })) }),
+    ]));
+    const loaded = loadCustomBullets();
+    expect(loaded.records[0].customDragTable).toEqual(sampleDrag);
+
+    // upsertCustomBullet attaches on add and removes when passed customDragTable: null on edit
+    const added = upsertCustomBullet([], { ...makeRecord(), customDragTable: sampleDrag }, null);
+    expect(added[0].customDragTable).toEqual(sampleDrag);
+    const cleared = upsertCustomBullet(added, { ...makeRecord(), customDragTable: null }, added[0].id);
+    expect(cleared[0].customDragTable).toBeUndefined();
+
+    // toBullet forwards customDragTable and renderCustomBulletGroup displays CSV tag
+    const b = toBullet(added[0]);
+    expect(b.customDragTable).toEqual(sampleDrag);
+    const listEl = document.createElement('div');
+    renderCustomBulletGroup(listEl, [b], {
+      selectedIds: new Set(),
+      storageStatus: 'ok',
+      onToggle: () => {},
+      onEdit: () => {},
+      onDelete: () => {},
+    });
+    expect(listEl.querySelector('.bullet-specs').textContent).toContain('CSV');
   });
 });

@@ -21,6 +21,7 @@ function buildTableDOM() {
           <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator"></span></button></th>
           <th id="spinDriftColHeader" style="display:none">Spin Drift (<span data-unit-kind="drift">cm</span>)</th>
           <th id="coriolisColHeader" style="display:none">Coriolis (<span data-unit-kind="drift">cm</span>)</th>
+          <th id="eotvosColHeader" style="display:none">Eötvös (<span data-unit-kind="drop">cm</span>)</th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
@@ -193,5 +194,22 @@ describe('chunked rendering and deferred tab state helpers', () => {
     expect(html).toContain('+2.2 in');
     onSortHeaderClick('range');
     expect(document.querySelector('[data-sort-key="range"] [data-unit-kind]').textContent).toBe('yd');
+  });
+
+  test('ENH-5: renders coriolisVerticalCm (Eotvos) column when present in Metric and Imperial', () => {
+    renderTable([{
+      bullet: { id: '308-win-168gr', name: '.308' },
+      points: [
+        { rangeMeters: 0, dropCm: 0, velocityMps: 800, energyJoules: 3500, windDriftCm: 0, timeOfFlightSec: 0, coriolisVerticalCm: -1.2 },
+        { rangeMeters: 100, dropCm: -5, velocityMps: 750, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13, coriolisVerticalCm: 2.54 },
+        { rangeMeters: 200, dropCm: -15, velocityMps: 700, energyJoules: 2700, windDriftCm: 3, timeOfFlightSec: 0.27 },
+      ],
+    }], 'imperial');
+    expect(document.getElementById('eotvosColHeader').style.display).toBe('');
+    expect(document.querySelector('#eotvosColHeader [data-unit-kind="drop"]').textContent).toBe('in');
+    const rows = document.querySelectorAll('#tableBody tr');
+    expect(rows[0].textContent).toContain('-0.5 in');
+    expect(rows[1].textContent).toContain('+1.0 in');
+    expect(rows[2].textContent).toContain('+0.0 in');
   });
 });

@@ -56,6 +56,18 @@
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
 
+    <div class="section-label">Rifle Profiles</div>
+    <div id="profileBar" class="profile-bar">
+      <select id="profileSelect" aria-label="Load saved profile">
+        <option value="">— Saved profiles —</option>
+      </select>
+      <div class="profile-bar-controls">
+        <input type="text" id="profileNameInput" placeholder="Profile name..." maxlength="64" aria-label="Profile name" autocomplete="off">
+        <button type="button" id="saveProfileBtn">SAVE</button>
+        <button type="button" id="deleteProfileBtn" disabled>DEL</button>
+      </div>
+    </div>
+
     <div class="section-label">Select Rounds</div>
     <div class="bullet-search-wrap">
       <input type="search" id="bulletSearch" placeholder="Filter rounds..." aria-label="Filter rounds" autocomplete="off">
@@ -138,6 +150,16 @@
             <small class="field-error" id="cbMuzzleVelocityFps-error"></small>
           </div>
         </div>
+        <!-- Row D: Optional custom drag curve CSV -->
+        <div class="param-group">
+          <label for="cbDragCsv">Drag CSV (Mach,CD optional)</label>
+          <input type="file" id="cbDragCsv" name="cbDragCsv" accept=".csv,text/csv" aria-describedby="cbDragCsv-error">
+          <div id="cbDragCsvStatus" class="cb-drag-csv-status" hidden>
+            <span id="cbDragCsvName"></span>
+            <button type="button" id="cbDragCsvClearBtn">Clear</button>
+          </div>
+          <small class="field-error" id="cbDragCsv-error"></small>
+        </div>
         <!-- Form-level error -->
         <div id="customBulletFormError" class="form-error" role="alert"></div>
         <!-- Actions -->
@@ -184,12 +206,22 @@
           <label for="altitude">Altitude (<span data-unit-kind="altitude">m</span>)</label>
           <input type="number" id="altitude" value="0" min="0" max="3000" step="100">
         </div>
+        <div class="param-group">
+          <label for="pressureHpa">Pressure (<span data-unit-kind="pressure">hPa</span>)</label>
+          <input type="number" id="pressureHpa" placeholder="auto" min="500" max="1100" step="0.1">
+        </div>
       </div>
       <div class="param-row">
         <div class="param-group">
           <label for="temperature">Temp (<span data-unit-kind="temp">°C</span>)</label>
           <input type="number" id="temperature" value="15" min="-30" max="50" step="1">
         </div>
+        <div class="param-group">
+          <label for="humidityPercent">Humidity (%)</label>
+          <input type="number" id="humidityPercent" placeholder="auto" min="0" max="100" step="1">
+        </div>
+      </div>
+      <div class="param-row">
         <div class="param-group">
           <label for="step">Step (<span data-unit-kind="step">m</span>)</label>
           <input type="number" id="step" value="25" min="10" max="100" step="10">
@@ -222,7 +254,7 @@
       </div>
       <div id="coriolisSection" class="param-row">
         <div class="param-group">
-          <label for="latitudeDeg">Latitude (°) <span title="Your geographic latitude. North positive, South negative. Leave blank to disable Coriolis. Note: latitude is sent with computation requests over HTTPS and is not stored permanently.">ℹ</span></label>
+          <label for="latitudeDeg">Latitude (°) <span title="Your geographic latitude. North positive, South negative. Leave blank to disable Coriolis. Computed locally in your browser.">ℹ</span></label>
           <input type="number" id="latitudeDeg" class="form-control" placeholder="e.g. 45.0" min="-90" max="90" step="0.1">
         </div>
         <div class="param-group">
@@ -230,6 +262,10 @@
           <input type="number" id="azimuthDeg" class="form-control" placeholder="0 = North" min="0" max="360" step="1" value="0">
         </div>
       </div>
+      <label class="eotvos-label" for="includeEotvos">
+        <input type="checkbox" id="includeEotvos">
+        <span>Vertical Coriolis (Eötvös)</span>
+      </label>
     </div>
 
     <div class="sidebar-compute">
@@ -398,6 +434,7 @@
               <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th id="spinDriftColHeader" style="display:none">Spin Drift (<span data-unit-kind="drift">cm</span>)</th>
               <th id="coriolisColHeader" style="display:none">Coriolis (<span data-unit-kind="drift">cm</span>)</th>
+              <th id="eotvosColHeader" style="display:none">Eötvös (<span data-unit-kind="drop">cm</span>)</th>
             </tr>
           </thead>
           <tbody id="tableBody">
