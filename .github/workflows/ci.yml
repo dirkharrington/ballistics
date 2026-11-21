@@ -35,6 +35,8 @@ jobs:
               - 'tsconfig.json'
               - 'vite.config.mjs'
               - 'catalog-projection.cjs'
+              - 'jest.e2e.config.cjs'
+              - 'jest-puppeteer.config.cjs'
               - '.github/workflows/ci.yml'
 
   # ── Frontend build & test ────────────────────────────────────────────────────
@@ -104,6 +106,49 @@ jobs:
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: dist
+
+  # ── E2E smoke tests (built dist/ via vite preview) ───────────────────────────
+  # Required status check — no job-level if:.  Work steps gate on frontend output.
+  e2e-smoke:
+    name: E2E Smoke
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      PUPPETEER_EXECUTABLE_PATH: '/usr/bin/google-chrome'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: needs.changes.outputs.frontend == 'true'
+
+      - name: Set up Node
+        if: needs.changes.outputs.frontend == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+
+      - name: Cache npm download cache
+        if: needs.changes.outputs.frontend == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-npm-
+
+      - name: Install
+        if: needs.changes.outputs.frontend == 'true'
+        run: npm ci
+
+      - name: Build
+        if: needs.changes.outputs.frontend == 'true'
+        run: npm run build
+
+      - name: E2E smoke suite
+        if: needs.changes.outputs.frontend == 'true'
+        run: npm run test:e2e
 
   # ── CodeQL SAST ──────────────────────────────────────────────────────────────
   # Required status check — no job-level if:.
@@ -198,7 +243,7 @@ jobs:
   # ── GitHub Pages deploy (privileged, isolated) ───────────────────────────────
   deploy:
     name: Deploy to GitHub Pages
-    needs: [changes, frontend-build, codeql, trivy]
+    needs: [changes, frontend-build, e2e-smoke, codeql, trivy]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.frontend == 'true'

@@ -2267,7 +2267,7 @@ Selecting all 37 catalog rounds at once via `#selectAllBullets` causes chart clu
 
 ---
 
-### ENH-8 · Modernize Puppeteer E2E smoke suite on built `dist/` (`vite preview`) & add CI job · QA / DevOps · Size S [Must Have]
+### ~~ENH-8 · Modernize Puppeteer E2E smoke suite on built `dist/` (`vite preview`) & add CI job · QA / DevOps · Size S [Must Have]~~ ✅ Done
 
 `tests/e2e/app.e2e.test.js` and `jest-puppeteer.config.cjs` are broken relics of the pre-SPA era (asserting deleted `#statusPill`, `.status-offline`, 10 pre-selected cards, and localhost:5173 without `/ballistics/`), and `.github/workflows/ci.yml` never runs E2E tests. Running a fast smoke suite against production `dist/` via `vite preview` catches real bundling, worker, base-path (`/ballistics/`), and CSP regressions.
 
