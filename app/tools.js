@@ -1,4 +1,5 @@
 import { normalizeUnitSystem, toDisplay, fromDisplay, unitLabel } from './units.js';
+import { escapeHtml, computeAdjustments } from './prefs.js';
 
 // ── MOA / MRAD ────────────────────────────────────────────────────────────────
 
@@ -46,13 +47,6 @@ function convertUnit(value, from, to) {
   return Math.round(fn(value) * 10000) / 10000;
 }
 
-// ── Shared escape helper (tools.js cannot import from ballistics.js) ──────────
-function _esc(str) {
-  return String(str)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
 // ── Trajectory interpolation ──────────────────────────────────────────────────
 /**
  * Linearly interpolate `field` from a sorted points array at `distMeters`.
@@ -84,18 +78,12 @@ function interpolateAt(points, distMeters, field) {
 }
 
 // ── DOPE Card (MH-3) ──────────────────────────────────────────────────────────
-let _simulateBulletFn = null;
 let _dopeDistances    = [100, 200, 300, 400, 500, 600, 700, 800, 1000];
 let _lastDopeResults  = null;
-let _dopeUnitSystem   = 'metric';
-let _mpbrUnitSystem   = 'metric';
 let _toolsUnitSystem  = 'metric';
 
 function setToolsUnitSystem(unitSystem = 'metric') {
-  const sys = normalizeUnitSystem(unitSystem);
-  _dopeUnitSystem = sys;
-  _mpbrUnitSystem = sys;
-  _toolsUnitSystem = sys;
+  _toolsUnitSystem = normalizeUnitSystem(unitSystem);
 }
 
 function _saveDopeDistances() {
@@ -120,7 +108,7 @@ function _buildDopeTable(results, unitSystem) {
   const hasEotvos = results.some(r => r.points.some(p => p.coriolisVerticalCm !== undefined));
   const colSpan = 2 + (hasWind ? 2 : 0) + (hasCoriolis ? 1 : 0) + (hasEotvos ? 1 : 0);
 
-  const thCols = results.map(r => `<th colspan="${colSpan}">${_esc(r.bullet.name)}</th>`).join('');
+  const thCols = results.map(r => `<th colspan="${colSpan}">${escapeHtml(r.bullet.name)}</th>`).join('');
   const thSub  = results.map(() =>
     `<th>MOA↑</th><th>MRAD↑</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th>' : ''}${hasCoriolis ? `<th>Cor. (${drUnit})</th>` : ''}${hasEotvos ? `<th>Eötvös (${dUnit})</th>` : ''}`
   ).join('');
@@ -130,10 +118,7 @@ function _buildDopeTable(results, unitSystem) {
     const tds = results.map(r => {
       const drop = interpolateAt(r.points, distMeters, 'dropCm');
       if (drop == null) return '<td>–</td>'.repeat(colSpan);
-      const angleRad = Math.atan2(Math.abs(drop) / 100, distMeters);
-      const sign     = drop < 0 ? 1 : (drop > 0 ? -1 : 0);
-      const moa      = Math.round(sign * angleRad * (180 / Math.PI) * 60 * 10) / 10;
-      const mrad     = Math.round(sign * angleRad * 1000 * 10) / 10;
+      const { moa, mrad } = computeAdjustments(drop, distMeters);
       let windCells = '';
       if (hasWind) {
         const wind = interpolateAt(r.points, distMeters, 'windDriftCm');
@@ -181,8 +166,7 @@ function _renderDopeDistanceInputs() {
   if (!row) return;
   row.innerHTML = _dopeDistances.map((d, i) => `
     <input type="number" class="dope-dist-input" data-idx="${i}"
-           value="${d}" min="0" max="3000" step="25"
-           style="width:60px; font-family:'Share Tech Mono',monospace; font-size:11px; padding:4px; background:var(--surface,#1a2635); color:var(--text,#c8dde8); border:1px solid var(--border,#1e3040);">
+           value="${d}" min="0" max="3000" step="25">
   `).join('');
   row.querySelectorAll('.dope-dist-input').forEach(inp => {
     inp.addEventListener('change', e => {
@@ -191,7 +175,7 @@ function _renderDopeDistanceInputs() {
       if (v > 0) {
         _dopeDistances[idx] = v;
         _saveDopeDistances();
-        if (_lastDopeResults) _buildDopeTable(_lastDopeResults, _dopeUnitSystem);
+        if (_lastDopeResults) _buildDopeTable(_lastDopeResults, _toolsUnitSystem);
       }
     });
   });
@@ -208,12 +192,9 @@ function _copyDopeText() {
 
 /**
  * Initialise the DOPE card DOM and wire events.
- * Must be called once after DOM is ready, with the simulateBullet callback.
- * @param {Function} simulateBulletFn - the simulateBullet function from ballistics.js
+ * Must be called once after DOM is ready.
  */
-function initDopeCard(simulateBulletFn) {
-  _simulateBulletFn = simulateBulletFn;
-
+function initDopeCard() {
   // Restore distances from URL if present
   try {
     const stored = new URLSearchParams(window.location.search).get('dopeDistances');
@@ -230,7 +211,7 @@ function initDopeCard(simulateBulletFn) {
     _dopeDistances.push((_dopeDistances[_dopeDistances.length - 1] ?? 500) + 100);
     _renderDopeDistanceInputs();
     _saveDopeDistances();
-    if (_lastDopeResults) _buildDopeTable(_lastDopeResults, _dopeUnitSystem);
+    if (_lastDopeResults) _buildDopeTable(_lastDopeResults, _toolsUnitSystem);
   });
 
   document.getElementById('dopeCopyBtn')?.addEventListener('click', _copyDopeText);
@@ -245,73 +226,20 @@ function initDopeCard(simulateBulletFn) {
  * @param {'metric'|'imperial'} [unitSystem='metric']
  */
 function renderDopeCard(results, _baseReq, unitSystem = 'metric') {
-  _dopeUnitSystem = normalizeUnitSystem(unitSystem);
+  _toolsUnitSystem = normalizeUnitSystem(unitSystem);
   _lastDopeResults = results;
-  _buildDopeTable(results, _dopeUnitSystem);
+  _buildDopeTable(results, _toolsUnitSystem);
 }
 
 // ── BC Back-Calculator (SH-2 + PERF-17) ───────────────────────────────────────
-let _bcSimulateFn = null;
-let _bcSolveFn    = null;
-
-/**
- * Bisection solver: find the G1 BC that produces `measuredDropCm` at `rangeM`.
- * Terminates once `hi - lo <= 1e-5` (<=18 iterations for 4-decimal BC precision).
- *
- * @param {Function} simulateBulletFn
- * @param {number}   weightG          bullet weight in grams
- * @param {number}   mvMps            muzzle velocity in m/s
- * @param {number}   measuredDropCm   measured bullet drop (negative = below LoS)
- * @param {number}   rangeM           measurement range in metres
- * @param {number}   altM             altitude in metres
- * @param {number}   tempC            temperature in °C
- * @returns {number|null} solved BC rounded to 4 dp, or null if interpolation failed
- */
-async function calcBC(simulateBulletFn, weightG, mvMps, measuredDropCm, rangeM, altM, tempC) {
-  const base = {
-    id: 'bc-solve', name: 'BC Solve', caliber: 'Custom',
-    bulletWeightGrams:    weightG,
-    muzzleVelocityMps:    mvMps,
-    ballisticCoefficient: 0.5,
-    bulletDiameterMm:     7.62,
-    muzzleEnergyJoules:   Math.round(0.5 * (weightG / 1000) * mvMps * mvMps),
-  };
-  const req = {
-    bulletIds:            ['bc-solve'],
-    zeroRangeMeters:      100,
-    maxRangeMeters:       rangeM + 25,
-    stepMeters:           25,
-    windSpeedKph:         0,
-    windDirectionDeg:     90,
-    altitudeMeters:       altM,
-    temperatureC:         tempC,
-    sightHeightMm:        38.1,
-    shootingAngleDegrees: 0,
-    dragModel:            'G1',
-  };
-
-  let lo = 0.001, hi = 1.5;
-  for (let i = 0; i < 64 && hi - lo > 1e-5; i++) {
-    const mid = (lo + hi) / 2;
-    const bullet = { ...base, ballisticCoefficient: mid };
-    const result = await simulateBulletFn(bullet, req);
-    const drop   = interpolateAt(result.points, rangeM, 'dropCm');
-    if (drop === null) return null;
-    // drop < measuredDropCm → too much drop (BC too low) → raise lo
-    // drop >= measuredDropCm → too little drop (BC too high) → lower hi
-    if (drop < measuredDropCm) lo = mid; else hi = mid;
-  }
-  return Math.round((lo + hi) / 2 * 10000) / 10000;
-}
+let _bcSolveFn = null;
 
 /**
  * Initialise the BC back-calculator card DOM and wire the CALCULATE button.
- * @param {Function} simulateBulletFn
- * @param {Function} [solveBCFn]  Optional single-round-trip worker solver (PERF-17)
+ * @param {Function} solveBCFn  Single-round-trip worker solver (PERF-17)
  */
-function initBcSolver(simulateBulletFn, solveBCFn = null) {
-  _bcSimulateFn = simulateBulletFn;
-  _bcSolveFn    = solveBCFn;
+function initBcSolver(solveBCFn = null) {
+  _bcSolveFn = solveBCFn;
 
   document.getElementById('bcCalcBtn')?.addEventListener('click', async () => {
     const sys     = _toolsUnitSystem;
@@ -333,9 +261,9 @@ function initBcSolver(simulateBulletFn, solveBCFn = null) {
 
     if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); }
     try {
-      const bc = _bcSolveFn
+      const bc = typeof _bcSolveFn === 'function'
         ? await _bcSolveFn({ weightG, mvMps, measuredDropCm: dropCm, rangeM, altM, tempC })
-        : await calcBC(_bcSimulateFn, weightG, mvMps, dropCm, rangeM, altM, tempC);
+        : null;
       if (bc === null) {
         result.textContent = 'Could not converge. Check inputs.';
       } else {
@@ -383,7 +311,7 @@ function initTools() {
     } else {
       const span = document.createElement('span');
       span.className = 'tool-value';
-      span.style.color = 'var(--warn)';
+      span.style.color = 'var(--accent2)';
       span.textContent = 'Unsupported conversion';
       container.replaceChildren(span);
     }
@@ -461,7 +389,7 @@ function calcMpbr(points, vitalZoneCm = 20) {
  */
 function renderMpbrTool(results, unitSystem = 'metric') {
   const sys = normalizeUnitSystem(unitSystem);
-  _mpbrUnitSystem = sys;
+  _toolsUnitSystem = sys;
   _lastMpbrResults = results;
   const vUnit = unitLabel('vitalZone', sys);
   const unitEl = document.querySelector('#mpbrCard [data-unit-kind="vitalZone"]');
@@ -492,7 +420,7 @@ function renderMpbrTool(results, unitSystem = 'metric') {
       ? `<span class="mpbr-warning" style="display:inline-block;margin-top:4px;padding:1px 6px;border:1px solid var(--accent2,#ff6b00);color:var(--accent2,#ff6b00);font-size:10px;border-radius:2px;">Exceeds ±${radiusDisp} ${vUnit} vital zone</span>`
       : '';
     return `<div class="mpbr-entry" style="width:100%;font-family:'Share Tech Mono',monospace;font-size:11px;">` +
-      `<div class="tool-label">${_esc(r.bullet.name)}</div>` +
+      `<div class="tool-label">${escapeHtml(r.bullet.name)}</div>` +
       `<div class="tool-value">MPBR: ${mpbrDisp} ${rUnit}${trunc} · Max Rise: ${maxRiseDisp} ${dUnit} @ ${maxRiseRangeDisp} ${rUnit}</div>` +
       `${warn}</div>`;
   }).join('');
@@ -505,10 +433,10 @@ function initMpbrTool() {
   const inp = document.getElementById('mpbrVitalCm');
   if (!inp) return;
   const onUpdate = () => {
-    if (_lastMpbrResults) renderMpbrTool(_lastMpbrResults, _mpbrUnitSystem);
+    if (_lastMpbrResults) renderMpbrTool(_lastMpbrResults, _toolsUnitSystem);
   };
   inp.addEventListener('input', onUpdate);
   inp.addEventListener('change', onUpdate);
 }
 
-export { calcMoaMrad, convertUnit, initTools, CONVERSIONS, interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC, calcMpbr, initMpbrTool, renderMpbrTool, setToolsUnitSystem };
+export { calcMoaMrad, convertUnit, initTools, CONVERSIONS, interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcMpbr, initMpbrTool, renderMpbrTool, setToolsUnitSystem };

@@ -263,8 +263,8 @@ async function _ensureToolsLoaded() {
   if (!_toolsInitialized) {
     _toolsInitialized = true;
     toolsMod.initTools();
-    toolsMod.initDopeCard(simulateAsync);
-    toolsMod.initBcSolver(simulateAsync, solveBCAsync);
+    toolsMod.initDopeCard();
+    toolsMod.initBcSolver(solveBCAsync);
     toolsMod.initMpbrTool();
   }
   toolsMod.setToolsUnitSystem(unitSystem);
