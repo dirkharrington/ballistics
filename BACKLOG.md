@@ -2314,7 +2314,7 @@ Consolidates Sprint 11 documentation cleanup and Icebox security hardening: remo
 
 ---
 
-### ENH-10 · Explicit job-level CI permissions (`REL-5`) & `v3.0.0` version bump (`REL-4`) · DevSecOps · Size XS [Must Have]
+### ~~ENH-10 · Explicit job-level CI permissions (`REL-5`) & `v3.0.0` version bump (`REL-4`) · DevSecOps · Size XS [Must Have]~~ ✅ Done
 
 Finalizes Sprint 14 release readiness by ensuring every job in `.github/workflows/ci.yml` explicitly declares least-privilege `permissions:` (`REL-5`: `changes` and `frontend-build` join `codeql`, `trivy`, `e2e-smoke`, and `deploy`) and bumping `package.json` + `package-lock.json` from `1.0.0` to `3.0.0` (`REL-4`).
 
