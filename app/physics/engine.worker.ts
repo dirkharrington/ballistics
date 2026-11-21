@@ -28,6 +28,7 @@ interface WorkerSuccessResponse {
   dragModel: EffectiveDragModel;
   pointsBuffer: Float64Array;
   hasCoriolis: boolean;
+  hasEotvos: boolean;
 }
 
 interface WorkerSolveBCResponse {
@@ -57,7 +58,7 @@ self.addEventListener('message', (evt: MessageEvent<WorkerRequest>) => {
   const { id, bullet, params } = evt.data;
   try {
     const result = simulate(bullet, params);
-    const { buffer, hasCoriolis } = packPoints(result.points);
+    const { buffer, hasCoriolis, hasEotvos } = packPoints(result.points);
     const response: WorkerSuccessResponse = {
       id,
       maxOrdinateCm: result.maxOrdinateCm,
@@ -67,6 +68,7 @@ self.addEventListener('message', (evt: MessageEvent<WorkerRequest>) => {
       dragModel: result.dragModel,
       pointsBuffer: buffer,
       hasCoriolis,
+      hasEotvos,
     };
     self.postMessage(response, [buffer.buffer]);
   } catch (err) {

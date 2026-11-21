@@ -42,7 +42,7 @@ function makePackedResponse(
     dragModel: EffectiveDragModel;
   }> = {},
 ) {
-  const { buffer, hasCoriolis } = packPoints(points);
+  const { buffer, hasCoriolis, hasEotvos } = packPoints(points);
   return {
     id,
     maxOrdinateCm: overrides.maxOrdinateCm ?? 0,
@@ -52,6 +52,7 @@ function makePackedResponse(
     dragModel: overrides.dragModel ?? ('G1' as const),
     pointsBuffer: buffer,
     hasCoriolis,
+    hasEotvos,
   };
 }
 
@@ -518,8 +519,35 @@ describe('PERF-29: engine.worker.ts zero-copy Transferable protocol', () => {
     expect(postSpy).toHaveBeenCalledTimes(1);
     const [msg, transfer] = postSpy.mock.calls[0] as [any, Transferable[]];
     expect(msg.hasCoriolis).toBe(true);
+    expect(msg.hasEotvos).toBe(false);
     expect(transfer).toEqual([msg.pointsBuffer.buffer]);
-    expect(unpackPoints(msg.pointsBuffer, msg.hasCoriolis)).toEqual(simulate(bullet, corParams).points);
+    expect(unpackPoints(msg.pointsBuffer, msg.hasCoriolis, msg.hasEotvos)).toEqual(simulate(bullet, corParams).points);
+  });
+
+  test('ENH-2: transfers Eotvos points with hasEotvos=true and unpacks coriolisVerticalCm', () => {
+    const eotParams = { ...params, latitudeDeg: 45, azimuthDeg: 90, includeEotvos: true };
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { id: 11, bullet, params: eotParams },
+      origin: '',
+    }));
+
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    const [msg, transfer] = postSpy.mock.calls[0] as [any, Transferable[]];
+    expect(msg.hasCoriolis).toBe(true);
+    expect(msg.hasEotvos).toBe(true);
+    expect(transfer).toEqual([msg.pointsBuffer.buffer]);
+    expect(unpackPoints(msg.pointsBuffer, msg.hasCoriolis, msg.hasEotvos)).toEqual(simulate(bullet, eotParams).points);
+  });
+
+  test('ENH-2: simulationCacheKey differentiates pressureHpa, humidityPercent, and includeEotvos', () => {
+    const kBase = simulationCacheKey(bullet, params);
+    const kBaseFalse = simulationCacheKey(bullet, { ...params, pressureHpa: null, humidityPercent: null, includeEotvos: false });
+    expect(kBase).toBe(kBaseFalse);
+
+    const kPress = simulationCacheKey(bullet, { ...params, pressureHpa: 950 });
+    const kHum   = simulationCacheKey(bullet, { ...params, humidityPercent: 75 });
+    const kEot   = simulationCacheKey(bullet, { ...params, latitudeDeg: 45, azimuthDeg: 90, includeEotvos: true });
+    expect(new Set([kBase, kPress, kHum, kEot]).size).toBe(4);
   });
 
   test('handles solveBC and TrajectoryInputError messages cleanly', () => {

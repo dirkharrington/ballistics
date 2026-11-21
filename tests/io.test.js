@@ -248,10 +248,10 @@ describe('importResultsFromFile', () => {
     expect(onImported).not.toHaveBeenCalled();
   });
 
-  test('sanitizes valid payload, strips invalid hexColor, preserves ballisticCoefficientG7, and calls onImported', async () => {
+  test('sanitizes valid payload, strips invalid hexColor, preserves ballisticCoefficientG7 and coriolisVerticalCm, and calls onImported', async () => {
     const payload = JSON.stringify([{
       bullet: { id: 'x', name: 'Test', hexColor: 'invalid', muzzleVelocityMps: 800, ballisticCoefficientG7: 0.224, extra: 'ignored' },
-      points: [{ rangeMeters: 0, dropCm: 0, extra: 'ignored' }],
+      points: [{ rangeMeters: 0, dropCm: 0, coriolisVerticalCm: 1.2, extra: 'ignored' }],
       maxOrdinateCm: 5,
     }]);
     mockReaderWithText(payload);
@@ -263,7 +263,7 @@ describe('importResultsFromFile', () => {
     expect(setError).toHaveBeenCalledWith(null);
     expect(onImported).toHaveBeenCalledWith([{
       bullet: { id: 'x', name: 'Test', muzzleVelocityMps: 800, ballisticCoefficientG7: 0.224 },
-      points: [{ rangeMeters: 0, dropCm: 0 }],
+      points: [{ rangeMeters: 0, dropCm: 0, coriolisVerticalCm: 1.2 }],
       maxOrdinateCm: 5,
     }]);
   });

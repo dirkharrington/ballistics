@@ -43,7 +43,10 @@ export interface TrajectoryParams {
   readonly dragModel?: DragModel | null;           // default 'G1'
   readonly twistRateInchesPerTurn?: number | null; // [1, 100]; absent = spin drift disabled (FEAT-1)
   readonly latitudeDeg?: number | null;  // [-90, 90], north positive. Coriolis needs BOTH latitudeDeg and azimuthDeg (FEAT-2)
-  readonly azimuthDeg?: number | null;   // [0, 360], clockwise from north. Enable flag only; not in the formula (FEAT-2)
+  readonly azimuthDeg?: number | null;   // [0, 360], clockwise from north. (FEAT-2 / ENH-2)
+  readonly pressureHpa?: number | null;     // [500, 1100], station barometric pressure in hPa (ENH-2)
+  readonly humidityPercent?: number | null; // [0, 100], relative humidity % (ENH-2)
+  readonly includeEotvos?: boolean | null;  // opt-in vertical Coriolis (Eötvös) effect (ENH-2)
   readonly customDragTable?: readonly DragPoint[] | null; // 3–100 points; non-empty overrides dragModel (FEAT-3). null/[] = use dragModel
   readonly bulletIds?: readonly string[];          // passthrough from UI request objects; IGNORED
 }
@@ -58,6 +61,7 @@ export interface TrajectoryPoint {
   timeOfFlightSec: number;
   spinDriftCm: number;          // FEAT-1. Gyroscopic spin drift, cm, >= 0, positive = right (right-hand twist). 0 when twist rate is absent.
   coriolisDeflectionCm?: number; // FEAT-2. cm, positive = right. Key is ABSENT unless both latitudeDeg and azimuthDeg are set.
+  coriolisVerticalCm?: number;   // ENH-2. Opt-in Eötvös vertical deflection in cm; key ABSENT unless includeEotvos === true and both latitudeDeg and azimuthDeg are set.
 }
 
 /** Return value of simulate(). */

@@ -79,6 +79,18 @@ function validate(bullet: Bullet, params: TrajectoryParams): void {
     if (!isFiniteNumber(params.azimuthDeg) || !(params.azimuthDeg >= 0) || !(params.azimuthDeg <= 360))
       throw new TrajectoryInputError('azimuthDeg', 'a finite number between 0 and 360');
   }
+  if (params.pressureHpa != null) {
+    if (!isFiniteNumber(params.pressureHpa) || !(params.pressureHpa >= 500) || !(params.pressureHpa <= 1100))
+      throw new TrajectoryInputError('pressureHpa', 'a finite number between 500 and 1100');
+  }
+  if (params.humidityPercent != null) {
+    if (!isFiniteNumber(params.humidityPercent) || !(params.humidityPercent >= 0) || !(params.humidityPercent <= 100))
+      throw new TrajectoryInputError('humidityPercent', 'a finite number between 0 and 100');
+  }
+  if (params.includeEotvos != null) {
+    if (typeof params.includeEotvos !== 'boolean')
+      throw new TrajectoryInputError('includeEotvos', 'a boolean');
+  }
   const table = params.customDragTable;
   if (table != null) {
     // Rule 1: must be an array
@@ -233,6 +245,34 @@ export function airDensityRatio(altFt: number, tempF: number): number {
   return pressRatio * tempRatio;
 }
 
+/**
+ * Station air density ratio relative to ICAO sea-level standard dry air (ENH-2).
+ * Falls back verbatim to `airDensityRatio` when both pressureHpa and humidityPercent are null/undefined.
+ * @internal
+ */
+export function stationAirDensityRatio(
+  altFt: number,
+  tempF: number,
+  pressureHpa?: number | null,
+  humidityPercent?: number | null
+): number {
+  if (pressureHpa == null && humidityPercent == null) {
+    return airDensityRatio(altFt, tempF);
+  }
+  const tempC = (tempF - 32) * 5 / 9;
+  const tempK = tempC + 273.15;
+  const pPa = pressureHpa != null
+    ? pressureHpa * 100
+    : 101325 * Math.pow(1 - ATMOSPHERE.pressureCoeff * altFt, ATMOSPHERE.pressureExp);
+  const rh = (humidityPercent ?? 0) / 100;
+  const esPa = 610.78 * Math.exp((17.27 * tempC) / (tempC + 237.3));
+  const pv = Math.min(rh * esPa, pPa * 0.99);
+  const pd = pPa - pv;
+  const rhoActual = pd / (287.058 * tempK) + pv / (461.495 * tempK);
+  const rhoSeaLevel = 101325 / (287.058 * 288.15);
+  return rhoActual / rhoSeaLevel;
+}
+
 /** Miller twist-rule gyroscopic stability factor with a fixed length of LENGTH_CAL calibers. @internal */
 export function stabilityFactor(diameterMm: number, weightGrams: number, twistIn: number): number {
   const dIn      = diameterMm / MM_PER_INCH;
@@ -253,6 +293,8 @@ export interface PointExtras {
   readonly stabilityFactor?: number | null;
   /** OMEGA × sin(lat) × muzzleVelocityMps (m/s²). null/undefined = Coriolis disabled (key omitted). */
   readonly coriolisK?: number | null;
+  /** OMEGA × cos(lat) × sin(az) × muzzleVelocityMps (m/s²). null/undefined = Eötvös disabled (key omitted). */
+  readonly eotvosK?: number | null;
 }
 
 function evalHeightAtZero(
@@ -416,6 +458,7 @@ export function integrateTrajectoryFps(
   const halfMassOverG = 0.5 * (wLbs / G_FPS2);
   const sg = extras.stabilityFactor ?? null;
   const ck = extras.coriolisK ?? null;
+  const ek = extras.eotvosK ?? null;
   let vx = mvFps * Math.cos(angle), vy = mvFps * Math.sin(angle);
   let x = 0, y = 0, t = 0;
   const points: TrajectoryPoint[] = [];
@@ -447,6 +490,9 @@ export function integrateTrajectoryFps(
       if (ck != null) {
         const deflM = ck * t * t;
         point.coriolisDeflectionCm = Math.round(deflM * 100 * 10) / 10 + 0;   // + 0 normalises -0
+      }
+      if (ek != null) {
+        point.coriolisVerticalCm = Math.round(ek * t * t * 100 * 10) / 10 + 0;
       }
       points.push(point);
       if (y * 12 > maxOrdIn) { maxOrdIn = y * 12; maxOrdRangeYd = rangeYd; }
@@ -527,8 +573,12 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
   const bc    = bullet.ballisticCoefficient;
   const mvFps = bullet.muzzleVelocityMps * FPS_PER_MPS;
   const wLbs  = bullet.bulletWeightGrams / G_PER_LB;
-  const rho   = airDensityRatio(params.altitudeMeters * FT_PER_M,
-                                params.temperatureC * 9 / 5 + 32);
+  const rho   = stationAirDensityRatio(
+    params.altitudeMeters * FT_PER_M,
+    params.temperatureC * 9 / 5 + 32,
+    params.pressureHpa,
+    params.humidityPercent,
+  );
 
   const custom      = params.customDragTable;
   const useCustom   = custom != null && custom.length > 0;
@@ -546,6 +596,9 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
     coriolisK: lat == null || az == null
       ? null
       : EARTH_OMEGA_RADS * Math.sin(lat * Math.PI / 180) * bullet.muzzleVelocityMps,
+    eotvosK: params.includeEotvos === true && lat != null && az != null
+      ? EARTH_OMEGA_RADS * Math.cos(lat * Math.PI / 180) * Math.sin(az * Math.PI / 180) * bullet.muzzleVelocityMps
+      : null,
   };
 
   const sightHtFt = (params.sightHeightMm ?? 38.1) / 25.4 / 12;
@@ -561,9 +614,14 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
   const { points, maxOrdIn, maxOrdRangeYd, supersonicLimYd } =
     integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle, dragTable, extras);
 
-  const isa = 15 - 0.0065 * params.altitudeMeters;   // ISA temperature at altitude (°C/m lapse)
-  const densityAltitudeMeters = Math.round(params.altitudeMeters + 36.2 * (params.temperatureC - isa));
-  // 36.2 = 118.8 ft/°C × 0.3048 m/ft
+  let densityAltitudeMeters: number;
+  if (params.pressureHpa == null && params.humidityPercent == null) {
+    const isa = 15 - 0.0065 * params.altitudeMeters;   // ISA temperature at altitude (°C/m lapse)
+    densityAltitudeMeters = Math.round(params.altitudeMeters + 36.2 * (params.temperatureC - isa));
+    // 36.2 = 118.8 ft/°C × 0.3048 m/ft
+  } else {
+    densityAltitudeMeters = Math.round((1 - Math.pow(rho, 1 / 4.255876)) / 2.25577e-5) + 0;
+  }
 
   return {
     bullet,

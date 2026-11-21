@@ -5,6 +5,7 @@ const {
   TrajectoryInputError,
   interpolateDragTable,
   airDensityRatio,
+  stationAirDensityRatio,
   findZeroAngleFps,
   integrateTrajectoryFps,
 } = require('../app/physics/engine.ts');
@@ -1522,5 +1523,179 @@ describe('PERF-30: warm-bracket findZeroAngleFps, safeguarded secant solveBC & h
     // Upward bracket advance (v > vArr[idx]) in evalDropCmAtRange: 121.9 m/s (399.93 fps) accelerates past 400 fps over 150m
     const accelBc = solveBC({ weightG: 10, mvMps: 121.9, measuredDropCm: -50, rangeM: 150, altM: 0, tempC: 15 });
     expect(accelBc).toBe(1.5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENH-2: stationAirDensityRatio, pressureHpa, humidityPercent, and Eotvos
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ENH-2: stationAirDensityRatio', () => {
+  test('matches airDensityRatio verbatim when both pressureHpa and humidityPercent are null/undefined', () => {
+    expect(stationAirDensityRatio(0, 59)).toBe(airDensityRatio(0, 59));
+    expect(stationAirDensityRatio(5000, 80, undefined, undefined)).toBe(airDensityRatio(5000, 80));
+    expect(stationAirDensityRatio(5000, 80, null, null)).toBe(airDensityRatio(5000, 80));
+  });
+
+  test('returns ~1.0 at ICAO sea-level standard dry air (1013.25 hPa, 0% RH, 59°F)', () => {
+    expect(stationAirDensityRatio(0, 59, 1013.25, 0)).toBeCloseTo(1.0, 5);
+  });
+
+  test('higher station pressure increases density; lower pressure decreases density', () => {
+    const low  = stationAirDensityRatio(0, 59, 850, null);
+    const std  = stationAirDensityRatio(0, 59, 1013.25, null);
+    const high = stationAirDensityRatio(0, 59, 1080, null);
+    expect(low).toBeLessThan(std);
+    expect(high).toBeGreaterThan(std);
+  });
+
+  test('higher humidity reduces air density when pressure is omitted or fixed', () => {
+    const dryAlt = stationAirDensityRatio(3000, 86, null, 0);
+    const humidAlt = stationAirDensityRatio(3000, 86, null, 100);
+    expect(humidAlt).toBeLessThan(dryAlt);
+
+    const dryFixed = stationAirDensityRatio(0, 95, 1013.25, 0);
+    const humidFixed = stationAirDensityRatio(0, 95, 1013.25, 100);
+    expect(humidFixed).toBeLessThan(dryFixed);
+  });
+
+  test('clamps vapor pressure to 99% of station pressure at extreme hot/low-pressure conditions', () => {
+    const ratio = stationAirDensityRatio(0, 140, 500, 100);
+    expect(Number.isFinite(ratio)).toBe(true);
+    expect(ratio).toBeGreaterThan(0);
+  });
+});
+
+describe('ENH-2: validation for pressureHpa, humidityPercent, and includeEotvos', () => {
+  test('pressureHpa validation rejects out-of-range / non-finite and accepts [500, 1100]', () => {
+    const c = 'a finite number between 500 and 1100';
+    for (const bad of [499.99, 1100.01, NaN, Infinity, '1013']) {
+      expectValidationError(B308, { ...COND_A, pressureHpa: bad }, 'pressureHpa', c);
+    }
+    expect(() => simulate(B308, { ...COND_A, pressureHpa: 500 })).not.toThrow();
+    expect(() => simulate(B308, { ...COND_A, pressureHpa: 1100 })).not.toThrow();
+    expect(() => simulate(B308, { ...COND_A, pressureHpa: null })).not.toThrow();
+  });
+
+  test('humidityPercent validation rejects out-of-range / non-finite and accepts [0, 100]', () => {
+    const c = 'a finite number between 0 and 100';
+    for (const bad of [-0.01, 100.01, NaN, Infinity, '50']) {
+      expectValidationError(B308, { ...COND_A, humidityPercent: bad }, 'humidityPercent', c);
+    }
+    expect(() => simulate(B308, { ...COND_A, humidityPercent: 0 })).not.toThrow();
+    expect(() => simulate(B308, { ...COND_A, humidityPercent: 100 })).not.toThrow();
+    expect(() => simulate(B308, { ...COND_A, humidityPercent: null })).not.toThrow();
+  });
+
+  test('includeEotvos validation rejects non-booleans and accepts booleans / null / undefined', () => {
+    const c = 'a boolean';
+    for (const bad of ['true', 1, 0, {}]) {
+      expectValidationError(B308, { ...COND_A, includeEotvos: bad }, 'includeEotvos', c);
+    }
+    expect(() => simulate(B308, { ...COND_A, includeEotvos: true })).not.toThrow();
+    expect(() => simulate(B308, { ...COND_A, includeEotvos: false })).not.toThrow();
+    expect(() => simulate(B308, { ...COND_A, includeEotvos: null })).not.toThrow();
+  });
+});
+
+describe('ENH-2: station pressure & humidity effects in simulate()', () => {
+  const DRAG_BULLET = { ...B308, ballisticCoefficient: 0.01 };
+  const LONG_COND   = { ...COND_A, maxRangeMeters: 2000, stepMeters: 100 };
+
+  test('lower station pressure yields flatter trajectory, higher downrange velocity, and higher density altitude', () => {
+    const highPress = simulate(DRAG_BULLET, { ...LONG_COND, pressureHpa: 1050, humidityPercent: 0 });
+    const stdPress  = simulate(B308,        { ...COND_A,    pressureHpa: 1013.25, humidityPercent: 0 });
+    const lowPress  = simulate(DRAG_BULLET, { ...LONG_COND, pressureHpa: 850, humidityPercent: 0 });
+
+    const lastHigh = highPress.points[highPress.points.length - 1];
+    const lastLow  = lowPress.points[lowPress.points.length - 1];
+    expect(lastLow.velocityMps).toBeGreaterThan(lastHigh.velocityMps);
+    expect(lastLow.dropCm).toBeGreaterThan(lastHigh.dropCm);
+
+    expect(stdPress.densityAltitudeMeters).toBe(0);
+    expect(lowPress.densityAltitudeMeters).toBeGreaterThan(1000);
+    expect(highPress.densityAltitudeMeters).toBeLessThan(0);
+  });
+
+  test('high humidity yields lower air density, higher retained velocity, and higher density altitude', () => {
+    const dry   = simulate(DRAG_BULLET, { ...LONG_COND, temperatureC: 35, pressureHpa: 1013.25, humidityPercent: 0 });
+    const humid = simulate(DRAG_BULLET, { ...LONG_COND, temperatureC: 35, pressureHpa: 1013.25, humidityPercent: 100 });
+    const lastDry   = dry.points[dry.points.length - 1];
+    const lastHumid = humid.points[humid.points.length - 1];
+    expect(lastHumid.velocityMps).toBeGreaterThan(lastDry.velocityMps);
+    expect(humid.densityAltitudeMeters).toBeGreaterThan(dry.densityAltitudeMeters);
+  });
+
+  test('densityAltitudeMeters falls back to existing ISA formula when pressureHpa and humidityPercent are null', () => {
+    const omitted = simulate(B308, { ...COND_A, altitudeMeters: 1500, temperatureC: 35 });
+    const nulls   = simulate(B308, { ...COND_A, altitudeMeters: 1500, temperatureC: 35, pressureHpa: null, humidityPercent: null });
+    expect(nulls.densityAltitudeMeters).toBe(2577);
+    expect(nulls.points).toEqual(omitted.points);
+  });
+});
+
+describe('ENH-2: opt-in Eotvos vertical Coriolis (coriolisVerticalCm)', () => {
+  test('key is omitted unless includeEotvos === true and both latitudeDeg and azimuthDeg are set', () => {
+    for (const params of [
+      { ...COND_A, latitudeDeg: 45, azimuthDeg: 90 },
+      { ...COND_A, latitudeDeg: 45, azimuthDeg: 90, includeEotvos: false },
+      { ...COND_A, latitudeDeg: 45, azimuthDeg: 90, includeEotvos: null },
+      { ...COND_A, azimuthDeg: 90, includeEotvos: true },
+      { ...COND_A, latitudeDeg: 45, includeEotvos: true },
+      { ...COND_A, latitudeDeg: null, azimuthDeg: 90, includeEotvos: true },
+      { ...COND_A, latitudeDeg: 45, azimuthDeg: null, includeEotvos: true },
+    ]) {
+      const res = simulate(B308, params);
+      res.points.forEach(p => expect('coriolisVerticalCm' in p).toBe(false));
+    }
+  });
+
+  test('firing East gives positive coriolisVerticalCm; West gives negative; North/South give 0', () => {
+    const east  = simulate(B308, { ...COND_A, latitudeDeg: 45, azimuthDeg: 90,  includeEotvos: true });
+    const west  = simulate(B308, { ...COND_A, latitudeDeg: 45, azimuthDeg: 270, includeEotvos: true });
+    const north = simulate(B308, { ...COND_A, latitudeDeg: 45, azimuthDeg: 0,   includeEotvos: true });
+    const south = simulate(B308, { ...COND_A, latitudeDeg: 45, azimuthDeg: 180, includeEotvos: true });
+
+    expect(Object.is(east.points[0].coriolisVerticalCm, 0)).toBe(true);
+    const lastEast = east.points[east.points.length - 1];
+    const lastWest = west.points[west.points.length - 1];
+    expect(lastEast.coriolisVerticalCm).toBeGreaterThan(0);
+    expect(lastWest.coriolisVerticalCm).toBeLessThan(0);
+    expect(Math.abs(lastEast.coriolisVerticalCm + lastWest.coriolisVerticalCm)).toBeLessThanOrEqual(0.1);
+
+    north.points.forEach(p => expect(Object.is(p.coriolisVerticalCm, 0)).toBe(true));
+    south.points.forEach(p => expect(Object.is(p.coriolisVerticalCm, 0)).toBe(true));
+
+    // Matches reference formula at every point within ±0.1 cm
+    const OMEGA = 7.2921e-5;
+    east.points.forEach(p => {
+      const ref = Math.round(OMEGA * Math.cos(Math.PI / 4) * Math.sin(Math.PI / 2) * B308.muzzleVelocityMps * p.timeOfFlightSec * p.timeOfFlightSec * 100 * 10) / 10;
+      expect(Math.abs(p.coriolisVerticalCm - ref)).toBeLessThanOrEqual(0.1);
+    });
+  });
+
+  test('equator East maximizes Eotvos while horizontal Coriolis is 0; poles give 0 Eotvos', () => {
+    const eqEast = simulate(B308, { ...COND_A, latitudeDeg: 0, azimuthDeg: 90, includeEotvos: true });
+    const lastEq = eqEast.points[eqEast.points.length - 1];
+    expect(Object.is(lastEq.coriolisDeflectionCm, 0)).toBe(true);
+    expect(lastEq.coriolisVerticalCm).toBeGreaterThan(0);
+
+    const poleEast = simulate(B308, { ...COND_A, latitudeDeg: 90, azimuthDeg: 90, includeEotvos: true });
+    poleEast.points.forEach(p => expect(Object.is(p.coriolisVerticalCm, 0)).toBe(true));
+  });
+
+  test('enabling includeEotvos does not mutate dropCm, velocityMps, or coriolisDeflectionCm', () => {
+    const off = simulate(B308, { ...COND_A, latitudeDeg: 45, azimuthDeg: 90 });
+    const on  = simulate(B308, { ...COND_A, latitudeDeg: 45, azimuthDeg: 90, includeEotvos: true });
+    const strip = pts => pts.map(({ coriolisVerticalCm: _, ...rest }) => rest);
+    expect(strip(on.points)).toEqual(off.points);
+  });
+
+  test('integrateTrajectoryFps with extras = { eotvosK: 0 } sets coriolisVerticalCm: 0', () => {
+    const mvFps = 807 * 3.28084;
+    const { points } = _integrateWithExtras(mvFps, 0.002, 0.475, 1.0, 10.89 / 453.592, 0, 500 / 0.9144, 100 / 0.9144, 1, undefined, { eotvosK: 0 });
+    points.forEach(p => {
+      expect('coriolisVerticalCm' in p).toBe(true);
+      expect(Object.is(p.coriolisVerticalCm, 0)).toBe(true);
+    });
   });
 });

@@ -27,17 +27,20 @@ const STATE_20 = { ...BASE_STATE, bulletIds: make20Bullets() };
 
 // ── URL_PARAM_KEYS ─────────────────────────────────────────────────────────────
 describe('URL_PARAM_KEYS', () => {
-  test('contains exactly 12 keys', () => {
-    expect(URL_PARAM_KEYS).toHaveLength(12);
+  test('contains exactly 15 keys', () => {
+    expect(URL_PARAM_KEYS).toHaveLength(15);
   });
   test('is frozen', () => {
     expect(Object.isFrozen(URL_PARAM_KEYS)).toBe(true);
   });
-  test('contains all expected keys including WA-13 optional keys', () => {
+  test('contains all expected keys including WA-13 and ENH-2 optional keys', () => {
     expect(URL_PARAM_KEYS).toContain('zero');
     expect(URL_PARAM_KEYS).toContain('dragModel');
     expect(URL_PARAM_KEYS).toContain('latitudeDeg');
     expect(URL_PARAM_KEYS).toContain('azimuthDeg');
+    expect(URL_PARAM_KEYS).toContain('pressureHpa');
+    expect(URL_PARAM_KEYS).toContain('humidityPercent');
+    expect(URL_PARAM_KEYS).toContain('includeEotvos');
   });
 });
 
@@ -60,10 +63,13 @@ describe('encodeState', () => {
   test('always emits all required keys; optional keys absent when null', () => {
     const qs = encodeState(BASE_STATE);
     const params = new URLSearchParams(qs);
-    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg']);
+    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);
+    expect(params.has('pressureHpa')).toBe(false);
+    expect(params.has('humidityPercent')).toBe(false);
+    expect(params.has('includeEotvos')).toBe(false);
   });
 
   test('emits no b when bulletIds is empty', () => {
@@ -382,10 +388,13 @@ describe('mergeIntoSearch', () => {
   test('all required owned keys are always emitted; optional keys absent when null', () => {
     const result = mergeIntoSearch('', BASE_STATE);
     const params = new URLSearchParams(result);
-    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg']);
+    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);
+    expect(params.has('pressureHpa')).toBe(false);
+    expect(params.has('humidityPercent')).toBe(false);
+    expect(params.has('includeEotvos')).toBe(false);
   });
 
   test('mergeIntoSearch emits latitudeDeg and azimuthDeg when provided', () => {
@@ -425,5 +434,75 @@ describe('decodeState – latitudeDeg and azimuthDeg', () => {
     const { params } = decodeState('?' + qs);
     expect(params.latitudeDeg).toBe(51.5);
     expect(params.azimuthDeg).toBe(90);
+  });
+});
+
+// ── ENH-2 optional keys: pressureHpa, humidityPercent, includeEotvos ─────────
+describe('ENH-2: pressureHpa, humidityPercent, and includeEotvos URL state', () => {
+  test('encodes pressureHpa and humidityPercent when set, omits when null/undefined', () => {
+    const qsSet = encodeState({ ...BASE_STATE, pressureHpa: 1013.25, humidityPercent: 65 });
+    const pSet = new URLSearchParams(qsSet);
+    expect(pSet.get('pressureHpa')).toBe('1013.25');
+    expect(pSet.get('humidityPercent')).toBe('65');
+
+    const qsNull = encodeState({ ...BASE_STATE, pressureHpa: null, humidityPercent: null });
+    const pNull = new URLSearchParams(qsNull);
+    expect(pNull.has('pressureHpa')).toBe(false);
+    expect(pNull.has('humidityPercent')).toBe(false);
+  });
+
+  test('encodes includeEotvos as "1" when true and omits when false/null/undefined', () => {
+    expect(new URLSearchParams(encodeState({ ...BASE_STATE, includeEotvos: true })).get('includeEotvos')).toBe('1');
+    expect(new URLSearchParams(encodeState({ ...BASE_STATE, includeEotvos: false })).has('includeEotvos')).toBe(false);
+    expect(new URLSearchParams(encodeState({ ...BASE_STATE, includeEotvos: null })).has('includeEotvos')).toBe(false);
+  });
+
+  test('validates pressureHpa within [500, 1100]', () => {
+    expect(decodeState('?pressureHpa=500').params.pressureHpa).toBe(500);
+    expect(decodeState('?pressureHpa=1013.25').params.pressureHpa).toBe(1013.25);
+    expect(decodeState('?pressureHpa=1100').params.pressureHpa).toBe(1100);
+    expect(decodeState('?pressureHpa=499.9').params.pressureHpa).toBeUndefined();
+    expect(decodeState('?pressureHpa=1100.1').params.pressureHpa).toBeUndefined();
+    expect(decodeState('?pressureHpa=bad').params.pressureHpa).toBeUndefined();
+  });
+
+  test('validates humidityPercent within [0, 100]', () => {
+    expect(decodeState('?humidityPercent=0').params.humidityPercent).toBe(0);
+    expect(decodeState('?humidityPercent=55.5').params.humidityPercent).toBe(55.5);
+    expect(decodeState('?humidityPercent=100').params.humidityPercent).toBe(100);
+    expect(decodeState('?humidityPercent=-0.1').params.humidityPercent).toBeUndefined();
+    expect(decodeState('?humidityPercent=100.1').params.humidityPercent).toBeUndefined();
+    expect(decodeState('?humidityPercent=bad').params.humidityPercent).toBeUndefined();
+  });
+
+  test('decodes includeEotvos "1"/"true" -> true, "0"/"false" -> false, ignores others', () => {
+    expect(decodeState('?includeEotvos=1').params.includeEotvos).toBe(true);
+    expect(decodeState('?includeEotvos=true').params.includeEotvos).toBe(true);
+    expect(decodeState('?includeEotvos=0').params.includeEotvos).toBe(false);
+    expect(decodeState('?includeEotvos=false').params.includeEotvos).toBe(false);
+    expect(decodeState('?includeEotvos=yes').params.includeEotvos).toBeUndefined();
+    expect(decodeState('?includeEotvos=').params.includeEotvos).toBeUndefined();
+  });
+
+  test('round-trips pressureHpa, humidityPercent, and includeEotvos through encodeState/decodeState and mergeIntoSearch', () => {
+    const state = {
+      ...BASE_STATE,
+      latitudeDeg: 45,
+      azimuthDeg: 90,
+      pressureHpa: 985.5,
+      humidityPercent: 72,
+      includeEotvos: true,
+    };
+    const { params } = decodeState('?' + encodeState(state));
+    expect(params.pressureHpa).toBe(985.5);
+    expect(params.humidityPercent).toBe(72);
+    expect(params.includeEotvos).toBe(true);
+
+    const merged = mergeIntoSearch('?utm_source=x&pressureHpa=800', state);
+    const mp = new URLSearchParams(merged);
+    expect(mp.get('utm_source')).toBe('x');
+    expect(mp.get('pressureHpa')).toBe('985.5');
+    expect(mp.get('humidityPercent')).toBe('72');
+    expect(mp.get('includeEotvos')).toBe('1');
   });
 });
