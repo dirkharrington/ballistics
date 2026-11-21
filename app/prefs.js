@@ -46,7 +46,7 @@ export const DOM_ID_FOR_PREF = {
 };
 
 /** Maps unit-dependent preference keys to their unit kinds in app/units.js. */
-export const UNIT_KIND_FOR_PREF = Object.freeze({
+const UNIT_KIND_FOR_PREF = Object.freeze({
   zero:        'range',
   maxRange:    'range',
   wind:        'windSpeed',

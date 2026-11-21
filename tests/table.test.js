@@ -1,5 +1,6 @@
+const { computeAdjustments } = require('../app/prefs.js');
 const {
-  SORTABLE_COLUMNS, TABLE_CHUNK_THRESHOLD, TABLE_CHUNK_SIZE, computeAdjustments,
+  SORTABLE_COLUMNS, TABLE_CHUNK_THRESHOLD, TABLE_CHUNK_SIZE,
   renderTable, onSortHeaderClick, updateSortIndicators, _getSortState,
   _cancelTableChunkRaf, setTablePendingResults, flushTableIfDirty,
   clearTableDirty, getTableResults, _resetTableState,

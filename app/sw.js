@@ -62,7 +62,7 @@ export async function enableNavigationPreload(registration) {
 // ── Lifecycle handlers ────────────────────────────────────────────────────────
 
 /** Matches Vite content-hashed immutable assets under /assets/ (PERF-24). */
-export const IMMUTABLE_ASSET_RE = /\/assets\/.+-[A-Za-z0-9_-]{8}\./;
+const IMMUTABLE_ASSET_RE = /\/assets\/.+-[A-Za-z0-9_-]{8}\./;
 
 /**
  * Precache one URL into `cache`. For immutable Vite-hashed assets, reuse any

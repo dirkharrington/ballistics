@@ -989,26 +989,11 @@ describe('renderCustomBulletGroup', () => {
     expect(toggleFn).not.toHaveBeenCalled();
   });
 
-  test('bullet with bulletWeightGrains set => uses stored value directly', () => {
-    // Covers the truthy branch of `b.bulletWeightGrains != null` (line ~392)
-    const b = { ...toBullet(makeRecord({ bulletWeightGrains: 175 })), bulletWeightGrains: 175, muzzleVelocityFps: 2600, ballisticCoefficientG1: 0.505 };
+  test('renders grains, fps, and G1 BC from canonical Bullet metric fields', () => {
+    const b = toBullet(makeRecord({ bulletWeightGrains: 175, muzzleVelocityFps: 2600, ballisticCoefficientG1: 0.505 }));
     renderCustomBulletGroup(listEl, [b], makeCtx());
     const specs = listEl.querySelector('.bullet-specs').textContent;
-    expect(specs).toContain('175');
-    expect(specs).toContain('2600');
-  });
-
-  test('bullet without bulletWeightGrains => uses calculated gram fallback', () => {
-    // Covers the false branch - toBullet() does not set bulletWeightGrains, muzzleVelocityFps, ballisticCoefficientG1
-    const b = toBullet(makeRecord({ bulletWeightGrains: 175, muzzleVelocityFps: 2600 }));
-    // ensure the extension props are absent (which is the current behaviour)
-    delete b.bulletWeightGrains;
-    delete b.muzzleVelocityFps;
-    delete b.ballisticCoefficientG1;
-    renderCustomBulletGroup(listEl, [b], makeCtx());
-    const specs = listEl.querySelector('.bullet-specs').textContent;
-    // should still display some numeric value
-    expect(specs.length).toBeGreaterThan(0);
+    expect(specs).toContain('175 gr · 2600 fps · G1 0.505');
   });
 
   test('XSS: name and shortName render as literal text, no img element', () => {
