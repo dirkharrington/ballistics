@@ -2,8 +2,6 @@ import { escapeHtml, formatNumber, computeAdjustments } from './prefs.js';
 import { colorFor } from './charts.js';
 import { normalizeUnitSystem, toDisplay, unitLabel } from './units.js';
 
-export { computeAdjustments };
-
 export const TABLE_CHUNK_THRESHOLD = 500;
 export const TABLE_CHUNK_SIZE      = 250;
 

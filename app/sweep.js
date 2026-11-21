@@ -21,13 +21,6 @@ export const SWEEP_RANGES = {
   temperature: [0, 10, 20, 30, 40],
 };
 
-/** Toggle visibility of the parameter sweep controls based on selection count. */
-export function updateSweepButtonVisibility(selected) {
-  const count = typeof selected === 'number' ? selected : (selected?.size ?? 0);
-  const sweepControls = document.getElementById('sweepControls');
-  if (sweepControls) sweepControls.style.display = count > 0 ? 'block' : 'none';
-}
-
 /** Build the 5 simulation requests for a parameter sweep on a single bullet. */
 export function buildSweepRequests(baseReq, sweepParam, bulletId) {
   const values = SWEEP_RANGES[sweepParam] ?? SWEEP_RANGES.wind;

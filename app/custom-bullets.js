@@ -28,7 +28,7 @@ export const FPS_TO_MPS      = 0.3048;
 export const INCH_TO_MM      = 25.4;
 
 // Forbidden chars: C0/C1 controls and bidi overrides
-const FORBIDDEN_CHARS_RE = /[\u0000-\u001F\u007F-\u009F‪-‮⁦-⁩]/;
+const FORBIDDEN_CHARS_RE = /[\u0000-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/;
 
 // ── Id helpers ────────────────────────────────────────────────────────────────
 
@@ -99,26 +99,20 @@ export function validateCustomBulletInput(raw, ctx) {
 
   // Name field
   const nameRaw = (raw.name ?? '').trim();
-  let nameOk = true;
   if (nameRaw === '') {
     errors.push({ field: 'name', message: 'Name is required' });
-    nameOk = false;
   } else if (nameRaw.length > 64) {
     errors.push({ field: 'name', message: 'Name must be 64 characters or fewer' });
-    nameOk = false;
   } else if (FORBIDDEN_CHARS_RE.test(nameRaw)) {
     errors.push({ field: 'name', message: 'Name contains invalid characters' });
-    nameOk = false;
   } else {
     const nameLc = nameRaw.toLowerCase();
     if (builtInNames.some(n => n.toLowerCase() === nameLc)) {
       errors.push({ field: 'name', message: 'Name matches a built-in bullet' });
-      nameOk = false;
     } else {
       const duplicate = records.find(r => r.id !== editingId && r.name.toLowerCase() === nameLc);
       if (duplicate) {
         errors.push({ field: 'name', message: 'A custom bullet with this name already exists' });
-        nameOk = false;
       }
     }
   }
@@ -420,15 +414,9 @@ export function renderCustomBulletGroup(listEl, customBullets, ctx) {
   for (const b of customBullets) {
     const isSelected = selectedIds.has(b.id);
 
-    const displayGrains = b.bulletWeightGrains != null
-      ? String(b.bulletWeightGrains)
-      : String(Math.round(b.bulletWeightGrams / GRAINS_TO_GRAMS));
-    const displayFps    = b.muzzleVelocityFps != null
-      ? String(b.muzzleVelocityFps)
-      : String(Math.round(b.muzzleVelocityMps / FPS_TO_MPS));
-    const displayBcG1   = b.ballisticCoefficientG1 != null
-      ? String(b.ballisticCoefficientG1)
-      : String(b.ballisticCoefficient);
+    const displayGrains = String(Math.round(b.bulletWeightGrams / GRAINS_TO_GRAMS));
+    const displayFps    = String(Math.round(b.muzzleVelocityMps / FPS_TO_MPS));
+    const displayBcG1   = String(b.ballisticCoefficient);
 
     const card = document.createElement('div');
     card.id = 'card-' + b.id;

@@ -232,16 +232,16 @@ afterEach(() => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// getMockBullets
+// getBuiltInBullets
 // ─────────────────────────────────────────────────────────────────────────────
-describe('getMockBullets', () => {
+describe('getBuiltInBullets', () => {
   test('returns 10 bullets', () => {
-    const bullets = mod.getMockBullets();
+    const bullets = mod.getBuiltInBullets();
     expect(bullets).toHaveLength(10);
   });
 
   test('each bullet has required fields', () => {
-    mod.getMockBullets().forEach(b => {
+    mod.getBuiltInBullets().forEach(b => {
       expect(b.id).toBeDefined();
       expect(b.name).toBeDefined();
       expect(b.muzzleVelocityMps).toBeGreaterThan(0);
@@ -251,7 +251,7 @@ describe('getMockBullets', () => {
   });
 
   test('contains expected IDs', () => {
-    const ids = mod.getMockBullets().map(b => b.id);
+    const ids = mod.getBuiltInBullets().map(b => b.id);
     expect(ids).toContain('223-rem-55gr');
     expect(ids).toContain('308-win-168gr');
     expect(ids).toContain('3006-150gr');
@@ -389,7 +389,7 @@ describe('computeClientSide', () => {
 // renderBulletList
 // ─────────────────────────────────────────────────────────────────────────────
 describe('renderBulletList', () => {
-  beforeEach(() => mod._setBullets(mod.getMockBullets()));
+  beforeEach(() => mod._setBullets(mod.getBuiltInBullets()));
 
   test('renders a card for each bullet', () => {
     mod.renderBulletList();
@@ -457,7 +457,7 @@ describe('renderBulletList', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('toggleBullet', () => {
   beforeEach(() => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod.renderBulletList();
   });
 
@@ -499,7 +499,7 @@ describe('updateBulletCards', () => {
   });
 
   test('marks active cards correctly', () => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod.renderBulletList();
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod.updateBulletCards();
@@ -508,7 +508,7 @@ describe('updateBulletCards', () => {
   });
 
   test('ACC-1: syncs aria-pressed on selection change', () => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod.renderBulletList();
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod.updateBulletCards();
@@ -1034,7 +1034,7 @@ describe('runSimulation', () => {
 
   test('calls computeClientSide and renders results', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     await mod.runSimulation();
     jest.runAllTimers();
@@ -1044,7 +1044,7 @@ describe('runSimulation', () => {
 
   test('shows simulation error when computeClientSide throws TrajectoryInputError', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     const { TrajectoryInputError } = require('../app/physics/engine.ts');
     simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
 
@@ -1055,7 +1055,7 @@ describe('runSimulation', () => {
 
   test('restores button text after successful simulation', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     await mod.runSimulation();
     jest.runAllTimers();
@@ -1067,7 +1067,7 @@ describe('runSimulation', () => {
 
   test('outer catch logs error when simulateAsync rejects with non-input error', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     simulateAsync.mockRejectedValueOnce(new Error('physics exploded'));
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
     await mod.runSimulation();
@@ -1079,7 +1079,7 @@ describe('runSimulation', () => {
 
   test('reads parameters from DOM inputs', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     document.getElementById('zeroRange').value   = '200';
     document.getElementById('maxRange').value    = '800';
     document.getElementById('windSpeed').value   = '15';
@@ -1125,7 +1125,7 @@ describe('runSimulation — input validation', () => {
 
   test('second runSimulation clears previously displayed error banner', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     // First call: invalid input sets error
     document.getElementById('latitudeDeg').value = '95';
@@ -1159,7 +1159,7 @@ describe('ACC-2: _setSimStatus', () => {
 describe('ACC-2: runSimulation aria-live announcements', () => {
   test('announces "Computing trajectories…" when simulation starts', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     const promise = mod.runSimulation();
     expect(document.getElementById('simStatus').textContent).toBe('Computing trajectories…');
@@ -1169,7 +1169,7 @@ describe('ACC-2: runSimulation aria-live announcements', () => {
 
   test('announces trajectories ready with result count on success', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     await mod.runSimulation();
     jest.runAllTimers();
@@ -1179,7 +1179,7 @@ describe('ACC-2: runSimulation aria-live announcements', () => {
 
   test('uses plural "results" when multiple trajectories computed', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr', '3006-150gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     await mod.runSimulation();
     jest.runAllTimers();
@@ -1190,7 +1190,7 @@ describe('ACC-2: runSimulation aria-live announcements', () => {
 
   test('announces simulation failure on TrajectoryInputError', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     const { TrajectoryInputError } = require('../app/physics/engine.ts');
     simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
 
@@ -1436,7 +1436,7 @@ describe('runCustom validation', () => {
 // sight height (task 2)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('sight height parameter', () => {
-  const baseBullet = mod.getMockBullets()[0];
+  const baseBullet = mod.getBuiltInBullets()[0];
   const baseReq = {
     zeroRangeMeters: 100, maxRangeMeters: 300, stepMeters: 100,
     windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15
@@ -1458,7 +1458,7 @@ describe('sight height parameter', () => {
 
   test('runSimulation includes sightHeightMm from the DOM input', async () => {
     document.getElementById('sightHeight').value = '50';
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
 
     let capturedBody;
@@ -1484,7 +1484,7 @@ describe('sight height parameter', () => {
   test('runSimulation includes latitudeDeg and azimuthDeg when DOM inputs are filled', async () => {
     document.getElementById('latitudeDeg').value = '45';
     document.getElementById('azimuthDeg').value  = '90';
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSimulation();
@@ -1496,7 +1496,7 @@ describe('sight height parameter', () => {
 
   test('runSimulation omits latitudeDeg when DOM input is empty', async () => {
     document.getElementById('latitudeDeg').value = '';
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSimulation();
@@ -1510,7 +1510,7 @@ describe('sight height parameter', () => {
 // shooting angle correction (rifleman's rule)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('shooting angle correction', () => {
-  const baseBullet = mod.getMockBullets()[0];
+  const baseBullet = mod.getBuiltInBullets()[0];
   const baseReq = {
     zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 100,
     windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15, sightHeightMm: 38.1
@@ -1547,7 +1547,7 @@ describe('shooting angle correction', () => {
 
   test('runSimulation includes shootingAngleDegrees from the DOM input', async () => {
     document.getElementById('shootingAngle').value = '15';
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
 
     let capturedBody;
@@ -2111,7 +2111,7 @@ describe('exportCSV', () => {
   });
 
   test('builds CSV rows and triggers download when results are present', async () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -2158,7 +2158,7 @@ describe('exportJSON', () => {
   });
 
   test('creates a JSON blob with all result data and triggers download', async () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -2198,7 +2198,7 @@ describe('importResultsFromFile', () => {
   });
 
   test('renders results when given valid JSON with bullet and points', async () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -2293,7 +2293,7 @@ describe('importResultsFromFile', () => {
 
   // ── Security: result count cap ─────────────────────────────────────────────
   test('rejects array with more than 10 results', async () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -2309,7 +2309,7 @@ describe('importResultsFromFile', () => {
 
   // ── Security: points array must be an array ────────────────────────────────
   test('rejects result whose "points" is a plain object (not an array)', async () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const payload = JSON.stringify([{ bullet: { id: 'x', name: 'X' }, points: {} }]);
     makeFileReaderMock(payload);
     const file = { size: payload.length };
@@ -2579,7 +2579,7 @@ describe('colorFor', () => {
 describe('importJsonBtn / importJsonFile wiring', () => {
   beforeEach(async () => {
     buildDOM();
-    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
     await mod.init();
   });
 
@@ -2592,7 +2592,7 @@ describe('importJsonBtn / importJsonFile wiring', () => {
   });
 
   test('#importJsonFile change event calls importResultsFromFile and resets value', async () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const { simulate: simulateFn } = require('../app/physics/engine.ts');
     const result = simulateFn(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
@@ -2642,7 +2642,7 @@ describe('exportMarkdown', () => {
   });
 
   test('creates Markdown with table headers and bullet name heading', async () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -2676,7 +2676,7 @@ describe('export dropdown toggle', () => {
         <button class="export-md-btn">Markdown</button>
       </div>`;
     document.body.appendChild(dropdown);
-    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
   });
 
   test('clicking .export-toggle adds "open" class to .export-dropdown', async () => {
@@ -2813,7 +2813,7 @@ describe('dragTableClearBtn click', () => {
     // Wire up init so the click listener is attached
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
@@ -2828,7 +2828,7 @@ describe('dragTableFile change event — FileReader paths', () => {
   async function triggerFileReader(csvText, fileName = 'test.csv') {
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
 
@@ -2880,7 +2880,7 @@ describe('dragTableFile change event — FileReader paths', () => {
   test('no file selected (empty files list) exits early', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
 
@@ -2897,7 +2897,7 @@ describe('dragTableFile change event — FileReader paths', () => {
   test('file over 64 KB shows error message without reading', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
 
@@ -2924,7 +2924,7 @@ describe('dragTableFile change event — FileReader paths', () => {
   test('reader.onerror shows error message in helpEl', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
 
@@ -2956,7 +2956,7 @@ describe('init loads customDragTable from localStorage', () => {
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
     expect(document.getElementById('dragTableStatus').style.display).toBe('block');
@@ -2967,7 +2967,7 @@ describe('init loads customDragTable from localStorage', () => {
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, 'not-json{{{');
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
     // Should not throw; status div stays hidden
@@ -2980,7 +2980,7 @@ describe('init loads customDragTable from localStorage', () => {
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
     expect(document.getElementById('dragTableStatus').style.display).toBe('none');
@@ -2992,7 +2992,7 @@ describe('init loads customDragTable from localStorage', () => {
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
     expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
@@ -3003,7 +3003,7 @@ describe('init loads customDragTable from localStorage', () => {
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
     expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
@@ -3014,7 +3014,7 @@ describe('init loads customDragTable from localStorage', () => {
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
     expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
@@ -3025,7 +3025,7 @@ describe('init loads customDragTable from localStorage', () => {
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
     expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
@@ -3040,7 +3040,7 @@ describe('_resetState clears _customDragTable', () => {
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getMockBullets() }),
+      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
     });
     await mod.init();
     // After reset, the in-memory table should be gone
@@ -3058,7 +3058,7 @@ describe('runSimulation with customDragTable loaded', () => {
     localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
 
     mod.init();
-    mod._setSelectedIds(new Set([mod.getMockBullets()[0].id]));
+    mod._setSelectedIds(new Set([mod.getBuiltInBullets()[0].id]));
     await mod.runSimulation();
     jest.runAllTimers();
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
@@ -3119,7 +3119,7 @@ describe('export button click handler', () => {
   });
 
   test('clicking .export-btn triggers exportPNG for that chart', async () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -3146,7 +3146,7 @@ describe('export button click handler', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('bullet card click listener', () => {
   test('clicking a bullet card calls toggleBullet for that id', () => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod.renderBulletList();
 
     const card = document.getElementById('card-308-win-168gr');
@@ -3164,7 +3164,7 @@ describe('bullet card click listener', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('ACC-1: bullet card keyboard listener', () => {
   beforeEach(() => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set());
     mod.renderBulletList();
   });
@@ -3199,7 +3199,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
     mod._getState().crosshairIndex;  // prime state via existing test pattern
     // Directly set state via the exported helper would need a setter — use the
     // existing chart-interaction tests pattern: call onHover to set index
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -3227,7 +3227,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
   test('returns early when crosshairIndex points past end of data array', async () => {
     // Manually set crosshairIndex to a value beyond the data array length
     // We do this by calling onHover with an element at a large index via the chart mock
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -3261,7 +3261,7 @@ describe('crosshairPlugin afterDraw edge cases', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('updateReadout edge cases', () => {
   test('returns early when there is no point at dataIndex (L525 branch)', () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 100, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -3273,7 +3273,7 @@ describe('updateReadout edge cases', () => {
   });
 
   test('renders empty row when a result has no point at dataIndex (L536 branch)', () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     // Two results: one normal, one without a point at index 1
     const fullResult = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
@@ -3290,7 +3290,7 @@ describe('updateReadout edge cases', () => {
   });
 
   test('uses fallback color when bullet id is not in BULLET_COLORS (L547 || branch)', () => {
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const fullResult = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 100, stepMeters: 50,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -3311,21 +3311,21 @@ describe('updateReadout edge cases', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('tab click listeners wired by init()', () => {
   test('clicking #tab-charts switches to charts panel', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
     await mod.init();
     document.getElementById('tab-charts').click();
     expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(true);
   });
 
   test('clicking #tab-data switches to data panel', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
     await mod.init();
     document.getElementById('tab-data').click();
     expect(document.getElementById('dataPanel').classList.contains('active')).toBe(true);
   });
 
   test('clicking #tab-tools switches to tools panel', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
     await mod.init();
     document.getElementById('tab-tools').click();
     await flushMicrotasks();
@@ -3340,11 +3340,11 @@ describe('tab click listeners wired by init()', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('readoutPin unpin with populated charts (L815 forEach arrow fn)', () => {
   test('second pin-click calls update() on every active chart', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
     await mod.init();
 
     // Populate charts by running a simulation
-    const bullet = mod.getMockBullets()[0];
+    const bullet = mod.getBuiltInBullets()[0];
     const result = simulate(bullet, {
       zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
@@ -3514,7 +3514,7 @@ describe('savePrefs', () => {
 
 describe('toggleBullet persists selection', () => {
   test('writes selectedIds to localStorage after toggling a bullet', () => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod.renderBulletList();
     // Toggle a bullet and verify localStorage is updated directly
     mod._setSelectedIds(new Set(['308-win-168gr']));
@@ -3552,7 +3552,7 @@ describe('init with saved preferences', () => {
   });
 
   test('restores saved bullet selection (subset of catalog)', async () => {
-    const bullets = mod.getMockBullets();
+    const bullets = mod.getBuiltInBullets();
     localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['308-win-168gr']));
     global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
 
@@ -3575,7 +3575,7 @@ describe('init with saved preferences', () => {
   });
 
   test('filters out stale IDs no longer in catalog', async () => {
-    const bullets = mod.getMockBullets();
+    const bullets = mod.getBuiltInBullets();
     localStorage.setItem(mod.PREF_KEYS.selectedIds,
       JSON.stringify(['308-win-168gr', 'deleted-bullet-id']));
     global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
@@ -3726,7 +3726,7 @@ describe('G7 drag model — runSimulation and renderResults', () => {
 
   test('runSimulation includes dragModel from DOM select in request body', async () => {
     document.getElementById('dragModel').value = 'G7';
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
 
     let capturedBody;
@@ -3839,7 +3839,7 @@ describe('G7 drag model — runSimulation and renderResults', () => {
 
   test('client-side fallback uses G7 table when dragModel is G7 (offline mode)', async () => {
     document.getElementById('dragModel').value = 'G7';
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSimulation();
@@ -4062,7 +4062,7 @@ describe('copyLink', () => {
 
 describe('init() with URL params (FE-1)', () => {
   test('URL bullet IDs override saved prefs when they match the catalog', async () => {
-    const bullets = mod.getMockBullets();
+    const bullets = mod.getBuiltInBullets();
     localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
     history.replaceState(null, '', '/?b=308-win-168gr');
     global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
@@ -4074,7 +4074,7 @@ describe('init() with URL params (FE-1)', () => {
   });
 
   test('URL bullet IDs fall back to prefs when none match the catalog', async () => {
-    const bullets = mod.getMockBullets();
+    const bullets = mod.getBuiltInBullets();
     localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
     history.replaceState(null, '', '/?b=not-a-real-id');
     global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
@@ -4121,7 +4121,7 @@ describe('init() with URL params (FE-1)', () => {
   });
 
   test('toggleBullet calls syncUrl after savePrefs', () => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod.renderBulletList();
     mod._setSelectedIds(new Set(['308-win-168gr']));
     const spy = jest.spyOn(history, 'replaceState');
@@ -4803,7 +4803,7 @@ describe('MH-4: runSweep', () => {
 
   test('runs sweep locally and shows results', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     await mod.runSweep();
 
@@ -4814,7 +4814,7 @@ describe('MH-4: runSweep', () => {
 
   test('falls back to client-side simulation when fetch fails', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     global.fetch.mockRejectedValue(new Error('offline'));
 
     await mod.runSweep();
@@ -4824,7 +4824,7 @@ describe('MH-4: runSweep', () => {
 
   test('falls back to client-side when RPC returns error', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     global.fetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'Internal error' } }),
@@ -4848,7 +4848,7 @@ describe('MH-4: runSweep', () => {
 
   test('falls back when HTTP response is not ok', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     global.fetch.mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) });
 
     await mod.runSweep();
@@ -4859,7 +4859,7 @@ describe('MH-4: runSweep', () => {
   test('sweepParam defaults to wind when element absent (line 1256 ?? wind)', async () => {
     document.getElementById('sweepParam').remove();
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     global.fetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(makeSweepApiResult()),
@@ -4871,7 +4871,7 @@ describe('MH-4: runSweep', () => {
   test('sweepBtn absent: if(btn) false at spinner and final reset (lines 1258 and 1297)', async () => {
     document.getElementById('sweepBtn').remove();
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     global.fetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(makeSweepApiResult()),
@@ -4883,7 +4883,7 @@ describe('MH-4: runSweep', () => {
   test('clearSweepBtn absent: if(clearBtn) false after sweep (line 1299)', async () => {
     document.getElementById('clearSweepBtn').remove();
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     global.fetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(makeSweepApiResult()),
@@ -4905,7 +4905,7 @@ describe('MH-4: runSweep', () => {
     const mockChart = { destroy: jest.fn() };
     mod._setCharts({ trajectory: mockChart });
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     global.fetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(makeSweepApiResult()),
@@ -4918,7 +4918,7 @@ describe('MH-4: runSweep', () => {
     const { TrajectoryInputError } = require('../app/physics/engine.ts');
     simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     await mod.runSweep();
 
@@ -4932,7 +4932,7 @@ describe('MH-4: runSweep', () => {
     const { TrajectoryInputError } = require('../app/physics/engine.ts');
     simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     await expect(mod.runSweep()).resolves.toBeUndefined();
   });
 
@@ -4945,7 +4945,7 @@ describe('MH-4: runSweep', () => {
 describe('MH-4: clearSweep', () => {
   test('hides clearSweepBtn', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSweep();
     expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
@@ -5048,15 +5048,15 @@ describe('MH-4: renderSweepCharts', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('MH-4: toggleBullet calls updateSweepButtonVisibility', () => {
   test('sweepControls shown after selecting a bullet', () => {
-    mod._setBullets(mod.getMockBullets());
-    mod.renderBulletList(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
+    mod.renderBulletList(mod.getBuiltInBullets());
     mod.toggleBullet('308-win-168gr');
     expect(document.getElementById('sweepControls').style.display).toBe('block');
   });
 
   test('sweepControls hidden after deselecting last bullet', () => {
-    mod._setBullets(mod.getMockBullets());
-    mod.renderBulletList(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
+    mod.renderBulletList(mod.getBuiltInBullets());
     mod.toggleBullet('308-win-168gr');
     mod.toggleBullet('308-win-168gr');
     expect(document.getElementById('sweepControls').style.display).toBe('none');
@@ -5079,7 +5079,7 @@ describe('MH-4: runSimulation uses twistRate input', () => {
 
   test('includes twistRateInchesPerTurn when twistRate input has a value', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     document.getElementById('twistRate').value = '10';
 
     mod.runSimulation();
@@ -5089,7 +5089,7 @@ describe('MH-4: runSimulation uses twistRate input', () => {
 
   test('omits twistRateInchesPerTurn when twistRate input is empty', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     document.getElementById('twistRate').value = '';
 
     mod.runSimulation();
@@ -5365,7 +5365,7 @@ describe('exportCsvBtn visibility', () => {
 
   test('button is shown after runSimulation completes successfully', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     await mod.runSimulation();
     jest.runAllTimers();
@@ -6176,7 +6176,7 @@ describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js wa
     const chartMock = require('chart.js');
     chartMock.Chart.register.mockClear();
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     let resolveSim;
     simulateAsync.mockImplementationOnce(() => new Promise(r => { resolveSim = r; }));
@@ -6188,7 +6188,7 @@ describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js wa
     expect(chartMock.Chart.register).toHaveBeenCalledTimes(1);
 
     resolveSim({
-      bullet: mod.getMockBullets()[0],
+      bullet: mod.getBuiltInBullets()[0],
       request: {},
       points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
       maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
@@ -6233,8 +6233,8 @@ describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js wa
 describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSweep', () => {
   test('rapid double runSimulation aborts first run and renders only the second', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
-    const b0 = mod.getMockBullets()[0];
+    mod._setBullets(mod.getBuiltInBullets());
+    const b0 = mod.getBuiltInBullets()[0];
 
     let firstResolve;
     simulateAsync
@@ -6262,8 +6262,8 @@ describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSw
 
   test('runSimulation skips render if aborted after compute resolves (before rAF and after resolve)', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
-    const b0 = mod.getMockBullets()[0];
+    mod._setBullets(mod.getBuiltInBullets());
+    const b0 = mod.getBuiltInBullets()[0];
 
     // Case 1: aborted before compute resolves (mock resolves anyway ignoring signal)
     let resolve1;
@@ -6291,7 +6291,7 @@ describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSw
 
   test('runCustom and runSweep silently exit on AbortError or post-resolve abort', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     // runCustom AbortError
     simulateAsync.mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'));
@@ -6302,7 +6302,7 @@ describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSw
     simulateAsync.mockImplementationOnce(() => new Promise(r => { resCustom = r; }));
     const pc = mod.runCustom();
     const pSim = mod.runSimulation(); // aborts custom run synchronously
-    resCustom({ bullet: mod.getMockBullets()[0], request: {}, points: [] });
+    resCustom({ bullet: mod.getBuiltInBullets()[0], request: {}, points: [] });
     await Promise.all([pc, pSim]);
 
     // runSweep AbortError
@@ -6316,7 +6316,7 @@ describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSw
     const ps1 = mod.runSweep();
     await flushMicrotasks();
     mod._resetState(); // aborts sweep controller
-    sweepResolvers.forEach(r => r({ bullet: mod.getMockBullets()[0], request: {}, points: [] }));
+    sweepResolvers.forEach(r => r({ bullet: mod.getBuiltInBullets()[0], request: {}, points: [] }));
     await ps1;
   });
 });
@@ -6326,7 +6326,7 @@ describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSw
 // ─────────────────────────────────────────────────────────────────────────────
 describe('PERF-28: lazy loading & retry on failed chunk import', () => {
   test('init() defers Tools initialization until tools tab activates, then initializes once', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getMockBullets(), id: 1 }) });
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
     await mod.init();
     expect(document.getElementById('dopeDistanceRow').innerHTML).toBe('');
 
@@ -6445,7 +6445,7 @@ describe('PERF-28: lazy loading & retry on failed chunk import', () => {
     isoMod._resetState();
     global.fetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ jsonrpc: '2.0', result: isoMod.getMockBullets(), id: 1 }),
+      json: async () => ({ jsonrpc: '2.0', result: isoMod.getBuiltInBullets(), id: 1 }),
     });
     await isoMod.init();
 
@@ -6513,7 +6513,7 @@ describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boo
   test('renderBulletList attaches single delegated click, keydown, and focusin listener set across re-renders', () => {
     const list = document.getElementById('bulletList');
     const addSpy = jest.spyOn(list, 'addEventListener');
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
 
     mod.renderBulletList();
     expect(addSpy).toHaveBeenCalledTimes(3);
@@ -6532,7 +6532,7 @@ describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boo
   });
 
   test('delegated click on built-in card or child toggles selection; click outside is ignored', () => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set());
     mod.renderBulletList();
 
@@ -6555,7 +6555,7 @@ describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boo
   });
 
   test('delegated keydown handles Enter/Space on built-in cards and ignores other keys or non-card targets', () => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set());
     mod.renderBulletList();
 
@@ -6616,7 +6616,7 @@ describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boo
   });
 
   test('toggleBullet updates only the target card without touching sibling cards', () => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set());
     mod.renderBulletList();
 
@@ -6675,7 +6675,7 @@ describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boo
   });
 
   test('_bulletById Map index syncs on _setBullets, init, custom bullet CRUD, and _resetState, and is used by computeClientSide and runSweep', async () => {
-    const mocks = mod.getMockBullets();
+    const mocks = mod.getBuiltInBullets();
     mod._setBullets(mocks);
     const { _bulletById } = mod._getState();
     expect(_bulletById).toBeInstanceOf(Map);
@@ -7008,11 +7008,11 @@ describe('PERF-32: viewport-aware crosshair draw, cached readout cells & sweep c
 describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute', () => {
   test('REL-7: MAX_SELECTED_BULLETS is 5 and selecting 6th bullet is blocked with limit feedback', () => {
     expect(mod.MAX_SELECTED_BULLETS).toBe(5);
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set());
     mod.renderBulletList();
 
-    const ids = mod.getMockBullets().map(b => b.id);
+    const ids = mod.getBuiltInBullets().map(b => b.id);
     for (let i = 0; i < 5; i++) {
       mod.toggleBullet(ids[i]);
     }
@@ -7049,7 +7049,7 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
   });
 
   test('REL-7: init() clamps >5 bulletIds from URL and localStorage to MAX_SELECTED_BULLETS', () => {
-    const ids = mod.getMockBullets().slice(0, 7).map(b => b.id);
+    const ids = mod.getBuiltInBullets().slice(0, 7).map(b => b.id);
     history.replaceState(null, '', '/?' + ids.map(id => 'b=' + id).join('&'));
     mod.init();
     expect(mod._getState().selectedIds.size).toBe(5);
@@ -7064,7 +7064,7 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
 
   test('clearSelectionBtn clears selection, updates counter/buttons, persists, and resets results', async () => {
     mod.init();
-    const ids = mod.getMockBullets().map(b => b.id);
+    const ids = mod.getBuiltInBullets().map(b => b.id);
     mod.toggleBullet(ids[1]); // 2 selected
     await mod.runSimulation();
     await flushMicrotasks();
@@ -7084,9 +7084,9 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
   });
 
   test('clearSelection handles missing optional DOM elements cleanly and preserves results when autoCompute off', () => {
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setLastResults([{ bullet: mod.getMockBullets()[0], points: [] }]);
+    mod._setLastResults([{ bullet: mod.getBuiltInBullets()[0], points: [] }]);
     document.getElementById('autoComputeToggle').checked = false;
     mod.clearSelection();
     expect(mod._getState().lastResults).toHaveLength(1);
@@ -7333,10 +7333,10 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
     // Card with empty DOM elements handles _syncBuiltInRovingTabindex and limit timer cleanup in _resetState
     mod._setBullets([]);
     mod.renderBulletList();
-    mod._setBullets(mod.getMockBullets());
+    mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set());
     mod.renderBulletList();
-    mod.getMockBullets().slice(0, 6).forEach(b => mod.toggleBullet(b.id));
+    mod.getBuiltInBullets().slice(0, 6).forEach(b => mod.toggleBullet(b.id));
     expect(mod._getState().selectedIds.size).toBe(5);
     mod._resetState();
   });

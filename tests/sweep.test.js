@@ -17,7 +17,7 @@ const { TrajectoryInputError } = require('../app/physics/errors.ts');
 const { _resetChartState } = require('../app/charts.js');
 const {
   SWEEP_COLORS, SWEEP_CHART_IDS, SWEEP_RANGES,
-  updateSweepButtonVisibility, buildSweepRequests,
+  buildSweepRequests,
   renderSweepCharts, runSweep, clearSweep,
 } = require('../app/sweep.js');
 
@@ -110,23 +110,13 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-describe('SWEEP_COLORS, SWEEP_RANGES, updateSweepButtonVisibility, buildSweepRequests', () => {
-  test('constants and visibility helper cover Set, number, null, and missing DOM element', () => {
+describe('SWEEP_COLORS, SWEEP_RANGES, buildSweepRequests', () => {
+  test('constants cover expected colors, chart IDs, and parameter ranges', () => {
     expect(SWEEP_COLORS).toHaveLength(5);
     expect(SWEEP_CHART_IDS).toEqual(['sweepDropChart', 'sweepWindChart', 'sweepVelChart']);
     expect(SWEEP_RANGES.wind).toHaveLength(5);
     expect(SWEEP_RANGES.altitude).toHaveLength(5);
     expect(SWEEP_RANGES.temperature).toHaveLength(5);
-
-    updateSweepButtonVisibility(new Set(['308-win-168gr']));
-    expect(document.getElementById('sweepControls').style.display).toBe('block');
-    updateSweepButtonVisibility(0);
-    expect(document.getElementById('sweepControls').style.display).toBe('none');
-    updateSweepButtonVisibility(null);
-    expect(document.getElementById('sweepControls').style.display).toBe('none');
-
-    document.getElementById('sweepControls').remove();
-    expect(() => updateSweepButtonVisibility(1)).not.toThrow();
   });
 
   test('buildSweepRequests creates 5 requests for wind, altitude, temperature, and unknown fallback', () => {

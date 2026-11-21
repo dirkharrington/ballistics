@@ -2,18 +2,18 @@
 import { normalizeUnitSystem, toDisplay, unitLabel } from './units.js';
 
 /** Bullet-level numeric fields copied from imported JSON. */
-export const BULLET_NUMERIC_FIELDS = [
+const BULLET_NUMERIC_FIELDS = [
   'muzzleVelocityMps', 'ballisticCoefficient', 'ballisticCoefficientG7', 'bulletWeightGrams',
   'bulletDiameterMm', 'muzzleEnergyJoules',
 ];
 
 /** Result-level numeric fields copied from imported JSON. */
-export const RESULT_NUMERIC_FIELDS = [
+const RESULT_NUMERIC_FIELDS = [
   'supersonicLimitMeters', 'maxOrdinateCm', 'maxOrdinateRangeMeters', 'densityAltitudeMeters',
 ];
 
 /** Point-level numeric fields copied from imported JSON. */
-export const POINT_NUMERIC_FIELDS = [
+const POINT_NUMERIC_FIELDS = [
   'rangeMeters', 'dropCm', 'velocityMps', 'energyJoules', 'windDriftCm',
   'timeOfFlightSec', 'spinDriftCm', 'coriolisDeflectionCm', 'coriolisVerticalCm',
 ];

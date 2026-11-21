@@ -7,13 +7,13 @@ import {
   loadCustomBullets, saveCustomBullets, mergeCatalog, isCustomBulletId,
   renderCustomBulletGroup, syncCustomDeleteGuards, syncCustomRovingTabindex,
   upsertCustomBullet, removeCustomBullet, validateCustomBulletInput,
-  bulletForDragModel,
+  bulletForDragModel, isValidCustomDragTable,
 } from './custom-bullets.js';
 import {
   PREF_KEYS, PREF_DEFAULTS, AUTO_COMPUTE_KEY, CUSTOM_DRAG_TABLE_KEY,
   safeSetItem, safeRemoveItem, loadAutoComputePref, saveAutoComputePref,
   savePrefs as _savePrefs, loadPrefs, applyTheme, initThemeToggle as _initThemeToggle,
-  updateToggleLabel, escapeHtml, showToast, _setSimStatus, _setSimulationError,
+  updateToggleLabel, escapeHtml, computeAdjustments, showToast, _setSimStatus, _setSimulationError,
 } from './prefs.js';
 import {
   BULLET_COLORS, HEX_COLOR_RE, colorFor,
@@ -26,7 +26,7 @@ import {
 } from './charts.js';
 import {
   SORTABLE_COLUMNS, TABLE_CHUNK_THRESHOLD, TABLE_CHUNK_SIZE,
-  computeAdjustments, renderTable, onSortHeaderClick, updateSortIndicators,
+  renderTable, onSortHeaderClick, updateSortIndicators,
   _getSortState, _cancelTableChunkRaf, setTablePendingResults,
   flushTableIfDirty, clearTableDirty, getTableResults, _resetTableState,
 } from './table.js';
@@ -357,8 +357,8 @@ async function _readDragCsvFile(file, { onSuccess, onError }) {
   reader.readAsText(file);
 }
 
-// ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
-function getMockBullets() {
+// ── Built-in bullet catalog — sourced from bullets.yaml via virtual:bullet-catalog ──
+function getBuiltInBullets() {
   return BULLET_CATALOG;
 }
 
@@ -414,7 +414,7 @@ function _cardSearchText(card) {
   const b = _bulletById.get(id);
   const name = card.querySelector('.bullet-name')?.textContent ?? '';
   const specs = card.querySelector('.bullet-specs')?.textContent ?? '';
-  return [b?.name, b?.caliber, b?.shortName, name, specs].filter(Boolean).join(' ').toLowerCase();
+  return [b?.name, b?.shortName, name, specs].filter(Boolean).join(' ').toLowerCase();
 }
 
 function filterBulletList() {
@@ -1164,7 +1164,7 @@ function init() {
       console.warn('Custom bullets: stored data was invalid and has been ignored');
     }
   }
-  bullets = mergeCatalog(getMockBullets(), customRecords);
+  bullets = mergeCatalog(getBuiltInBullets(), customRecords);
   _syncBulletIndex(bullets);
 
   // Restore bullet selection: URL params take precedence over saved prefs (capped at MAX_SELECTED_BULLETS)
@@ -1183,15 +1183,14 @@ function init() {
         selectedIds = new Set(filtered);
       } else {
         selectedIds = new Set();
-        const firstBuiltIn = getMockBullets()[0];
-        /* istanbul ignore next -- getMockBullets() always returns ≥1 bullet in tests */
+        const firstBuiltIn = getBuiltInBullets()[0];
+        /* istanbul ignore next -- getBuiltInBullets() always returns ≥1 bullet in tests */
         if (firstBuiltIn) selectedIds.add(firstBuiltIn.id);
       }
     }
   }
   renderBulletList();
   _syncCustomPanelAvailability();
-  syncRunButton();
   syncCustomDeleteGuards(document.getElementById('bulletList'), selectedIds);
 
   // Restore auto-compute toggle preference (default true)
@@ -1255,29 +1254,29 @@ function init() {
     closeSidebar();
     runSimulation();
   }, { signal });
-  document.getElementById('exportCsvBtn')?.addEventListener('click', exportTrajectoryCSV);
-  document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
-  document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
-  document.querySelector('.export-md-btn')?.addEventListener('click', exportMarkdown);
+  document.getElementById('exportCsvBtn')?.addEventListener('click', exportTrajectoryCSV, { signal });
+  document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV, { signal });
+  document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON, { signal });
+  document.querySelector('.export-md-btn')?.addEventListener('click', exportMarkdown, { signal });
   document.getElementById('importJsonBtn')?.addEventListener('click', () => {
     document.getElementById('importJsonFile')?.click();
-  });
+  }, { signal });
   document.getElementById('importJsonFile')?.addEventListener('change', e => {
     const file = e.target.files?.[0];
     importResultsFromFile(file);
     e.target.value = '';
-  });
+  }, { signal });
   document.querySelector('.export-toggle')?.addEventListener('click', function() {
     this.closest('.export-dropdown')?.classList.toggle('open');
-  });
+  }, { signal });
   document.addEventListener('click', e => {
     if (!e.target.closest('.export-dropdown')) {
       document.querySelectorAll('.export-dropdown.open')
         .forEach(d => d.classList.remove('open'));
     }
-  });
-  document.getElementById('runCustomBtn')?.addEventListener('click', () => { closeSidebar(); runCustom(); });
-  document.getElementById('copyLinkBtn')?.addEventListener('click', copyLink);
+  }, { signal });
+  document.getElementById('runCustomBtn')?.addEventListener('click', () => { closeSidebar(); runCustom(); }, { signal });
+  document.getElementById('copyLinkBtn')?.addEventListener('click', copyLink, { signal });
 
   const handlers = {
     onLoad(p) {
@@ -1310,20 +1309,20 @@ function init() {
     } else {
       showToast("Couldn't save preset: browser storage unavailable");
     }
-  });
+  }, { signal });
   renderPresetList(loadPresets(), handlers);
 
   document.querySelector('#dataTable thead')?.addEventListener('click', e => {
     const th = e.target.closest('th[data-sort-key]');
     if (th) onSortHeaderClick(th.dataset.sortKey);
-  });
+  }, { signal });
 
   // Mobile drawer & tabs
-  document.getElementById('paramsToggle')?.addEventListener('click', openSidebar);
-  document.getElementById('sidebarBackdrop')?.addEventListener('click', closeSidebar);
-  document.getElementById('tab-charts')?.addEventListener('click', function() { switchTab('charts', this); });
-  document.getElementById('tab-data')?.addEventListener('click', function() { switchTab('data', this); });
-  document.getElementById('tab-tools')?.addEventListener('click', function() { switchTab('tools', this); });
+  document.getElementById('paramsToggle')?.addEventListener('click', openSidebar, { signal });
+  document.getElementById('sidebarBackdrop')?.addEventListener('click', closeSidebar, { signal });
+  document.getElementById('tab-charts')?.addEventListener('click', function() { switchTab('charts', this); }, { signal });
+  document.getElementById('tab-data')?.addEventListener('click', function() { switchTab('data', this); }, { signal });
+  document.getElementById('tab-tools')?.addEventListener('click', function() { switchTab('tools', this); }, { signal });
 
   if (fromUrl.recognized) syncUrl();
 
@@ -1338,16 +1337,7 @@ function init() {
     const stored = localStorage.getItem(CUSTOM_DRAG_TABLE_KEY);
     if (stored) {
       const arr = JSON.parse(stored);
-      if (!Array.isArray(arr) || arr.length < 3 || arr.length > 100) throw new Error('invalid');
-      for (const p of arr) {
-        if (!Number.isFinite(p.mach) || p.mach < 0 || p.mach > 5) throw new Error('invalid');
-        if (!Number.isFinite(p.cd)   || p.cd   < 0.001 || p.cd > 2) throw new Error('invalid');
-      }
-      for (let i = 1; i < arr.length; i++) {
-        if (arr[i].mach <= arr[i - 1].mach) throw new Error('invalid');
-      }
-      if (!arr.some(p => p.mach <= 0.5)) throw new Error('invalid');
-      if (!arr.some(p => p.mach >= 2.0)) throw new Error('invalid');
+      if (!isValidCustomDragTable(arr)) throw new Error('invalid');
       _customDragTable = arr.map(p => ({ mach: p.mach, cd: p.cd }));
       _updateDragTableStatus();
     }
@@ -1642,14 +1632,13 @@ export function requestCustomBulletDelete(id) {
   }
 
   customRecords  = next;
-  bullets        = mergeCatalog(getMockBullets(), customRecords);
+  bullets        = mergeCatalog(getBuiltInBullets(), customRecords);
   _syncBulletIndex(bullets);
   pendingDeleteId = null;
 
   if (editingCustomId === id) closeCustomBulletForm();
 
   renderBulletList();
-  updateBulletCards();
   showToast('Custom bullet deleted');
 }
 
@@ -1667,7 +1656,7 @@ function _handleCustomBulletSubmit() {
 
   const result = validateCustomBulletInput(raw, {
     records:      customRecords,
-    builtInNames: getMockBullets().map(b => b.name),
+    builtInNames: getBuiltInBullets().map(b => b.name),
     editingId:    editingCustomId,
   });
 
@@ -1696,7 +1685,7 @@ function _handleCustomBulletSubmit() {
     /* istanbul ignore else -- #customBulletFormError is always present in the app shell */
     if (formErrEl) formErrEl.textContent = '';
 
-    let firstFieldId = null;
+    const errorFields = new Set();
     result.errors.forEach(({ field, message }) => {
       if (field === 'form') {
         const formErrEl2 = document.getElementById('customBulletFormError');
@@ -1713,25 +1702,11 @@ function _handleCustomBulletSubmit() {
         const errEl = document.getElementById(inputId + '-error');
         /* istanbul ignore else -- error elements are always present in the app shell */
         if (errEl) errEl.textContent = message;
-        /* istanbul ignore else -- subsequent errors after firstFieldId is set skip this block */
-        if (!firstFieldId) {
-          const idx = fieldOrder.indexOf(field);
-          /* istanbul ignore else -- field names are always in fieldOrder */
-          if (idx !== -1) firstFieldId = { field, idx, inputId };
-        }
+        errorFields.add(field);
       }
     });
-    if (!firstFieldId) {
-      let minIdx = Infinity;
-      result.errors.forEach(({ field }) => {
-        const idx = fieldOrder.indexOf(field);
-        /* istanbul ignore next -- fallback path reached only when no known-field errors exist */
-        if (idx !== -1 && idx < minIdx) { minIdx = idx; firstFieldId = inputIdMap[field]; }
-      });
-    } else {
-      firstFieldId = firstFieldId.inputId;
-    }
-    if (firstFieldId) document.getElementById(firstFieldId)?.focus();
+    const firstField = fieldOrder.find(f => errorFields.has(f));
+    if (firstField) document.getElementById(inputIdMap[firstField])?.focus();
     return;
   }
 
@@ -1747,11 +1722,10 @@ function _handleCustomBulletSubmit() {
   }
 
   customRecords = next;
-  bullets       = mergeCatalog(getMockBullets(), customRecords);
+  bullets       = mergeCatalog(getBuiltInBullets(), customRecords);
   _syncBulletIndex(bullets);
   closeCustomBulletForm();
   renderBulletList();
-  updateBulletCards();
   showToast(isEditing ? 'Custom bullet updated' : 'Custom bullet added');
 }
 
@@ -1806,7 +1780,7 @@ if (document.getElementById('bulletList')) {
 }
 
 export {
-  getMockBullets, computeClientSide,
+  getBuiltInBullets, computeClientSide,
   MAX_SELECTED_BULLETS, AUTO_COMPUTE_KEY,
   renderBulletList, toggleBullet, updateBulletCards, clearSelection, filterBulletList, syncRunButton, runSimulation,
   _scheduleAutoCompute,
