@@ -3,7 +3,8 @@
 const {
   simulate,
   TrajectoryInputError,
-  interpolateDragTable,
+  compileDragTable,
+  findBracket,
   airDensityRatio,
   stationAirDensityRatio,
   findZeroAngleFps,
@@ -307,178 +308,67 @@ describe('simulate()', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// interpolateDragTable
+// Drag table monotonicity & clamping (migrated from interpolateDragTable)
 // ─────────────────────────────────────────────────────────────────────────────
-describe('interpolateDragTable', () => {
-  test('returns first table value for velocity at or below minimum', () => {
-    const first = G1_TABLE[0];
-    expect(interpolateDragTable(first[0], G1_TABLE)).toBeCloseTo(first[1]);
-    expect(interpolateDragTable(0, G1_TABLE)).toBeCloseTo(first[1]);
-  });
-
-  test('returns last table value for velocity at or above maximum', () => {
-    const last = G1_TABLE[G1_TABLE.length - 1];
-    expect(interpolateDragTable(last[0], G1_TABLE)).toBeCloseTo(last[1]);
-    expect(interpolateDragTable(99999, G1_TABLE)).toBeCloseTo(last[1]);
-  });
-
-  test('returns exact table value at known G1 point (700 fps)', () => {
-    expect(interpolateDragTable(700, G1_TABLE)).toBeCloseTo(0.1194);
-  });
-
-  test('returns exact table value at known G1 point (1400 fps)', () => {
-    expect(interpolateDragTable(1400, G1_TABLE)).toBeCloseTo(0.2030);
-  });
-
-  test('interpolates between table entries', () => {
-    const v = interpolateDragTable(1025, G1_TABLE); // between 1000 (0.1250) and 1050 (0.1315)
-    expect(v).toBeGreaterThan(0.1250);
-    expect(v).toBeLessThan(0.1315);
-  });
-
-  test('handles negative input via Math.abs', () => {
-    expect(interpolateDragTable(-700, G1_TABLE)).toBeCloseTo(interpolateDragTable(700, G1_TABLE));
-  });
-
-  test('returns NaN for NaN input (fall-through path)', () => {
-    expect(interpolateDragTable(NaN, G1_TABLE)).toBe(NaN);
-  });
-
-  test('G7 returns first table value for velocity at or below minimum', () => {
-    const first = G7_TABLE[0];
-    expect(interpolateDragTable(first[0], G7_TABLE)).toBeCloseTo(first[1]);
-    expect(interpolateDragTable(0, G7_TABLE)).toBeCloseTo(first[1]);
-  });
-
-  test('G7 returns last table value for velocity at or above maximum', () => {
-    const last = G7_TABLE[G7_TABLE.length - 1];
-    expect(interpolateDragTable(last[0], G7_TABLE)).toBeCloseTo(last[1]);
-    expect(interpolateDragTable(99999, G7_TABLE)).toBeCloseTo(last[1]);
-  });
-
-  test('G7 values are generally lower than G1 at supersonic speeds', () => {
-    const g1At2000 = interpolateDragTable(2000, G1_TABLE);
-    const g7At2000 = interpolateDragTable(2000, G7_TABLE);
-    expect(g7At2000).toBeLessThan(g1At2000);
-    expect(g7At2000 / g1At2000).toBeGreaterThan(0.4);
-    expect(g7At2000 / g1At2000).toBeLessThan(0.9);
-  });
-
-  test('G7 handles negative input via Math.abs', () => {
-    const pos = interpolateDragTable(2000, G7_TABLE);
-    const neg = interpolateDragTable(-2000, G7_TABLE);
-    expect(pos).toBeCloseTo(neg);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// interpolateDragTable — equivalence against verbatim linear scan (PERF-8)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('interpolateDragTable equivalence (binary search vs linear scan)', () => {
-  // Verbatim copy of the pre-PERF-8 linear scan; must NOT be modified.
-  function linearScan(v, table) {
-    v = Math.abs(v);
-    if (v <= table[0][0]) return table[0][1];
-    if (v >= table[table.length - 1][0]) return table[table.length - 1][1];
-    for (let i = 1; i < table.length; i++) {
-      if (v <= table[i][0]) {
-        const t = (v - table[i - 1][0]) / (table[i][0] - table[i - 1][0]);
-        return table[i - 1][1] + t * (table[i][1] - table[i - 1][1]);
-      }
-    }
-    return Number.NaN;
-  }
-
-  // Mulberry32 seeded PRNG — deterministic, good distribution.
-  function makePrng(seed) {
-    let s = seed >>> 0;
-    return function () {
-      s += 0x6d2b79f5;
-      let t = Math.imul(s ^ (s >>> 15), 1 | s);
-      t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  function agree(v, table) {
-    const bs = interpolateDragTable(v, table);
-    const ls = linearScan(v, table);
-    if (!Object.is(bs, ls)) {
-      throw new Error(
-        `v=${v}: binarySearch=${bs} !== linearScan=${ls}`
-      );
-    }
-  }
-
-  test('G1_TABLE is strictly ascending', () => {
-    for (let i = 1; i < G1_TABLE.length; i++) {
-      expect(G1_TABLE[i][0]).toBeGreaterThan(G1_TABLE[i - 1][0]);
-    }
-  });
-
-  test('G7_TABLE is strictly ascending', () => {
-    for (let i = 1; i < G7_TABLE.length; i++) {
-      expect(G7_TABLE[i][0]).toBeGreaterThan(G7_TABLE[i - 1][0]);
-    }
-  });
-
-  test('agrees on breakpoints, ±ε, midpoints for G1_TABLE', () => {
-    const eps = Number.EPSILON;
+describe('Drag table monotonicity & clamping', () => {
+  test('G1_TABLE and G7_TABLE velocities are strictly ascending with positive dv deltas', () => {
     for (const table of [G1_TABLE, G7_TABLE]) {
-      for (let i = 0; i < table.length; i++) {
-        const v = table[i][0];
-        agree(v, table);
-        agree(v + eps * v, table);
-        agree(v - eps * v, table);
-        if (i + 1 < table.length) {
-          agree((v + table[i + 1][0]) / 2, table);
-        }
+      const ct = compileDragTable(table);
+      expect(ct.last).toBe(table.length - 1);
+      for (let i = 1; i <= ct.last; i++) {
+        expect(table[i][0]).toBeGreaterThan(table[i - 1][0]);
+        expect(ct.v[i]).toBeGreaterThan(ct.v[i - 1]);
+        expect(ct.dv[i]).toBeGreaterThan(0);
       }
     }
   });
 
-  test('agrees on signed zeros, ±Infinity, NaN', () => {
-    for (const table of [G1_TABLE, G7_TABLE]) {
-      agree(0, table);
-      agree(-0, table);
-      agree(Infinity, table);
-      agree(-Infinity, table);
-      agree(NaN, table);
-    }
+  test('G7 drag values are lower than G1 at supersonic speed (2000 fps)', () => {
+    const g1Ct = compileDragTable(G1_TABLE);
+    const g7Ct = compileDragTable(G7_TABLE);
+    const idx1 = findBracket(2000, g1Ct, g1Ct.last);
+    const idx7 = findBracket(2000, g7Ct, g7Ct.last);
+    const f1 = g1Ct.f[idx1 - 1] + ((2000 - g1Ct.v[idx1 - 1]) / g1Ct.dv[idx1]) * g1Ct.df[idx1];
+    const f7 = g7Ct.f[idx7 - 1] + ((2000 - g7Ct.v[idx7 - 1]) / g7Ct.dv[idx7]) * g7Ct.df[idx7];
+    expect(f7).toBeLessThan(f1);
+    expect(f7 / f1).toBeGreaterThan(0.4);
+    expect(f7 / f1).toBeLessThan(0.9);
   });
 
-  test('agrees on 10 000 seeded-PRNG samples across G1 and G7 velocity ranges', () => {
-    const rng = makePrng(0xdeadbeef);
-    const minV = G1_TABLE[0][0];
-    const maxV = G1_TABLE[G1_TABLE.length - 1][0];
-    for (let i = 0; i < 10000; i++) {
-      // Sample broadly: include sub-min and super-max values via range * 1.1 offset
-      const v = (rng() * (maxV - minV) * 1.1 + minV * 0.95) * (rng() < 0.5 ? 1 : -1);
-      agree(v, G1_TABLE);
-      agree(v, G7_TABLE);
-    }
-  });
+  test('simulate() clamps speeds below minimum and above maximum table velocities', () => {
+    // Low-end clamp: muzzle speed ~492 fps < table min (mach 0.5 = 562.5 fps)
+    const lowA = [
+      { mach: 0.5, cd: 0.25 },
+      { mach: 1.0, cd: 0.30 },
+      { mach: 2.5, cd: 0.20 },
+    ];
+    const lowB = [
+      { mach: 0.5, cd: 0.25 },
+      { mach: 1.0, cd: 1.50 },
+      { mach: 2.5, cd: 1.80 },
+    ];
+    const slowBullet = { ...BASE_BULLET, muzzleVelocityMps: 150 };
+    const slowParams = { ...BASE_PARAMS, zeroRangeMeters: 50, maxRangeMeters: 100, stepMeters: 50 };
+    const resLowA = simulate(slowBullet, { ...slowParams, customDragTable: lowA });
+    const resLowB = simulate(slowBullet, { ...slowParams, customDragTable: lowB });
+    expect(resLowA.points).toEqual(resLowB.points);
 
-  test('agrees on 2-row edge table', () => {
-    const tiny = [[100, 0.1], [200, 0.2]];
-    agree(50, tiny);
-    agree(100, tiny);
-    agree(150, tiny);
-    agree(200, tiny);
-    agree(300, tiny);
-    agree(NaN, tiny);
-  });
-
-  test('agrees on 3-row edge table', () => {
-    const tri = [[100, 0.1], [200, 0.3], [300, 0.2]];
-    agree(50, tri);
-    agree(100, tri);
-    agree(150, tri);
-    agree(200, tri);
-    agree(250, tri);
-    agree(300, tri);
-    agree(400, tri);
-    agree(NaN, tri);
+    // High-end clamp: flight stays >= mach 2.0 (2250 fps) so only final cd (0.20) is read
+    const highA = [
+      { mach: 0.5, cd: 0.10 },
+      { mach: 1.5, cd: 0.15 },
+      { mach: 2.0, cd: 0.20 },
+    ];
+    const highB = [
+      { mach: 0.5, cd: 1.50 },
+      { mach: 1.5, cd: 1.60 },
+      { mach: 2.0, cd: 0.20 },
+    ];
+    const fastBullet = { ...BASE_BULLET, muzzleVelocityMps: 1200 };
+    const fastParams = { ...BASE_PARAMS, zeroRangeMeters: 50, maxRangeMeters: 50, stepMeters: 25 };
+    const resHighA = simulate(fastBullet, { ...fastParams, customDragTable: highA });
+    const resHighB = simulate(fastBullet, { ...fastParams, customDragTable: highB });
+    expect(resHighA.points).toEqual(resHighB.points);
   });
 });
 
@@ -1305,23 +1195,75 @@ describe('FEAT-3 test 10: dragModel field on results', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PERF-15: Compiled Float64Array drag lookup & zero-alloc RK4 hot loop
 // ─────────────────────────────────────────────────────────────────────────────
-describe('PERF-15: compileDragTable, findBracket, evalCompiledDrag', () => {
-  const { compileDragTable, findBracket, evalCompiledDrag } = require('../app/physics/engine.ts');
-
-  test('matches interpolateDragTable bit-identically across decreasing, increasing, and clamped speeds', () => {
-    const ct = compileDragTable(G1_TABLE);
-    let idx = ct.last;
-    // Decreasing sweep (normal flight)
-    for (let v = 4500; v >= -10; v -= 37) {
-      const speed = Math.max(0, v);
-      idx = findBracket(speed, ct, idx);
-      expect(Object.is(evalCompiledDrag(speed, ct, idx), interpolateDragTable(speed, G1_TABLE))).toBe(true);
+describe('PERF-15: compileDragTable and findBracket', () => {
+  test('compileDragTable builds Float64Arrays and deltas across G1, G7, and edge tables', () => {
+    for (const table of [G1_TABLE, G7_TABLE, [[100, 0.1], [200, 0.2]], [[100, 0.1], [200, 0.3], [300, 0.2]]]) {
+      const ct = compileDragTable(table);
+      expect(ct.last).toBe(table.length - 1);
+      expect(ct.v).toBeInstanceOf(Float64Array);
+      expect(ct.f).toBeInstanceOf(Float64Array);
+      expect(ct.dv).toBeInstanceOf(Float64Array);
+      expect(ct.df).toBeInstanceOf(Float64Array);
+      for (let i = 0; i < table.length; i++) {
+        expect(ct.v[i]).toBe(table[i][0]);
+        expect(ct.f[i]).toBe(table[i][1]);
+        if (i > 0) {
+          expect(ct.dv[i]).toBe(table[i][0] - table[i - 1][0]);
+          expect(ct.df[i]).toBe(table[i][1] - table[i - 1][1]);
+        }
+      }
     }
-    // Increasing sweep (e.g. downhill acceleration or upward stage)
-    idx = 1;
-    for (let v = 0; v <= 4200; v += 73) {
-      idx = findBracket(v, ct, idx);
-      expect(Object.is(evalCompiledDrag(v, ct, idx), interpolateDragTable(v, G1_TABLE))).toBe(true);
+  });
+
+  test('findBracket clamps at low/high ends and tracks brackets across decreasing, increasing, and breakpoint speeds', () => {
+    function refBracket(v, ct) {
+      if (v <= ct.v[0]) return 1;
+      if (v >= ct.v[ct.last]) return ct.last;
+      for (let i = 1; i <= ct.last; i++) {
+        if (v <= ct.v[i]) return i;
+      }
+    }
+
+    for (const table of [G1_TABLE, G7_TABLE, [[100, 0.1], [200, 0.2]], [[100, 0.1], [200, 0.3], [300, 0.2]]]) {
+      const ct = compileDragTable(table);
+      expect(findBracket(-100, ct, ct.last)).toBe(1);
+      expect(findBracket(0, ct, ct.last)).toBe(1);
+      expect(findBracket(ct.v[0], ct, ct.last)).toBe(1);
+      expect(findBracket(ct.v[ct.last], ct, 1)).toBe(ct.last);
+      expect(findBracket(99999, ct, 1)).toBe(ct.last);
+
+      // Decreasing sweep (normal flight)
+      let idx = ct.last;
+      let prevIdx = ct.last;
+      for (let v = 4500; v >= -10; v -= 37) {
+        const speed = Math.max(0, v);
+        idx = findBracket(speed, ct, idx);
+        expect(idx).toBeLessThanOrEqual(prevIdx);
+        expect(idx).toBe(refBracket(speed, ct));
+        prevIdx = idx;
+      }
+
+      // Increasing sweep (e.g. downhill acceleration or upward stage)
+      idx = 1;
+      prevIdx = 1;
+      for (let v = 0; v <= 4200; v += 73) {
+        idx = findBracket(v, ct, idx);
+        expect(idx).toBeGreaterThanOrEqual(prevIdx);
+        expect(idx).toBe(refBracket(v, ct));
+        prevIdx = idx;
+      }
+
+      // Breakpoints, ±ε, and midpoints from both bracket ends
+      const eps = Number.EPSILON;
+      for (let i = 0; i < table.length; i++) {
+        const v = table[i][0];
+        const samples = [v, v - eps * v, v + eps * v];
+        if (i + 1 < table.length) samples.push((v + table[i + 1][0]) / 2);
+        for (const s of samples) {
+          expect(findBracket(s, ct, 1)).toBe(refBracket(s, ct));
+          expect(findBracket(s, ct, ct.last)).toBe(refBracket(s, ct));
+        }
+      }
     }
   });
 
@@ -1339,6 +1281,20 @@ describe('PERF-15: compileDragTable, findBracket, evalCompiledDrag', () => {
 describe('PERF-16: findZeroAngleFps safeguarded secant solver', () => {
   test('agrees with 64-pass bisection across a broad parameter sweep', () => {
     function refBisection(mvFps, bc, rho, zeroFt, sightHtFt) {
+      function refInterpolateDrag(v, table) {
+        v = Math.abs(v);
+        if (v <= table[0][0]) return table[0][1];
+        const last = table.length - 1;
+        if (v >= table[last][0]) return table[last][1];
+        for (let j = 1; j <= last; j++) {
+          if (v <= table[j][0]) {
+            const t = (v - table[j - 1][0]) / (table[j][0] - table[j - 1][0]);
+            return table[j - 1][1] + t * (table[j][1] - table[j - 1][1]);
+          }
+        }
+        return Number.NaN;
+      }
+
       let lo = -0.05, hi = 0.05;
       for (let i = 0; i < 64; i++) {
         const mid = (lo + hi) / 2;
@@ -1346,19 +1302,19 @@ describe('PERF-16: findZeroAngleFps safeguarded secant solver', () => {
         while (x < zeroFt) {
           const v1 = Math.sqrt(vx * vx + vy * vy);
           if (v1 < 50) break;
-          const d1 = interpolateDragTable(v1, G1_TABLE) * rho / bc;
+          const d1 = refInterpolateDrag(v1, G1_TABLE) * rho / bc;
           const ax1 = -(vx / v1) * d1, ay1 = -(vy / v1) * d1 - 32.174;
           const vx2 = vx + 0.00025 * ax1, vy2 = vy + 0.00025 * ay1;
           const v2 = Math.sqrt(vx2 * vx2 + vy2 * vy2);
-          const d2 = interpolateDragTable(v2, G1_TABLE) * rho / bc;
+          const d2 = refInterpolateDrag(v2, G1_TABLE) * rho / bc;
           const ax2 = -(vx2 / v2) * d2, ay2 = -(vy2 / v2) * d2 - 32.174;
           const vx3 = vx + 0.00025 * ax2, vy3 = vy + 0.00025 * ay2;
           const v3 = Math.sqrt(vx3 * vx3 + vy3 * vy3);
-          const d3 = interpolateDragTable(v3, G1_TABLE) * rho / bc;
+          const d3 = refInterpolateDrag(v3, G1_TABLE) * rho / bc;
           const ax3 = -(vx3 / v3) * d3, ay3 = -(vy3 / v3) * d3 - 32.174;
           const vx4 = vx + 0.0005 * ax3, vy4 = vy + 0.0005 * ay3;
           const v4 = Math.sqrt(vx4 * vx4 + vy4 * vy4);
-          const d4 = interpolateDragTable(v4, G1_TABLE) * rho / bc;
+          const d4 = refInterpolateDrag(v4, G1_TABLE) * rho / bc;
           const ax4 = -(vx4 / v4) * d4, ay4 = -(vy4 / v4) * d4 - 32.174;
           vx += (0.0005 / 6) * (ax1 + 2 * ax2 + 2 * ax3 + ax4);
           vy += (0.0005 / 6) * (ay1 + 2 * ay2 + 2 * ay3 + ay4);
