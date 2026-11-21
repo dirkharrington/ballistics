@@ -1,9 +1,11 @@
 'use strict';
 
-const { readFileSync } = require('fs');
+const { readFileSync, readdirSync } = require('fs');
 const { resolve } = require('path');
 
-const css = readFileSync(resolve(__dirname, '../app/ballistics.css'), 'utf-8');
+const appDir = resolve(__dirname, '../app');
+const css = readFileSync(resolve(appDir, 'ballistics.css'), 'utf-8');
+const html = readFileSync(resolve(appDir, 'index.html'), 'utf-8');
 
 // Extract all declarations for a given selector from the stylesheet.
 // Returns the block text between the matching { ... } pair.
@@ -75,5 +77,88 @@ describe('CSS compositor & paint hygiene (PERF-25)', () => {
 
   test('dead .retry-btn rules are absent (PERF-34)', () => {
     expect(css).not.toMatch(/\.retry-btn\b/);
+  });
+});
+
+describe('CSS token & rule hygiene (CLN-4)', () => {
+  const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Inline custom properties set via element style attributes in JS
+  const INLINE_CSS_VARS = new Set(['--bullet-color']);
+
+  function extractDeclaredTokens(selectorRe) {
+    const tokens = new Set();
+    const match = selectorRe.exec(cssNoComments);
+    if (!match) return tokens;
+    const declRe = /(?:^|[;\s])(--[a-zA-Z0-9_-]+)\s*:/g;
+    let m;
+    while ((m = declRe.exec(match[1])) !== null) {
+      tokens.add(m[1]);
+    }
+    return tokens;
+  }
+
+  function extractVarRefs(text) {
+    const refs = new Set();
+    const re = /var\(\s*(--[a-zA-Z0-9_-]+)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      refs.add(m[1]);
+    }
+    return refs;
+  }
+
+  const rootTokens = extractDeclaredTokens(/:root\s*\{([^}]*)\}/);
+  const lightTokens = extractDeclaredTokens(/\[data-theme=["']?light["']?\]\s*\{([^}]*)\}/);
+
+  test('zero undefined var(--*) references in app/ballistics.css', () => {
+    const cssRefs = extractVarRefs(cssNoComments);
+    const undefinedRefs = [...cssRefs].filter(
+      (name) => !rootTokens.has(name) && !INLINE_CSS_VARS.has(name),
+    );
+    expect(undefinedRefs).toEqual([]);
+  });
+
+  test('every [data-theme="light"] custom property exists in :root', () => {
+    const orphanLightTokens = [...lightTokens].filter((name) => !rootTokens.has(name));
+    expect(orphanLightTokens).toEqual([]);
+  });
+
+  test('zero unused :root custom properties across app/', () => {
+    // Scan CSS, HTML, and JS in app/ because shared theme tokens like --accent2 are consumed by app/tools.js
+    const appSources = [cssNoComments, html];
+    for (const entry of readdirSync(appDir)) {
+      if (entry.endsWith('.js')) {
+        appSources.push(readFileSync(resolve(appDir, entry), 'utf-8'));
+      }
+    }
+    const allRefs = extractVarRefs(appSources.join('\n'));
+    const unusedRoot = [...rootTokens].filter((name) => !allRefs.has(name));
+    expect(unusedRoot).toEqual([]);
+    expect(css).not.toMatch(/--(?:green|orange|blue|purple)\b/);
+  });
+
+  test('zero unused @keyframes in app/ballistics.css', () => {
+    const keyframeRe = /@keyframes\s+([a-zA-Z0-9_-]+)/g;
+    const keyframes = [];
+    let m;
+    while ((m = keyframeRe.exec(cssNoComments)) !== null) {
+      keyframes.push(m[1]);
+    }
+    expect(keyframes.length).toBeGreaterThan(0);
+    const unused = keyframes.filter(
+      (name) => !new RegExp(`animation(?:-name)?\\s*:[^;]*\\b${name}\\b`).test(cssNoComments),
+    );
+    expect(unused).toEqual([]);
+  });
+
+  test('dead pulse-border keyframe and .bullet-custom-item selector are absent', () => {
+    expect(css).not.toMatch(/pulse-border/);
+    expect(css).not.toMatch(/\.bullet-custom-item\b/);
+  });
+
+  test('.status-pill and .dope-dist-input rules are defined and orphan Bootstrap classes are absent', () => {
+    expect(blockFor('.status-pill')).not.toBe('');
+    expect(blockFor('.dope-dist-input')).not.toBe('');
+    expect(html).not.toMatch(/\bform-(?:control|label|text)\b/);
   });
 });
