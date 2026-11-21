@@ -135,6 +135,9 @@ describe('renderTable, sorting, and optional columns', () => {
     expect(rangeTh.getAttribute('aria-sort')).toBe('descending');
     expect(rangeTh.querySelector('.sort-indicator').textContent).toBe('▼');
 
+    onSortHeaderClick('range');
+    expect(_getSortState()).toEqual({ column: 'range', direction: 'asc' });
+
     onSortHeaderClick('drop');
     expect(_getSortState()).toEqual({ column: 'drop', direction: 'asc' });
     expect(rangeTh.hasAttribute('aria-sort')).toBe(false);

@@ -180,14 +180,24 @@ describe('runSweep & clearSweep', () => {
     document.getElementById('sweepBtn').remove();
     await runSweep({ selectedIds: new Set(['missing']), getBulletById: () => null });
 
+    // Success with #sweepBtn and #clearSweepBtn present resets button label and shows Clear button
+    buildSweepDOM();
+    await runSweep({
+      selectedIds: new Set(['308-win-168gr']),
+      getBulletById: () => makeBullet(),
+    });
+    expect(document.getElementById('sweepBtn').querySelector('span').textContent).toBe('SWEEP');
+    expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
+
     // Success without sweepBtn / sweepParam / clearSweepBtn / nextSignal / onSweepStateChange
+    document.getElementById('sweepBtn').remove();
     document.getElementById('sweepParam').remove();
     document.getElementById('clearSweepBtn').remove();
     await runSweep({
       selectedIds: new Set(['308-win-168gr']),
       getBulletById: () => makeBullet(),
     });
-    expect(simulateAsync).toHaveBeenCalledTimes(5);
+    expect(simulateAsync).toHaveBeenCalledTimes(10);
 
     // AbortError is silently ignored; aborted signal after Promise.all returns early
     buildSweepDOM();

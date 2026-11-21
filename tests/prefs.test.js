@@ -155,6 +155,13 @@ describe('savePrefs & loadPrefs', () => {
     savePrefs(new Set(['308-win-168gr']), cache);
     expect(setSpy).toHaveBeenCalledTimes(1);
     expect(setSpy).toHaveBeenCalledWith(PREF_KEYS.zero, '250');
+
+    // Absent DOM inputs fall back to PREF_DEFAULTS strings
+    ['zeroRange','maxRange','windSpeed','windDir','altitude','temperature','step','sightHeight','shootingAngle','dragModel']
+      .forEach(id => document.getElementById(id)?.remove());
+    savePrefs(new Set());
+    expect(localStorage.getItem(PREF_KEYS.zero)).toBe('100');
+    expect(localStorage.getItem(PREF_KEYS.dragModel)).toBe('G1');
   });
 
   test('savePrefs converts Imperial display inputs back to canonical Metric', () => {
@@ -241,8 +248,10 @@ describe('theme helpers (updateToggleLabel, applyTheme, initThemeToggle)', () =>
     document.getElementById('themeToggle').click();
     expect(onTheme).toHaveBeenCalledTimes(1);
 
-    // Default arguments & absent data-theme attribute fallback
+    // Default arguments, absent THEME_KEY fallback to 'dark', & absent data-theme attribute fallback
+    localStorage.removeItem(THEME_KEY);
     initThemeToggle();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
     document.documentElement.removeAttribute('data-theme');
     document.getElementById('themeToggle').click();
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
