@@ -27,10 +27,15 @@ async function flushMicrotasks(ticks = 6) {
 function buildDOM() {
   document.body.innerHTML = `
   <main class="main">
-    <label class="select-all-label">
-      <input type="checkbox" id="selectAllBullets" aria-label="Select all rounds">
-      <span>Select all</span>
-    </label>
+    <div class="bullet-search-wrap">
+      <input type="search" id="bulletSearch" placeholder="Filter rounds..." aria-label="Filter rounds" autocomplete="off">
+      <button type="button" id="bulletSearchClear" aria-label="Clear filter" hidden>&times;</button>
+    </div>
+    <div class="selection-meta">
+      <span id="selectedCount">0 / 5 selected</span>
+      <button type="button" id="clearSelectionBtn">Clear</button>
+    </div>
+    <div id="bulletSearchEmpty" class="bullet-search-empty" hidden>No matching rounds</div>
     <div id="bulletList" role="group" aria-label="Select bullet"></div>
     <div id="customBulletPanel">
       <button type="button" id="addCustomBulletBtn" aria-controls="customBulletForm" aria-expanded="false">+ ADD CUSTOM BULLET</button>
@@ -74,6 +79,10 @@ function buildDOM() {
     <button id="paramsToggle" class="fab-params">☰ PARAMS</button>
     <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
     <button id="runBtn" class="run-btn"><span>▶ COMPUTE TRAJECTORIES</span></button>
+    <label class="auto-compute-label">
+      <input type="checkbox" id="autoComputeToggle" checked>
+      <span>Auto-compute on change</span>
+    </label>
     <div id="simulationError" class="simulation-error" hidden aria-live="assertive" role="alert"></div>
     <button id="runCustomBtn" class="run-btn"><span>▶ COMPUTE CUSTOM</span></button>
     <div id="chartsPanel" class="charts-panel active"></div>
@@ -392,12 +401,12 @@ describe('renderBulletList', () => {
     expect(html).toContain('&lt;img src=x');
   });
 
-  test('ACC-1: each built-in card has tabindex="0" and role="button"', () => {
+  test('ACC-1 / REL-6: built-in cards have role="button" and roving tabindex ("0" on first, "-1" on others)', () => {
     mod.renderBulletList();
     const cards = document.querySelectorAll('#bulletList > .bullet-card');
     expect(cards.length).toBeGreaterThan(0);
-    cards.forEach(card => {
-      expect(card.getAttribute('tabindex')).toBe('0');
+    cards.forEach((card, idx) => {
+      expect(card.getAttribute('tabindex')).toBe(idx === 0 ? '0' : '-1');
       expect(card.getAttribute('role')).toBe('button');
     });
   });
@@ -489,106 +498,30 @@ describe('updateBulletCards', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// syncSelectAllCheckbox
-// ─────────────────────────────────────────────────────────────────────────────
-describe('syncSelectAllCheckbox', () => {
-  beforeEach(() => {
-    mod._setBullets(mod.getMockBullets());
-    mod.renderBulletList();
-  });
-
-  test('unchecked and not indeterminate when 0 selected', () => {
-    mod._setSelectedIds(new Set());
-    mod.syncSelectAllCheckbox();
-    const cb = document.getElementById('selectAllBullets');
-    expect(cb.checked).toBe(false);
-    expect(cb.indeterminate).toBe(false);
-  });
-
-  test('indeterminate when some (but not all) selected', () => {
-    mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod.syncSelectAllCheckbox();
-    const cb = document.getElementById('selectAllBullets');
-    expect(cb.indeterminate).toBe(true);
-  });
-
-  test('checked and not indeterminate when all selected', () => {
-    const allIds = new Set(mod.getMockBullets().map(b => b.id));
-    mod._setSelectedIds(allIds);
-    mod.syncSelectAllCheckbox();
-    const cb = document.getElementById('selectAllBullets');
-    expect(cb.checked).toBe(true);
-    expect(cb.indeterminate).toBe(false);
-  });
-
-  test('no-op when checkbox element is absent', () => {
-    document.getElementById('selectAllBullets').remove();
-    expect(() => mod.syncSelectAllCheckbox()).not.toThrow();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // syncRunButton
 // ─────────────────────────────────────────────────────────────────────────────
 describe('syncRunButton', () => {
-  test('disables runBtn when selectedIds is empty', () => {
+  test('disables runBtn and clearSelectionBtn when selectedIds is empty', () => {
     mod._setSelectedIds(new Set());
     mod.syncRunButton();
     expect(document.getElementById('runBtn').disabled).toBe(true);
+    expect(document.getElementById('clearSelectionBtn').disabled).toBe(true);
+    expect(document.getElementById('selectedCount').textContent).toBe('0 / 5 selected');
   });
 
-  test('enables runBtn when selectedIds is non-empty', () => {
+  test('enables runBtn and clearSelectionBtn when selectedIds is non-empty', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod.syncRunButton();
     expect(document.getElementById('runBtn').disabled).toBe(false);
+    expect(document.getElementById('clearSelectionBtn').disabled).toBe(false);
+    expect(document.getElementById('selectedCount').textContent).toBe('1 / 5 selected');
   });
 
-  test('no-op when runBtn element is absent', () => {
+  test('no-op when runBtn, selectedCount, or clearSelectionBtn elements are absent', () => {
     document.getElementById('runBtn').remove();
+    document.getElementById('selectedCount').remove();
+    document.getElementById('clearSelectionBtn').remove();
     expect(() => mod.syncRunButton()).not.toThrow();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// select-all checkbox wired by init
-// ─────────────────────────────────────────────────────────────────────────────
-describe('select-all checkbox interaction (via init)', () => {
-  beforeEach(() => {
-    mod.init();
-  });
-
-  test('checking select-all adds all bullet ids to selectedIds', () => {
-    const cb = document.getElementById('selectAllBullets');
-    cb.checked = true;
-    cb.dispatchEvent(new Event('change'));
-    const { selectedIds, bullets } = mod._getState();
-    expect(selectedIds.size).toBe(bullets.length);
-  });
-
-  test('unchecking select-all clears selectedIds', () => {
-    // First select all
-    const cb = document.getElementById('selectAllBullets');
-    cb.checked = true;
-    cb.dispatchEvent(new Event('change'));
-    // Then deselect all
-    cb.checked = false;
-    cb.dispatchEvent(new Event('change'));
-    const { selectedIds } = mod._getState();
-    expect(selectedIds.size).toBe(0);
-  });
-
-  test('runBtn is disabled after deselecting all via checkbox', () => {
-    const cb = document.getElementById('selectAllBullets');
-    cb.checked = false;
-    cb.dispatchEvent(new Event('change'));
-    expect(document.getElementById('runBtn').disabled).toBe(true);
-  });
-
-  test('runBtn is enabled after selecting all via checkbox', () => {
-    const cb = document.getElementById('selectAllBullets');
-    cb.checked = true;
-    cb.dispatchEvent(new Event('change'));
-    expect(document.getElementById('runBtn').disabled).toBe(false);
   });
 });
 
@@ -6564,19 +6497,20 @@ describe('PERF-28: lazy loading & retry on failed chunk import', () => {
 // PERF-31: Sidebar event delegation, O(1) bullet Map, single-card toggle & boot
 // ─────────────────────────────────────────────────────────────────────────────
 describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boot', () => {
-  test('renderBulletList attaches single delegated click and keydown listener pair across re-renders', () => {
+  test('renderBulletList attaches single delegated click, keydown, and focusin listener set across re-renders', () => {
     const list = document.getElementById('bulletList');
     const addSpy = jest.spyOn(list, 'addEventListener');
     mod._setBullets(mod.getMockBullets());
 
     mod.renderBulletList();
-    expect(addSpy).toHaveBeenCalledTimes(2);
+    expect(addSpy).toHaveBeenCalledTimes(3);
     expect(addSpy).toHaveBeenCalledWith('click', expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(addSpy).toHaveBeenCalledWith('focusin', expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(addSpy).toHaveBeenCalledWith('keydown', expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
 
     // Re-rendering on the same #bulletList does not re-attach listeners
     mod.renderBulletList();
-    expect(addSpy).toHaveBeenCalledTimes(2);
+    expect(addSpy).toHaveBeenCalledTimes(3);
 
     // Built-in cards have data-builtin-bullet-id and no custom cards do
     const builtInCard = document.getElementById('card-308-win-168gr');
@@ -7052,5 +6986,345 @@ describe('PERF-32: viewport-aware crosshair draw, cached readout cells & sweep c
     expect(MockChart).not.toHaveBeenCalled();
     expect(mockChartDestroy).not.toHaveBeenCalled();
     expect(mockChartUpdate).toHaveBeenCalledWith('none');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENH-6: Bullet search, 5-round cap, roving keyboard nav, and auto-compute
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute', () => {
+  test('REL-7: MAX_SELECTED_BULLETS is 5 and selecting 6th bullet is blocked with limit feedback', () => {
+    expect(mod.MAX_SELECTED_BULLETS).toBe(5);
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set());
+    mod.renderBulletList();
+
+    const ids = mod.getMockBullets().map(b => b.id);
+    for (let i = 0; i < 5; i++) {
+      mod.toggleBullet(ids[i]);
+    }
+    expect(mod._getState().selectedIds.size).toBe(5);
+    expect(document.getElementById('selectedCount').textContent).toBe('5 / 5 selected');
+    expect(document.getElementById('clearSelectionBtn').disabled).toBe(false);
+
+    // 6th selection is blocked
+    const sixthCard = document.getElementById('card-' + ids[5]);
+    mod.toggleBullet(ids[5]);
+    expect(mod._getState().selectedIds.size).toBe(5);
+    expect(mod._getState().selectedIds.has(ids[5])).toBe(false);
+    expect(sixthCard.classList.contains('bullet-card--limit-reached')).toBe(true);
+    expect(document.getElementById('toast').textContent).toBe('Maximum 5 rounds can be selected at once');
+    expect(document.getElementById('simStatus').textContent).toBe('Maximum 5 rounds can be selected at once');
+
+    // Rapid repeat attempt clears previous timer cleanly before adding new timer
+    mod.toggleBullet(ids[5]);
+    expect(sixthCard.classList.contains('bullet-card--limit-reached')).toBe(true);
+
+    // After 600 ms highlight class is removed
+    jest.advanceTimersByTime(600);
+    expect(sixthCard.classList.contains('bullet-card--limit-reached')).toBe(false);
+
+    // Missing card DOM id when at cap does not throw
+    expect(() => mod.toggleBullet('nonexistent-6th')).not.toThrow();
+
+    // Deselecting 1 of 5 allows selecting another
+    mod.toggleBullet(ids[0]);
+    expect(mod._getState().selectedIds.size).toBe(4);
+    mod.toggleBullet(ids[5]);
+    expect(mod._getState().selectedIds.size).toBe(5);
+    expect(mod._getState().selectedIds.has(ids[5])).toBe(true);
+  });
+
+  test('REL-7: init() clamps >5 bulletIds from URL and localStorage to MAX_SELECTED_BULLETS', () => {
+    const ids = mod.getMockBullets().slice(0, 7).map(b => b.id);
+    history.replaceState(null, '', '/?' + ids.map(id => 'b=' + id).join('&'));
+    mod.init();
+    expect(mod._getState().selectedIds.size).toBe(5);
+    expect(document.getElementById('selectedCount').textContent).toBe('5 / 5 selected');
+
+    mod._resetState();
+    history.replaceState(null, '', '/');
+    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(ids));
+    mod.init();
+    expect(mod._getState().selectedIds.size).toBe(5);
+  });
+
+  test('clearSelectionBtn clears selection, updates counter/buttons, persists, and resets results', async () => {
+    mod.init();
+    const ids = mod.getMockBullets().map(b => b.id);
+    mod.toggleBullet(ids[1]); // 2 selected
+    await mod.runSimulation();
+    await flushMicrotasks();
+    jest.runAllTimers();
+    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
+
+    document.getElementById('clearSelectionBtn').click();
+    expect(mod._getState().selectedIds.size).toBe(0);
+    expect(document.getElementById('selectedCount').textContent).toBe('0 / 5 selected');
+    expect(document.getElementById('clearSelectionBtn').disabled).toBe(true);
+    expect(document.getElementById('runBtn').disabled).toBe(true);
+    expect(document.getElementById('sweepControls').style.display).toBe('none');
+    expect(document.getElementById('resultsContainer').style.display).toBe('none');
+    expect(document.getElementById('emptyState').style.display).toBe('');
+    expect(document.getElementById('simStatus').textContent).toBe('Selection cleared.');
+    expect(JSON.parse(localStorage.getItem(mod.PREF_KEYS.selectedIds))).toEqual([]);
+  });
+
+  test('clearSelection handles missing optional DOM elements cleanly and preserves results when autoCompute off', () => {
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setLastResults([{ bullet: mod.getMockBullets()[0], points: [] }]);
+    document.getElementById('autoComputeToggle').checked = false;
+    mod.clearSelection();
+    expect(mod._getState().lastResults).toHaveLength(1);
+
+    // With autoCompute on and missing clearSweepBtn / emptyState / resultsContainer
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    document.getElementById('autoComputeToggle').checked = true;
+    document.getElementById('clearSweepBtn').remove();
+    document.getElementById('emptyState').remove();
+    document.getElementById('resultsContainer').remove();
+    expect(() => mod.clearSelection()).not.toThrow();
+    expect(mod._getState().lastResults).toHaveLength(0);
+  });
+
+  test('live bullet search filters built-in and custom cards without losing selection', () => {
+    localStorage.setItem('ballistics:custom-bullets:v1', JSON.stringify([{
+      id: 'usr-3f2b8c1e9a4d4e6f',
+      name: 'Wildcat Custom',
+      shortName: 'WC1',
+      bulletWeightGrains: 150,
+      ballisticCoefficientG1: 0.45,
+      ballisticCoefficientG7: null,
+      bulletDiameterInches: 0.308,
+      muzzleVelocityFps: 2700,
+    }]));
+    mod.init();
+    mod.toggleBullet('308-win-168gr');
+
+    const searchInput = document.getElementById('bulletSearch');
+    const clearBtn = document.getElementById('bulletSearchClear');
+    const emptyEl = document.getElementById('bulletSearchEmpty');
+
+    expect(clearBtn.hidden).toBe(true);
+    expect(emptyEl.hidden).toBe(true);
+
+    // Filter to "Creedmoor" -> 2 matches (6.5 Creedmoor, 6mm Creedmoor)
+    searchInput.value = 'Creedmoor';
+    searchInput.dispatchEvent(new Event('input'));
+    expect(clearBtn.hidden).toBe(false);
+    expect(emptyEl.hidden).toBe(true);
+    const visibleBuiltIns = [...document.querySelectorAll('.bullet-card[data-builtin-bullet-id]')].filter(c => !c.hidden);
+    expect(visibleBuiltIns).toHaveLength(2);
+    expect(document.getElementById('customBulletGroup').hidden).toBe(true);
+    // Selection is preserved even while .308 Win is hidden
+    expect(mod._getState().selectedIds.has('308-win-168gr')).toBe(true);
+
+    // Filter to custom bullet shortName
+    searchInput.value = 'WC1';
+    searchInput.dispatchEvent(new Event('input'));
+    expect(document.getElementById('customBulletGroup').hidden).toBe(false);
+    expect(document.getElementById('card-usr-3f2b8c1e9a4d4e6f').hidden).toBe(false);
+    expect(emptyEl.hidden).toBe(true);
+
+    // Non-matching query displays empty message and sets all built-in tabindex="-1"
+    searchInput.value = 'zzznomatch';
+    searchInput.dispatchEvent(new Event('input'));
+    expect(emptyEl.hidden).toBe(false);
+    expect(document.getElementById('customBulletGroup').hidden).toBe(true);
+    [...document.querySelectorAll('.bullet-card[data-builtin-bullet-id]')].forEach(c => {
+      expect(c.getAttribute('tabindex')).toBe('-1');
+    });
+
+    // Clear button restores full list and focuses search input
+    clearBtn.click();
+    expect(searchInput.value).toBe('');
+    expect(clearBtn.hidden).toBe(true);
+    expect(emptyEl.hidden).toBe(true);
+    expect(document.activeElement).toBe(searchInput);
+    expect([...document.querySelectorAll('.bullet-card')].every(c => !c.hidden)).toBe(true);
+
+    // Escape key clears non-empty search, no-op when already empty
+    searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(searchInput.value).toBe('');
+    searchInput.value = '308';
+    searchInput.dispatchEvent(new Event('input'));
+    const escEvt = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    searchInput.dispatchEvent(escEvt);
+    expect(escEvt.defaultPrevented).toBe(true);
+    expect(searchInput.value).toBe('');
+
+    // Card missing .bullet-name / .bullet-specs and absent from _bulletById is handled cleanly
+    const bareCard = document.createElement('div');
+    bareCard.className = 'bullet-card';
+    bareCard.id = 'card-unknown-bare';
+    bareCard.dataset.builtinBulletId = 'unknown-bare';
+    document.getElementById('bulletList').appendChild(bareCard);
+    searchInput.value = '308';
+    searchInput.dispatchEvent(new Event('input'));
+
+    // filterBulletList handles missing DOM elements safely
+    document.getElementById('bulletSearch').remove();
+    document.getElementById('bulletSearchClear').remove();
+    document.getElementById('bulletSearchEmpty').remove();
+    document.getElementById('customBulletGroup').remove();
+    expect(() => mod.filterBulletList()).not.toThrow();
+    document.getElementById('bulletList').remove();
+    expect(() => mod.filterBulletList()).not.toThrow();
+  });
+
+  test('REL-6 / ACC-3: roving tabindex ArrowDown/Up/Home/End, clamping, hidden skipping & focusin', () => {
+    mod.init();
+    const cards = [...document.querySelectorAll('#bulletList > .bullet-card[data-builtin-bullet-id]')];
+    expect(cards[0].getAttribute('tabindex')).toBe('0');
+    cards.slice(1).forEach(c => expect(c.getAttribute('tabindex')).toBe('-1'));
+
+    // ArrowUp on first card clamps at 0
+    const up0 = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    cards[0].dispatchEvent(up0);
+    expect(up0.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(cards[0]);
+    expect(cards[0].getAttribute('tabindex')).toBe('0');
+
+    // ArrowDown moves to card 1
+    const down0 = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+    cards[0].dispatchEvent(down0);
+    expect(down0.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(cards[1]);
+    expect(cards[0].getAttribute('tabindex')).toBe('-1');
+    expect(cards[1].getAttribute('tabindex')).toBe('0');
+
+    // End jumps to last card and ArrowDown clamps there
+    cards[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[cards.length - 1]);
+    expect(cards[cards.length - 1].getAttribute('tabindex')).toBe('0');
+    cards[cards.length - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[cards.length - 1]);
+
+    // ArrowUp moves to second-to-last, Home jumps to card 0
+    cards[cards.length - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[cards.length - 2]);
+    cards[cards.length - 2].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[0]);
+
+    // focusin on card 3 updates roving tabindex; focusin on hidden card or container ignored
+    cards[3].dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(cards[3].getAttribute('tabindex')).toBe('0');
+    expect(cards[0].getAttribute('tabindex')).toBe('-1');
+
+    cards[4].hidden = true;
+    cards[4].dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(cards[3].getAttribute('tabindex')).toBe('0');
+
+    // ArrowDown skips hidden card 4 -> lands on card 5
+    cards[3].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[5]);
+    expect(cards[5].getAttribute('tabindex')).toBe('0');
+  });
+
+  test('debounced auto-compute runs after 250ms on param/selection changes and respects toggle & runBtn cancel', async () => {
+    // Saved preference 'false' disables auto-compute
+    localStorage.setItem(mod.AUTO_COMPUTE_KEY, 'false');
+    mod.init();
+    const autoToggle = document.getElementById('autoComputeToggle');
+    expect(autoToggle.checked).toBe(false);
+
+    // Input change when unchecked does NOT schedule auto-compute
+    simulateAsync.mockClear();
+    document.getElementById('zeroRange').value = '200';
+    document.getElementById('zeroRange').dispatchEvent(new Event('change'));
+    jest.advanceTimersByTime(300);
+    expect(simulateAsync).not.toHaveBeenCalled();
+
+    // Toggling autoCompute ON persists to localStorage and enables auto-compute
+    autoToggle.checked = true;
+    autoToggle.dispatchEvent(new Event('change'));
+    expect(localStorage.getItem(mod.AUTO_COMPUTE_KEY)).toBe('true');
+
+    // Rapid param changes coalesce into one simulation after 250ms
+    const windInput = document.getElementById('windSpeed');
+    windInput.value = '10';
+    windInput.dispatchEvent(new Event('input'));
+    windInput.value = '20';
+    windInput.dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(249);
+    expect(simulateAsync).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(simulateAsync).toHaveBeenCalledTimes(1);
+    await flushMicrotasks();
+    jest.runAllTimers();
+
+    // toggleBullet schedules auto-compute after 250ms
+    simulateAsync.mockClear();
+    mod.toggleBullet('308-win-168gr');
+    jest.advanceTimersByTime(249);
+    expect(simulateAsync).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(simulateAsync).toHaveBeenCalledTimes(2); // 2 selected bullets
+    await flushMicrotasks();
+    jest.runAllTimers();
+
+    // Clicking #runBtn cancels pending auto-compute so it runs only once
+    simulateAsync.mockClear();
+    document.getElementById('zeroRange').value = '150';
+    document.getElementById('zeroRange').dispatchEvent(new Event('input'));
+    document.getElementById('runBtn').click();
+    expect(simulateAsync).toHaveBeenCalledTimes(2);
+    simulateAsync.mockClear();
+    jest.advanceTimersByTime(300);
+    expect(simulateAsync).not.toHaveBeenCalled();
+
+    // Unchecking autoComputeToggle cancels pending auto-compute
+    document.getElementById('zeroRange').value = '175';
+    document.getElementById('zeroRange').dispatchEvent(new Event('input'));
+    autoToggle.checked = false;
+    autoToggle.dispatchEvent(new Event('change'));
+    expect(localStorage.getItem(mod.AUTO_COMPUTE_KEY)).toBe('false');
+    jest.advanceTimersByTime(300);
+    expect(simulateAsync).not.toHaveBeenCalled();
+
+    // Re-enabling autoCompute and deselecting all bullets cancels timer & restores empty state
+    autoToggle.checked = true;
+    autoToggle.dispatchEvent(new Event('change'));
+    const selectedCopy = [...mod._getState().selectedIds];
+    selectedCopy.forEach(id => mod.toggleBullet(id));
+    expect(mod._getState().selectedIds.size).toBe(0);
+    expect(document.getElementById('resultsContainer').style.display).toBe('none');
+    expect(document.getElementById('emptyState').style.display).toBe('');
+
+    // _scheduleAutoCompute is a no-op if fired when 0 selected or toggle missing
+    mod._scheduleAutoCompute();
+    jest.advanceTimersByTime(250);
+    expect(simulateAsync).not.toHaveBeenCalled();
+
+    // Missing optional sidebar elements during init (branch safety)
+    mod._resetState();
+    const origLS = window.localStorage;
+    Object.defineProperty(window, 'localStorage', {
+      value: { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } },
+      configurable: true, writable: true,
+    });
+    try {
+      mod.init();
+      autoToggle.checked = false;
+      autoToggle.dispatchEvent(new Event('change'));
+    } finally {
+      Object.defineProperty(window, 'localStorage', { value: origLS, configurable: true, writable: true });
+    }
+    mod._resetState();
+    ['autoComputeToggle', 'bulletSearch', 'bulletSearchClear', 'clearSelectionBtn', 'twistRate'].forEach(id => {
+      document.getElementById(id)?.remove();
+    });
+    expect(() => mod.init()).not.toThrow();
+
+    // Card with empty DOM elements handles _syncBuiltInRovingTabindex and limit timer cleanup in _resetState
+    mod._setBullets([]);
+    mod.renderBulletList();
+    mod._setBullets(mod.getMockBullets());
+    mod._setSelectedIds(new Set());
+    mod.renderBulletList();
+    mod.getMockBullets().slice(0, 6).forEach(b => mod.toggleBullet(b.id));
+    expect(mod._getState().selectedIds.size).toBe(5);
+    mod._resetState();
   });
 });

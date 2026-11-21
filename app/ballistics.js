@@ -5,12 +5,15 @@ import { TrajectoryInputError } from './physics/errors.ts';
 import { simulateAsync, solveBCAsync, prewarmPhysicsWorker } from './physics/engine-async.ts';
 import {
   loadCustomBullets, saveCustomBullets, mergeCatalog, isCustomBulletId,
-  renderCustomBulletGroup, syncCustomDeleteGuards, upsertCustomBullet,
-  removeCustomBullet, validateCustomBulletInput, bulletForDragModel,
-  CUSTOM_BULLET_PALETTE,
+  renderCustomBulletGroup, syncCustomDeleteGuards, syncCustomRovingTabindex,
+  upsertCustomBullet, removeCustomBullet, validateCustomBulletInput,
+  bulletForDragModel, CUSTOM_BULLET_PALETTE,
 } from './custom-bullets.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
+
+const MAX_SELECTED_BULLETS = 5;
+const AUTO_COMPUTE_KEY = 'ballistics_auto_compute';
 
 // Derived from bullets.yaml via virtual:bullet-catalog at build time
 const BULLET_COLORS = Object.fromEntries(BULLET_CATALOG.map(b => [b.id, b.hexColor]));
@@ -202,9 +205,16 @@ const TABLE_CHUNK_SIZE      = 250;
 let sweepMode    = false;
 let sweepResults = null;
 let lastReq      = null;
-// Input persistence cache & debouncer (PERF-23)
+// Input persistence cache & debouncers (PERF-23 / ENH-6)
 let _lastSavedPrefs = new Map();
 const _persistInputs = debounce(() => { savePrefs(); syncUrl(); }, 200);
+const _scheduleAutoCompute = debounce(() => {
+  if (_isAutoComputeEnabled() && selectedIds.size > 0) {
+    runSimulation();
+  }
+}, 250);
+let _focusedBulletIdx = 0;
+const _limitReachedTimers = new Map();
 // Stale-run cancellation controller (PERF-18)
 let _simAbortController = null;
 
@@ -272,6 +282,74 @@ function _teardownBulletListDelegation() {
   _bulletListDelegatedEl = null;
 }
 
+function _syncBuiltInRovingTabindex(preferredCard = null) {
+  const list = document.getElementById('bulletList');
+  /* istanbul ignore next -- callers pass/ensure #bulletList exists */
+  if (!list) return;
+  const cards = [...list.querySelectorAll('.bullet-card[data-builtin-bullet-id]')];
+  if (cards.length === 0) return;
+  const visible = cards.filter(c => !c.hidden);
+  for (const c of cards) c.setAttribute('tabindex', '-1');
+  if (visible.length === 0) {
+    _focusedBulletIdx = 0;
+    return;
+  }
+  let idx = preferredCard ? visible.indexOf(preferredCard) : -1;
+  if (idx === -1) {
+    idx = Math.max(0, Math.min(_focusedBulletIdx, visible.length - 1));
+  }
+  _focusedBulletIdx = idx;
+  visible[idx].setAttribute('tabindex', '0');
+}
+
+function _cardSearchText(card) {
+  const id = card.dataset.builtinBulletId || card.id.replace(/^card-/, '');
+  const b = _bulletById.get(id);
+  const name = card.querySelector('.bullet-name')?.textContent ?? '';
+  const specs = card.querySelector('.bullet-specs')?.textContent ?? '';
+  return [b?.name, b?.caliber, b?.shortName, name, specs].filter(Boolean).join(' ').toLowerCase();
+}
+
+function filterBulletList() {
+  const input = document.getElementById('bulletSearch');
+  const clearBtn = document.getElementById('bulletSearchClear');
+  const emptyEl = document.getElementById('bulletSearchEmpty');
+  const list = document.getElementById('bulletList');
+  const query = (input?.value ?? '').trim().toLowerCase();
+
+  if (clearBtn) clearBtn.hidden = query === '';
+  if (!list) return;
+
+  const builtIns = [...list.querySelectorAll('.bullet-card[data-builtin-bullet-id]')];
+  const customs = [...list.querySelectorAll('.bullet-card--custom')];
+  let visibleCount = 0;
+
+  for (const card of builtIns) {
+    const match = query === '' || _cardSearchText(card).includes(query);
+    card.hidden = !match;
+    if (match) visibleCount++;
+  }
+
+  let visibleCustomCount = 0;
+  for (const card of customs) {
+    const match = query === '' || _cardSearchText(card).includes(query);
+    card.hidden = !match;
+    if (match) {
+      visibleCount++;
+      visibleCustomCount++;
+    }
+  }
+
+  const customGroup = document.getElementById('customBulletGroup');
+  if (customGroup) {
+    customGroup.hidden = query !== '' && visibleCustomCount === 0;
+  }
+
+  if (emptyEl) emptyEl.hidden = query === '' || visibleCount > 0;
+  _syncBuiltInRovingTabindex();
+  syncCustomRovingTabindex(customGroup || list);
+}
+
 function _ensureBulletListDelegation(list) {
   if (_bulletListDelegatedEl === list) return;
   _teardownBulletListDelegation();
@@ -280,14 +358,38 @@ function _ensureBulletListDelegation(list) {
   const { signal } = _bulletListDelegationController;
   list.addEventListener('click', e => {
     const card = e.target.closest('.bullet-card[data-builtin-bullet-id]');
-    if (card) toggleBullet(card.dataset.builtinBulletId);
+    if (card) {
+      _syncBuiltInRovingTabindex(card);
+      toggleBullet(card.dataset.builtinBulletId);
+    }
+  }, { signal });
+  list.addEventListener('focusin', e => {
+    const card = e.target.closest('.bullet-card[data-builtin-bullet-id]');
+    if (card && !card.hidden) _syncBuiltInRovingTabindex(card);
   }, { signal });
   list.addEventListener('keydown', e => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
     const card = e.target.closest('.bullet-card[data-builtin-bullet-id]');
-    if (card) {
+    if (!card) return;
+    if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       toggleBullet(card.dataset.builtinBulletId);
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+      const visible = [...list.querySelectorAll('.bullet-card[data-builtin-bullet-id]')].filter(c => !c.hidden);
+      /* istanbul ignore next -- card receiving keydown is always visible in DOM */
+      if (visible.length === 0) return;
+      e.preventDefault();
+      const currentIdx = visible.indexOf(card);
+      /* istanbul ignore next -- currentIdx is >= 0 for a visible card in list */
+      const baseIdx = currentIdx === -1 ? 0 : currentIdx;
+      let nextIdx = baseIdx;
+      if (e.key === 'ArrowDown') nextIdx = Math.min(baseIdx + 1, visible.length - 1);
+      else if (e.key === 'ArrowUp') nextIdx = Math.max(baseIdx - 1, 0);
+      else if (e.key === 'Home') nextIdx = 0;
+      else nextIdx = visible.length - 1;
+      _syncBuiltInRovingTabindex(visible[nextIdx]);
+      visible[nextIdx].focus();
     }
   }, { signal });
 }
@@ -297,12 +399,12 @@ function renderBulletList() {
   const builtIns = bullets.filter(b => !isCustomBulletId(b.id));
   const customs  = bullets.filter(b =>  isCustomBulletId(b.id));
 
-  list.innerHTML = builtIns.map(b => {
+  list.innerHTML = builtIns.map((b, i) => {
     const isActive = selectedIds.has(b.id);
     return `
     <div class="bullet-card${isActive ? ' active' : ''}" id="card-${escapeHtml(b.id)}"
          data-builtin-bullet-id="${escapeHtml(b.id)}"
-         role="button" tabindex="0"
+         role="button" tabindex="${i === 0 ? '0' : '-1'}"
          aria-pressed="${isActive ? 'true' : 'false'}"
          style="--bullet-color:${colorFor(b)}">
       <div class="bullet-name">${escapeHtml(b.name)}</div>
@@ -326,7 +428,33 @@ function renderBulletList() {
   });
   pendingDeleteId = null;
 
-  syncSelectAllCheckbox();
+  filterBulletList();
+  syncRunButton();
+}
+
+function _isAutoComputeEnabled() {
+  const el = document.getElementById('autoComputeToggle');
+  return Boolean(el && el.checked);
+}
+
+function _syncAutoComputeAfterSelectionChange() {
+  if (selectedIds.size > 0) {
+    if (_isAutoComputeEnabled()) _scheduleAutoCompute();
+  } else {
+    _scheduleAutoCompute.cancel();
+    if (_isAutoComputeEnabled() && lastResults.length > 0) {
+      lastResults = [];
+      sweepMode = false;
+      sweepResults = null;
+      const clearBtn = document.getElementById('clearSweepBtn');
+      if (clearBtn) clearBtn.style.display = 'none';
+      resetCrosshairState();
+      const emptyEl = document.getElementById('emptyState');
+      if (emptyEl) emptyEl.style.display = '';
+      const rc = document.getElementById('resultsContainer');
+      if (rc) rc.style.display = 'none';
+    }
+  }
 }
 
 function _syncSingleBulletCard(id) {
@@ -336,7 +464,6 @@ function _syncSingleBulletCard(id) {
     card.classList.toggle('active', isActive);
     card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   }
-  syncSelectAllCheckbox();
   syncRunButton();
   // UX-1: sync delete guards and reset any pending delete confirmation
   syncCustomDeleteGuards(document.getElementById('bulletList'), selectedIds);
@@ -344,12 +471,33 @@ function _syncSingleBulletCard(id) {
 }
 
 function toggleBullet(id) {
-  if (selectedIds.has(id)) selectedIds.delete(id);
-  else selectedIds.add(id);
+  if (selectedIds.has(id)) {
+    selectedIds.delete(id);
+  } else {
+    if (selectedIds.size >= MAX_SELECTED_BULLETS) {
+      const card = document.getElementById('card-' + id);
+      if (card) {
+        const prevTimer = _limitReachedTimers.get(id);
+        if (prevTimer !== undefined) clearTimeout(prevTimer);
+        card.classList.add('bullet-card--limit-reached');
+        const tid = setTimeout(() => {
+          _limitReachedTimers.delete(id);
+          card.classList.remove('bullet-card--limit-reached');
+        }, 600);
+        _limitReachedTimers.set(id, tid);
+      }
+      const msg = `Maximum ${MAX_SELECTED_BULLETS} rounds can be selected at once`;
+      _setSimStatus(msg);
+      showToast(msg);
+      return;
+    }
+    selectedIds.add(id);
+  }
   _syncSingleBulletCard(id);
   savePrefs();
   syncUrl();
   updateSweepButtonVisibility();
+  _syncAutoComputeAfterSelectionChange();
 }
 
 function updateBulletCards() {
@@ -361,30 +509,29 @@ function updateBulletCards() {
       card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     }
   });
-  syncSelectAllCheckbox();
   syncRunButton();
   // UX-1: sync delete guards and reset any pending delete confirmation
   syncCustomDeleteGuards(document.getElementById('bulletList'), selectedIds);
   pendingDeleteId = null;
 }
 
-function syncSelectAllCheckbox() {
-  const cb = document.getElementById('selectAllBullets');
-  if (!cb) return;
-  if (selectedIds.size === 0) {
-    cb.checked = false;
-    cb.indeterminate = false;
-  } else if (selectedIds.size === bullets.length) {
-    cb.checked = true;
-    cb.indeterminate = false;
-  } else {
-    cb.indeterminate = true;
-  }
+function clearSelection() {
+  selectedIds.clear();
+  updateBulletCards();
+  savePrefs();
+  syncUrl();
+  updateSweepButtonVisibility();
+  _syncAutoComputeAfterSelectionChange();
+  _setSimStatus('Selection cleared.');
 }
 
 function syncRunButton() {
   const btn = document.getElementById('runBtn');
   if (btn) btn.disabled = selectedIds.size === 0;
+  const countEl = document.getElementById('selectedCount');
+  if (countEl) countEl.textContent = `${selectedIds.size} / ${MAX_SELECTED_BULLETS} selected`;
+  const clearBtn = document.getElementById('clearSelectionBtn');
+  if (clearBtn) clearBtn.disabled = selectedIds.size === 0;
 }
 
 // ── Error handling helpers ────────────────────────────────────────────────────
@@ -414,6 +561,7 @@ function _setSimulationError(message) {
 // ── Simulation ────────────────────────────────────────────────────────────────
 async function runSimulation() {
   if (selectedIds.size === 0) { return; }
+  _scheduleAutoCompute.cancel();
   _persistInputs.flush();
   _setSimulationError(null);
 
@@ -1820,12 +1968,12 @@ function init() {
   bullets = mergeCatalog(getMockBullets(), customRecords);
   _syncBulletIndex(bullets);
 
-  // Restore bullet selection: URL params take precedence over saved prefs
+  // Restore bullet selection: URL params take precedence over saved prefs (capped at MAX_SELECTED_BULLETS)
   // Resolved before renderBulletList() so .active cards render in a single DOM pass (PERF-31).
   {
     let usedUrlBullets = false;
     if (fromUrl.bulletIds !== null) {
-      const filtered = fromUrl.bulletIds.filter(id => _bulletById.has(id));
+      const filtered = [...new Set(fromUrl.bulletIds.filter(id => _bulletById.has(id)))].slice(0, MAX_SELECTED_BULLETS);
       if (filtered.length > 0) {
         selectedIds = new Set(filtered);
         usedUrlBullets = true;
@@ -1833,7 +1981,8 @@ function init() {
     }
     if (!usedUrlBullets) {
       if (merged.selectedIds !== null) {
-        selectedIds = new Set(merged.selectedIds.filter(id => _bulletById.has(id)));
+        const filtered = [...new Set(merged.selectedIds.filter(id => _bulletById.has(id)))].slice(0, MAX_SELECTED_BULLETS);
+        selectedIds = new Set(filtered);
       } else {
         // First visit: select only built-in bullets[0] (not custom)
         selectedIds = new Set();
@@ -1848,32 +1997,67 @@ function init() {
   // Update custom form panel availability
   _syncCustomPanelAvailability();
 
-  syncSelectAllCheckbox();
   syncRunButton();
   syncCustomDeleteGuards(document.getElementById('bulletList'), selectedIds);
 
-  // Persist parameter changes automatically and sync URL (debounced, PERF-23)
-  const paramInputIds = ['zeroRange','maxRange','windSpeed','windDir','altitude','temperature','step','sightHeight','shootingAngle','dragModel'];
-  paramInputIds.forEach(id => {
-    document.getElementById(id)?.addEventListener('input', _persistInputs, { signal });
+  // Restore auto-compute toggle preference (default true)
+  const autoToggle = document.getElementById('autoComputeToggle');
+  if (autoToggle) {
+    let savedAuto = null;
+    try { savedAuto = localStorage.getItem(AUTO_COMPUTE_KEY); } catch (_) {}
+    autoToggle.checked = savedAuto !== 'false';
+    autoToggle.addEventListener('change', () => {
+      try { localStorage.setItem(AUTO_COMPUTE_KEY, String(autoToggle.checked)); } catch (_) {}
+      if (!autoToggle.checked) _scheduleAutoCompute.cancel();
+    }, { signal });
+  }
+
+  // Persist parameter changes automatically, sync URL, and schedule auto-compute
+  const autoParamIds = [
+    'zeroRange','maxRange','windSpeed','windDir','altitude','temperature',
+    'step','sightHeight','shootingAngle','dragModel','twistRate','latitudeDeg','azimuthDeg',
+  ];
+  autoParamIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const onParamChange = () => {
+      _persistInputs();
+      if (_isAutoComputeEnabled() && selectedIds.size > 0) _scheduleAutoCompute();
+    };
+    el.addEventListener('input', onParamChange, { signal });
+    el.addEventListener('change', onParamChange, { signal });
   });
   window.addEventListener('pagehide', () => _persistInputs.flush(), { signal });
 
-  // Wire up static event listeners (replaces window.* globals and onclick attrs)
-  document.getElementById('runBtn')?.addEventListener('click', () => { closeSidebar(); runSimulation(); });
-
-  // UX-3: Select-all / deselect-all checkbox
-  document.getElementById('selectAllBullets')?.addEventListener('change', e => {
-    if (e.target.checked) {
-      bullets.forEach(b => selectedIds.add(b.id));
-    } else {
-      selectedIds.clear();
+  // Bullet search filter & clear selection
+  const searchInput = document.getElementById('bulletSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', filterBulletList, { signal });
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && searchInput.value !== '') {
+        e.preventDefault();
+        searchInput.value = '';
+        filterBulletList();
+      }
+    }, { signal });
+  }
+  document.getElementById('bulletSearchClear')?.addEventListener('click', () => {
+    const input = document.getElementById('bulletSearch');
+    /* istanbul ignore else -- #bulletSearch is always present with #bulletSearchClear */
+    if (input) {
+      input.value = '';
+      filterBulletList();
+      input.focus();
     }
-    updateBulletCards();
-    savePrefs();
-    syncUrl();
-    updateSweepButtonVisibility();
-  });
+  }, { signal });
+  document.getElementById('clearSelectionBtn')?.addEventListener('click', clearSelection, { signal });
+
+  // Wire up static event listeners (replaces window.* globals and onclick attrs)
+  document.getElementById('runBtn')?.addEventListener('click', () => {
+    _scheduleAutoCompute.cancel();
+    closeSidebar();
+    runSimulation();
+  }, { signal });
   document.getElementById('exportCsvBtn')?.addEventListener('click', exportTrajectoryCSV);
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV);
   document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON);
@@ -1952,13 +2136,6 @@ function init() {
   updateSweepButtonVisibility();
   document.getElementById('sweepBtn')?.addEventListener('click', runSweep);
   document.getElementById('clearSweepBtn')?.addEventListener('click', clearSweep);
-
-  // SH-1 FE: twist rate input persists to URL/prefs (debounced, PERF-23)
-  document.getElementById('twistRate')?.addEventListener('input', _persistInputs, { signal });
-
-  // WA-13: Coriolis inputs persist to URL (debounced, PERF-23)
-  document.getElementById('latitudeDeg')?.addEventListener('input', _persistInputs, { signal });
-  document.getElementById('azimuthDeg')?.addEventListener('input', _persistInputs, { signal });
 
   // WA-12: Load custom drag table from localStorage on startup
   try {
@@ -2441,6 +2618,10 @@ function _resetState()   {
   _cancelCrosshairRaf();
   _cancelTableChunkRaf();
   _persistInputs.cancel();
+  _scheduleAutoCompute.cancel();
+  for (const tid of _limitReachedTimers.values()) clearTimeout(tid);
+  _limitReachedTimers.clear();
+  _focusedBulletIdx = 0;
   _teardownBulletListDelegation();
   _teardownChartObserver();
   _readoutCache = null;
@@ -2477,7 +2658,9 @@ if (document.getElementById('bulletList')) {
 
 export {
   getMockBullets, computeClientSide,
-  renderBulletList, toggleBullet, updateBulletCards, syncSelectAllCheckbox, syncRunButton, runSimulation,
+  MAX_SELECTED_BULLETS, AUTO_COMPUTE_KEY,
+  renderBulletList, toggleBullet, updateBulletCards, clearSelection, filterBulletList, syncRunButton, runSimulation,
+  _scheduleAutoCompute,
   resetCrosshairState, renderStatCards, buildChartConfig,
   renderResults, renderTable, updateReadout, switchTab, init,
   onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,

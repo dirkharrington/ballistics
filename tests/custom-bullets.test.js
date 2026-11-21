@@ -23,7 +23,7 @@ const {
   loadCustomBullets, saveCustomBullets,
   upsertCustomBullet, removeCustomBullet,
   toBullet, mergeCatalog, bulletForDragModel,
-  renderCustomBulletGroup, syncCustomDeleteGuards,
+  renderCustomBulletGroup, syncCustomDeleteGuards, syncCustomRovingTabindex,
 } = require('../app/custom-bullets.js');
 
 const BULLET_CATALOG = require('./__mocks__/bullet-catalog.js');
@@ -1070,6 +1070,105 @@ describe('renderCustomBulletGroup', () => {
     const card = listEl.querySelector('.bullet-card--custom');
     card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(toggleFn).not.toHaveBeenCalled();
+  });
+
+  test('REL-6 / ENH-6: roving tabindex across multiple custom cards (ArrowDown/Up/Home/End, focusin, button guard)', () => {
+    const toggleFn = jest.fn();
+    const b1 = toBullet(makeRecord());
+    const b2 = toBullet(makeRecord2());
+    const b3 = toBullet(makeRecord({ id: 'usr-1111111111111111', name: 'Third Load', shortName: '3rd' }));
+    renderCustomBulletGroup(listEl, [b1, b2, b3], makeCtx({ onToggle: toggleFn }));
+
+    const cards = [...listEl.querySelectorAll('.bullet-card--custom')];
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+
+    // ArrowDown moves focus and tabindex="0" to card 1
+    const downEvt = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+    cards[0].dispatchEvent(downEvt);
+    expect(downEvt.defaultPrevented).toBe(true);
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
+    expect(document.activeElement).toBe(cards[1]);
+
+    // End jumps to last card
+    const endEvt = new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true });
+    cards[1].dispatchEvent(endEvt);
+    expect(endEvt.defaultPrevented).toBe(true);
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
+    expect(document.activeElement).toBe(cards[2]);
+
+    // ArrowDown at last card clamps
+    cards[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
+
+    // ArrowUp moves back to card 1
+    cards[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
+    expect(document.activeElement).toBe(cards[1]);
+
+    // Home jumps to card 0
+    cards[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+    expect(document.activeElement).toBe(cards[0]);
+
+    // ArrowUp at card 0 clamps
+    cards[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+
+    // focusin on card 2 updates roving tabindex; focusin/keydown on inner Edit button is ignored
+    cards[2].dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
+
+    const editBtn = cards[0].querySelector('.bullet-edit-btn');
+    editBtn.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
+    editBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(toggleFn).not.toHaveBeenCalled();
+
+    // Hidden card is skipped during ArrowDown
+    cards[1].hidden = true;
+    cards[0].click();
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+    cards[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[2]);
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
+  });
+});
+
+// ── M2: syncCustomRovingTabindex ──────────────────────────────────────────────
+describe('syncCustomRovingTabindex', () => {
+  test('no-op when container missing or empty', () => {
+    expect(() => syncCustomRovingTabindex(null)).not.toThrow();
+    const empty = document.createElement('div');
+    expect(() => syncCustomRovingTabindex(empty)).not.toThrow();
+  });
+
+  test('preserves visible tabindex="0", falls back to first visible, and handles all hidden', () => {
+    const listEl = document.createElement('div');
+    const b1 = toBullet(makeRecord());
+    const b2 = toBullet(makeRecord2());
+    renderCustomBulletGroup(listEl, [b1, b2], {
+      selectedIds: new Set(), storageStatus: 'ok',
+      onToggle: () => {}, onEdit: () => {}, onDelete: () => {},
+    });
+    const cards = [...listEl.querySelectorAll('.bullet-card--custom')];
+
+    // Existing visible card 0 retains tabindex="0"
+    syncCustomRovingTabindex(listEl);
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['0', '-1']);
+
+    // If card 0 becomes hidden, card 1 receives tabindex="0"
+    cards[0].hidden = true;
+    syncCustomRovingTabindex(listEl);
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '0']);
+
+    // If preferredCard is hidden, falls back to first visible
+    syncCustomRovingTabindex(listEl, cards[0]);
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '0']);
+
+    // If all hidden, all get tabindex="-1"
+    cards[1].hidden = true;
+    syncCustomRovingTabindex(listEl);
+    expect(cards.map(c => c.getAttribute('tabindex'))).toEqual(['-1', '-1']);
   });
 });
 
