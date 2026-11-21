@@ -35,6 +35,7 @@ import {
   unitLabel, toDisplay, fromDisplay, loadUnitSystem, saveUnitSystem,
   writeMetricInputValue, readMetricInputValue,
 } from './units.js';
+import { loadProfiles, saveProfile, deleteProfile } from './profiles.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,8 @@ function debounce(fn, delayMs) {
 
 // ── Module state ──────────────────────────────────────────────────────────────
 let _customDragTable = null;
+let _cbPendingDragTable = null;
+let _cbPendingDragName  = '';
 
 let bullets = [];
 let _bulletById = new Map();
@@ -96,17 +99,18 @@ let lastReq      = null;
 let unitSystem   = UNIT_SYSTEMS.METRIC;
 
 const UNIT_INPUT_CONFIG = Object.freeze({
-  zeroRange:    { kind: 'range',       metric: { min: '25',  max: '500',  step: '25'   }, imperial: { min: '25',   max: '550',   step: '1'     } },
-  maxRange:     { kind: 'range',       metric: { min: '100', max: '2000', step: '100'  }, imperial: { min: '100',  max: '2200',  step: '1'     } },
-  windSpeed:    { kind: 'windSpeed',   metric: { min: '0',   max: '80',   step: '1'    }, imperial: { min: '0',    max: '50',    step: '1'     } },
-  altitude:     { kind: 'altitude',    metric: { min: '0',   max: '3000', step: '100'  }, imperial: { min: '0',    max: '10000', step: '1'     } },
-  temperature:  { kind: 'temp',        metric: { min: '-30', max: '50',   step: '1'    }, imperial: { min: '-22',  max: '122',   step: '0.1'   } },
-  step:         { kind: 'step',        metric: { min: '10',  max: '100',  step: '10'   }, imperial: { min: '10',   max: '110',   step: '1'     } },
-  sightHeight:  { kind: 'sightHeight', metric: { min: '10',  max: '100',  step: '0.1'  }, imperial: { min: '0.4',  max: '4',     step: '0.01'  } },
-  mpbrVitalCm:  { kind: 'vitalZone',   metric: { min: '2',   max: '100',  step: '1'    }, imperial: { min: '0.8',  max: '40',    step: '0.1'   } },
-  customWeight: { kind: 'weight',      metric: { min: '1',   max: '30',   step: '0.1'  }, imperial: { min: '15',   max: '465',   step: '0.1'   } },
-  customMV:     { kind: 'velocity',    metric: { min: '200', max: '1800', step: '10'   }, imperial: { min: '650',  max: '5900',  step: '1'     } },
-  customDia:    { kind: 'diameter',    metric: { min: '4',   max: '20',   step: '0.01' }, imperial: { min: '0.15', max: '0.8',   step: '0.001' } },
+  zeroRange:    { kind: 'range',       metric: { min: '25',  max: '500',  step: '25'   }, imperial: { min: '25',    max: '550',   step: '1'     } },
+  maxRange:     { kind: 'range',       metric: { min: '100', max: '2000', step: '100'  }, imperial: { min: '100',   max: '2200',  step: '1'     } },
+  windSpeed:    { kind: 'windSpeed',   metric: { min: '0',   max: '80',   step: '1'    }, imperial: { min: '0',     max: '50',    step: '1'     } },
+  altitude:     { kind: 'altitude',    metric: { min: '0',   max: '3000', step: '100'  }, imperial: { min: '0',     max: '10000', step: '1'     } },
+  pressureHpa:  { kind: 'pressure',    metric: { min: '500', max: '1100', step: '0.1'  }, imperial: { min: '14.77', max: '32.48', step: '0.01'  } },
+  temperature:  { kind: 'temp',        metric: { min: '-30', max: '50',   step: '1'    }, imperial: { min: '-22',   max: '122',   step: '0.1'   } },
+  step:         { kind: 'step',        metric: { min: '10',  max: '100',  step: '10'   }, imperial: { min: '10',    max: '110',   step: '1'     } },
+  sightHeight:  { kind: 'sightHeight', metric: { min: '10',  max: '100',  step: '0.1'  }, imperial: { min: '0.4',   max: '4',     step: '0.01'  } },
+  mpbrVitalCm:  { kind: 'vitalZone',   metric: { min: '2',   max: '100',  step: '1'    }, imperial: { min: '0.8',   max: '40',    step: '0.1'   } },
+  customWeight: { kind: 'weight',      metric: { min: '1',   max: '30',   step: '0.1'  }, imperial: { min: '15',    max: '465',   step: '0.1'   } },
+  customMV:     { kind: 'velocity',    metric: { min: '200', max: '1800', step: '10'   }, imperial: { min: '650',   max: '5900',  step: '1'     } },
+  customDia:    { kind: 'diameter',    metric: { min: '4',   max: '20',   step: '0.01' }, imperial: { min: '0.15',  max: '0.8',   step: '0.001' } },
 });
 
 const ALL_UNIT_INPUTS = Object.freeze({
@@ -114,6 +118,7 @@ const ALL_UNIT_INPUTS = Object.freeze({
   maxRange:      'range',
   windSpeed:     'windSpeed',
   altitude:      'altitude',
+  pressureHpa:   'pressure',
   temperature:   'temp',
   step:          'step',
   sightHeight:   'sightHeight',
@@ -324,6 +329,34 @@ function _clearCustomDragTable() {
   if (helpEl)     helpEl.textContent = 'Mach,CD columns. Overrides the drag model for custom-round runs.';
 }
 
+async function _readDragCsvFile(file, { onSuccess, onError }) {
+  if (!file) return;
+  if (file.size > 64 * 1024) {
+    onError('File too large (max 64 KB).');
+    return;
+  }
+  let parseDragCsv;
+  try {
+    ({ parseDragCsv } = await _loadDragCsv());
+  } catch (_) {
+    onError(DRAG_CSV_LOAD_ERROR_MSG);
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = evt => {
+    try {
+      const table = parseDragCsv(evt.target.result);
+      onSuccess(table);
+    } catch (err) {
+      onError(err.message);
+    }
+  };
+  reader.onerror = () => {
+    onError('Error reading file.');
+  };
+  reader.readAsText(file);
+}
+
 // ── Mock data (offline fallback) — sourced from bullets.yaml via virtual:bullet-catalog ──
 function getMockBullets() {
   return BULLET_CATALOG;
@@ -335,7 +368,10 @@ async function computeClientSide(req, signal) {
     const bullet = _bulletById.get(id);
     if (!bullet) return null;
     const resolved = bulletForDragModel(bullet, req.dragModel);
-    return signal ? simulateAsync(resolved, req, { signal }) : simulateAsync(resolved, req);
+    const bulletReq = bullet.customDragTable?.length
+      ? { ...req, customDragTable: bullet.customDragTable }
+      : req;
+    return signal ? simulateAsync(resolved, bulletReq, { signal }) : simulateAsync(resolved, bulletReq);
   });
   const results = await Promise.all(promises.filter(Boolean));
   return results;
@@ -605,16 +641,49 @@ function syncRunButton() {
 }
 
 // ── Simulation ────────────────────────────────────────────────────────────────
+function _readEnvExtras(includeTwist) {
+  const get = id => document.getElementById(id);
+  const latRaw   = get('latitudeDeg')?.value;
+  const azRaw    = get('azimuthDeg')?.value;
+  const pressEl  = get('pressureHpa');
+  const pressureHpa = pressEl && pressEl.value !== ''
+    ? readMetricInputValue(pressEl, 'pressure', unitSystem)
+    : null;
+  const humRaw   = get('humidityPercent')?.value;
+  const humidityPercent = humRaw != null && humRaw !== '' ? +humRaw : null;
+  const includeEotvos = Boolean(get('includeEotvos')?.checked);
+  const twistRaw = includeTwist ? get('twistRate')?.value : '';
+
+  let error = null;
+  if (latRaw && (+latRaw < -90 || +latRaw > 90)) error = 'Latitude must be between −90 and 90.';
+  else if (azRaw && (+azRaw < 0 || +azRaw > 360)) error = 'Azimuth must be between 0 and 360.';
+  else if (pressureHpa !== null && (!Number.isFinite(pressureHpa) || pressureHpa < 500 || pressureHpa > 1100)) {
+    error = 'Pressure must be between 500 and 1100 hPa.';
+  } else if (humidityPercent !== null && (!Number.isFinite(humidityPercent) || humidityPercent < 0 || humidityPercent > 100)) {
+    error = 'Humidity must be between 0 and 100%.';
+  }
+
+  return {
+    error,
+    fields: {
+      ...(twistRaw ? { twistRateInchesPerTurn: +twistRaw } : {}),
+      ...(latRaw ? { latitudeDeg: +latRaw } : {}),
+      ...(azRaw ? { azimuthDeg: +azRaw } : {}),
+      ...(pressureHpa !== null ? { pressureHpa } : {}),
+      ...(humidityPercent !== null ? { humidityPercent } : {}),
+      ...(includeEotvos ? { includeEotvos: true } : {}),
+    },
+  };
+}
+
 async function runSimulation() {
   if (selectedIds.size === 0) { return; }
   _scheduleAutoCompute.cancel();
   _persistInputs.flush();
   _setSimulationError(null);
 
-  const latRaw = document.getElementById('latitudeDeg')?.value;
-  const azRaw  = document.getElementById('azimuthDeg')?.value;
-  if (latRaw && (+latRaw < -90 || +latRaw > 90)) { _setSimulationError('Latitude must be between −90 and 90.'); return; }
-  if (azRaw  && (+azRaw  < 0  || +azRaw  > 360)) { _setSimulationError('Azimuth must be between 0 and 360.'); return; }
+  const extras = _readEnvExtras(true);
+  if (extras.error) { _setSimulationError(extras.error); return; }
 
   const btn = document.getElementById('runBtn');
   btn.classList.add('loading');
@@ -622,7 +691,6 @@ async function runSimulation() {
   _warmChart();
 
   const get = id => document.getElementById(id);
-  const twistRaw = get('twistRate')?.value;
   const req = {
     bulletIds:                [...selectedIds],
     zeroRangeMeters:          readMetricInputValue(get('zeroRange'),   'range',       unitSystem, 0),
@@ -635,9 +703,7 @@ async function runSimulation() {
     sightHeightMm:            readMetricInputValue(get('sightHeight'), 'sightHeight', unitSystem, 0),
     shootingAngleDegrees:     +get('shootingAngle').value,
     dragModel:                get('dragModel').value,
-    ...(twistRaw ? { twistRateInchesPerTurn: +twistRaw } : {}),
-    ...(latRaw   ? { latitudeDeg: +latRaw } : {}),
-    ...(azRaw    ? { azimuthDeg:  +azRaw  } : {}),
+    ...extras.fields,
   };
   lastReq = req;
 
@@ -729,15 +795,12 @@ async function runCustom() {
   const bc     = +get('customBC').value;
   const dia    = readMetricInputValue(get('customDia'),    'diameter', unitSystem, 0);
 
-  const latRawC = get('latitudeDeg')?.value;
-  const azRawC  = get('azimuthDeg')?.value;
-
   if (!(weight > 0))           return showCustomError('Weight must be greater than 0');
   if (!(mv > 0))               return showCustomError('Muzzle velocity must be greater than 0');
   if (!(bc > 0 && bc <= 1.2))  return showCustomError('BC must be between 0 and 1.2');
   if (!(dia > 0))              return showCustomError('Diameter must be greater than 0');
-  if (latRawC && (+latRawC < -90 || +latRawC > 90)) return showCustomError('Latitude must be between −90 and 90');
-  if (azRawC  && (+azRawC  < 0  || +azRawC  > 360)) return showCustomError('Azimuth must be between 0 and 360');
+  const extras = _readEnvExtras(false);
+  if (extras.error)            return showCustomError(extras.error);
   showCustomError('');
   _warmChart();
 
@@ -757,8 +820,7 @@ async function runCustom() {
     sightHeightMm:         readMetricInputValue(get('sightHeight'), 'sightHeight', unitSystem, 0),
     shootingAngleDegrees:  +get('shootingAngle').value,
     dragModel:             get('dragModel').value,
-    ...(latRawC ? { latitudeDeg: +latRawC } : {}),
-    ...(azRawC  ? { azimuthDeg:  +azRawC  } : {}),
+    ...extras.fields,
     ...(_customDragTable ? { customDragTable: _customDragTable } : {}),
   };
 
@@ -896,8 +958,14 @@ function renderSweepCharts(sweepResultsList, sweepParam) {
 // ── URL state sharing ─────────────────────────────────────────────────────────
 function currentState() {
   const get = id => document.getElementById(id);
-  const latVal = get('latitudeDeg')?.value;
-  const azVal  = get('azimuthDeg')?.value;
+  const latVal   = get('latitudeDeg')?.value;
+  const azVal    = get('azimuthDeg')?.value;
+  const pressEl  = get('pressureHpa');
+  const pressVal = pressEl && pressEl.value !== ''
+    ? readMetricInputValue(pressEl, 'pressure', unitSystem)
+    : undefined;
+  const humVal   = get('humidityPercent')?.value;
+  const eotvosOn = Boolean(get('includeEotvos')?.checked);
   /* istanbul ignore next -- each element is always present in the app shell */
   return {
     bulletIds:   [...selectedIds],
@@ -914,6 +982,9 @@ function currentState() {
     units:       unitSystem,
     ...(latVal !== undefined && latVal !== '' ? { latitudeDeg: +latVal } : {}),
     ...(azVal  !== undefined && azVal  !== '' ? { azimuthDeg:  +azVal  } : {}),
+    ...(pressVal !== undefined ? { pressureHpa: pressVal } : {}),
+    ...(humVal !== undefined && humVal !== '' ? { humidityPercent: +humVal } : {}),
+    ...(eotvosOn ? { includeEotvos: true } : {}),
   };
 }
 
@@ -947,6 +1018,83 @@ function initThemeToggle() {
   );
 }
 
+// ── Rifle profiles & input helpers (ENH-5) ────────────────────────────────────
+function _setInputVal(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.value = val;
+}
+
+function _setMetricInputVal(id, kind, val) {
+  const el = document.getElementById(id);
+  if (el) {
+    writeMetricInputValue(el, kind, val, unitSystem);
+    el.dataset.unitApplied = unitSystem;
+  }
+}
+
+function _renderProfileSelect(selectedName = '') {
+  const select = document.getElementById('profileSelect');
+  const delBtn = document.getElementById('deleteProfileBtn');
+  if (!select) return;
+  const profiles = loadProfiles();
+  select.replaceChildren();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '— Saved profiles —';
+  select.appendChild(placeholder);
+  for (const p of profiles) {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.name;
+    select.appendChild(opt);
+  }
+  select.value = profiles.some(p => p.name === selectedName) ? selectedName : '';
+  /* istanbul ignore else -- #deleteProfileBtn is always present with #profileSelect */
+  if (delBtn) delBtn.disabled = !select.value;
+}
+
+async function _applyProfile(profile) {
+  const p = profile.params;
+  if (p.units && p.units !== unitSystem) {
+    await setUnitSystem(p.units, { persist: true });
+  }
+  _setMetricInputVal('zeroRange',   'range',       p.zero);
+  _setMetricInputVal('maxRange',    'range',       p.maxRange);
+  _setMetricInputVal('windSpeed',   'windSpeed',   p.wind);
+  _setInputVal('windDir',           String(p.windDir));
+  _setMetricInputVal('altitude',    'altitude',    p.altitude);
+  _setMetricInputVal('temperature', 'temp',        p.temp);
+  _setMetricInputVal('step',        'step',        p.step);
+  _setMetricInputVal('sightHeight', 'sightHeight', p.sightHeight);
+  _setInputVal('shootingAngle',     String(p.angle));
+  _setInputVal('dragModel',         p.dragModel);
+  _setInputVal('twistRate',         p.twistRate != null ? String(p.twistRate) : '');
+  _setInputVal('latitudeDeg',       p.latitudeDeg != null ? String(p.latitudeDeg) : '');
+  _setInputVal('azimuthDeg',        p.azimuthDeg != null ? String(p.azimuthDeg) : '');
+  _setMetricInputVal('pressureHpa', 'pressure',    p.pressureHpa ?? null);
+  _setInputVal('humidityPercent',   p.humidityPercent != null ? String(p.humidityPercent) : '');
+  const eotvosEl = document.getElementById('includeEotvos');
+  /* istanbul ignore else -- #includeEotvos is always present in the app shell */
+  if (eotvosEl) eotvosEl.checked = Boolean(p.includeEotvos);
+
+  const validIds = p.bulletIds.filter(id => _bulletById.has(id)).slice(0, MAX_SELECTED_BULLETS);
+  selectedIds = new Set(validIds);
+  updateBulletCards();
+  updateSweepButtonVisibility();
+
+  const nameInput = document.getElementById('profileNameInput');
+  /* istanbul ignore else -- #profileNameInput is always present in the app shell */
+  if (nameInput) nameInput.value = profile.name;
+  const delBtn = document.getElementById('deleteProfileBtn');
+  /* istanbul ignore else -- #deleteProfileBtn is always present in the app shell */
+  if (delBtn) delBtn.disabled = false;
+
+  savePrefs();
+  syncUrl();
+  if (_isAutoComputeEnabled() && selectedIds.size > 0) _scheduleAutoCompute();
+  showToast('Profile loaded');
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 let _initListenerController = null;
 
@@ -978,26 +1126,22 @@ function init() {
   setUnitSystemState(unitSystem);
   _syncUnitToggleUI(unitSystem);
   const merged  = { ...loadPrefs(), ...fromUrl.params };
-  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-  const setMetricVal = (id, kind, val) => {
-    const el = document.getElementById(id);
-    if (el) {
-      writeMetricInputValue(el, kind, val, unitSystem);
-      el.dataset.unitApplied = unitSystem;
-    }
-  };
-  setMetricVal('zeroRange',   'range',       merged.zero);
-  setMetricVal('maxRange',    'range',       merged.maxRange);
-  setMetricVal('windSpeed',   'windSpeed',   merged.wind);
-  setVal('windDir',           merged.windDir);
-  setMetricVal('altitude',    'altitude',    merged.altitude);
-  setMetricVal('temperature', 'temp',        merged.temp);
-  setMetricVal('step',        'step',        merged.step);
-  setMetricVal('sightHeight', 'sightHeight', merged.sightHeight);
-  setVal('shootingAngle',     merged.angle);
-  setVal('dragModel',         merged.dragModel);
-  if (fromUrl.params.latitudeDeg != null) setVal('latitudeDeg', fromUrl.params.latitudeDeg);
-  if (fromUrl.params.azimuthDeg  != null) setVal('azimuthDeg',  fromUrl.params.azimuthDeg);
+  _setMetricInputVal('zeroRange',   'range',       merged.zero);
+  _setMetricInputVal('maxRange',    'range',       merged.maxRange);
+  _setMetricInputVal('windSpeed',   'windSpeed',   merged.wind);
+  _setInputVal('windDir',           merged.windDir);
+  _setMetricInputVal('altitude',    'altitude',    merged.altitude);
+  _setMetricInputVal('temperature', 'temp',        merged.temp);
+  _setMetricInputVal('step',        'step',        merged.step);
+  _setMetricInputVal('sightHeight', 'sightHeight', merged.sightHeight);
+  _setInputVal('shootingAngle',     merged.angle);
+  _setInputVal('dragModel',         merged.dragModel);
+  if (fromUrl.params.latitudeDeg     != null) _setInputVal('latitudeDeg', fromUrl.params.latitudeDeg);
+  if (fromUrl.params.azimuthDeg      != null) _setInputVal('azimuthDeg',  fromUrl.params.azimuthDeg);
+  if (fromUrl.params.pressureHpa     != null) _setMetricInputVal('pressureHpa', 'pressure', fromUrl.params.pressureHpa);
+  if (fromUrl.params.humidityPercent != null) _setInputVal('humidityPercent', fromUrl.params.humidityPercent);
+  const eotvosEl = document.getElementById('includeEotvos');
+  if (eotvosEl && fromUrl.params.includeEotvos != null) eotvosEl.checked = Boolean(fromUrl.params.includeEotvos);
 
   for (const [id, kind] of Object.entries(ALL_UNIT_INPUTS)) {
     if (PREF_UNIT_INPUT_IDS.has(id)) continue;
@@ -1062,8 +1206,8 @@ function init() {
 
   // Persist parameter changes automatically, sync URL, and schedule auto-compute
   const autoParamIds = [
-    'zeroRange','maxRange','windSpeed','windDir','altitude','temperature',
-    'step','sightHeight','shootingAngle','dragModel','twistRate','latitudeDeg','azimuthDeg',
+    'zeroRange','maxRange','windSpeed','windDir','altitude','pressureHpa','temperature','humidityPercent',
+    'step','sightHeight','shootingAngle','dragModel','twistRate','latitudeDeg','azimuthDeg','includeEotvos',
   ];
   autoParamIds.forEach(id => {
     const el = document.getElementById(id);
@@ -1215,49 +1359,96 @@ function init() {
   // WA-12: Wire file input for custom drag table (lazy-loads drag-csv.js, PERF-28)
   document.getElementById('dragTableFile')?.addEventListener('change', async e => {
     const file = e.target.files?.[0];
-    if (!file) return;
     const helpEl = document.getElementById('dragTableHelp');
-    if (file.size > 64 * 1024) {
-      /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-      if (helpEl) helpEl.textContent = 'File too large (max 64 KB).';
-      return;
-    }
-    let parseDragCsv;
-    try {
-      ({ parseDragCsv } = await _loadDragCsv());
-    } catch (_) {
-      /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-      if (helpEl) helpEl.textContent = DRAG_CSV_LOAD_ERROR_MSG;
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = evt => {
-      try {
-        const table = parseDragCsv(evt.target.result);
+    await _readDragCsvFile(file, {
+      onSuccess(table) {
         _customDragTable = table;
         safeSetItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
         _updateDragTableStatus(file.name, table.length);
         /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
         if (helpEl) helpEl.textContent = 'Loaded — custom-round results use this table instead of G1/G7.';
-      } catch (err) {
+      },
+      onError(msg) {
         _customDragTable = null;
         safeRemoveItem(CUSTOM_DRAG_TABLE_KEY);
         /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-        if (helpEl) helpEl.textContent = err.message;
-      }
-    };
-    reader.onerror = () => {
-      /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-      if (helpEl) helpEl.textContent = 'Error reading file.';
-    };
-    reader.readAsText(file);
+        if (helpEl) helpEl.textContent = msg;
+      },
+    });
   }, { signal });
 
   document.getElementById('dragTableClearBtn')?.addEventListener('click', _clearCustomDragTable, { signal });
 
-  // UX-1: Wire custom bullet form
+  // ENH-5: Wire rifle profiles bar
+  _renderProfileSelect();
+  document.getElementById('profileSelect')?.addEventListener('change', async e => {
+    const name = e.target.value;
+    const delBtn = document.getElementById('deleteProfileBtn');
+    /* istanbul ignore else -- #deleteProfileBtn is always present in the app shell */
+    if (delBtn) delBtn.disabled = !name;
+    if (!name) return;
+    const match = loadProfiles().find(p => p.name === name);
+    /* istanbul ignore else -- selected option always corresponds to a saved profile */
+    if (match) await _applyProfile(match);
+  }, { signal });
+  document.getElementById('saveProfileBtn')?.addEventListener('click', () => {
+    const nameInput = document.getElementById('profileNameInput');
+    const select    = document.getElementById('profileSelect');
+    const name      = (nameInput?.value ?? '').trim() || select?.value || '';
+    const twistRaw  = document.getElementById('twistRate')?.value;
+    const params    = {
+      ...currentState(),
+      ...(twistRaw ? { twistRate: +twistRaw } : {}),
+    };
+    const res = saveProfile(name, params);
+    if (!res.ok) {
+      showToast(res.message);
+      return;
+    }
+    /* istanbul ignore else -- #profileNameInput is always present in the app shell */
+    if (nameInput) nameInput.value = res.profile.name;
+    _renderProfileSelect(res.profile.name);
+    showToast(res.replaced ? 'Profile updated' : 'Profile saved');
+  }, { signal });
+  document.getElementById('deleteProfileBtn')?.addEventListener('click', () => {
+    const select = document.getElementById('profileSelect');
+    const name   = select?.value;
+    if (!name) return;
+    const res = deleteProfile(name);
+    if (!res.ok) {
+      showToast("Couldn't delete profile: browser storage unavailable.");
+      return;
+    }
+    _renderProfileSelect('');
+    const nameInput = document.getElementById('profileNameInput');
+    /* istanbul ignore else -- #profileNameInput is always present in the app shell */
+    if (nameInput) nameInput.value = '';
+    showToast('Profile deleted');
+  }, { signal });
+
+  // UX-1 + ENH-5: Wire custom bullet form and unified drag CSV input
   document.getElementById('addCustomBulletBtn')?.addEventListener('click', openCustomBulletAdd, { signal });
   document.getElementById('customBulletCancelBtn')?.addEventListener('click', closeCustomBulletForm, { signal });
+  document.getElementById('cbDragCsv')?.addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    await _readDragCsvFile(file, {
+      onSuccess(table) {
+        _cbPendingDragTable = table;
+        _cbPendingDragName  = file.name;
+        _syncCbDragCsvUI('');
+      },
+      onError(msg) {
+        _cbPendingDragTable = null;
+        _cbPendingDragName  = '';
+        _syncCbDragCsvUI(msg);
+      },
+    });
+  }, { signal });
+  document.getElementById('cbDragCsvClearBtn')?.addEventListener('click', () => {
+    _cbPendingDragTable = null;
+    _cbPendingDragName  = '';
+    _syncCbDragCsvUI('');
+  }, { signal });
   document.getElementById('customBulletForm')?.addEventListener('submit', e => {
     e.preventDefault();
     _handleCustomBulletSubmit();
@@ -1279,10 +1470,37 @@ function _syncCustomPanelAvailability() {
 
 // ── Custom bullet form handlers ───────────────────────────────────────────────
 
+function _syncCbDragCsvUI(errMsg) {
+  const statusEl = document.getElementById('cbDragCsvStatus');
+  const nameEl   = document.getElementById('cbDragCsvName');
+  const errEl    = document.getElementById('cbDragCsv-error');
+  const fileEl   = document.getElementById('cbDragCsv');
+  /* istanbul ignore else -- #cbDragCsv-error is always present in the app shell */
+  if (errEl) errEl.textContent = errMsg;
+  /* istanbul ignore else -- #cbDragCsvStatus is always present in the app shell */
+  if (statusEl) {
+    if (_cbPendingDragTable) statusEl.removeAttribute('hidden');
+    else statusEl.setAttribute('hidden', '');
+  }
+  /* istanbul ignore else -- #cbDragCsvName is always present in the app shell */
+  if (nameEl) {
+    nameEl.textContent = _cbPendingDragTable
+      ? (_cbPendingDragName
+        ? `${_cbPendingDragName} (${_cbPendingDragTable.length} rows)`
+        : `Custom curve (${_cbPendingDragTable.length} rows)`)
+      : '';
+  }
+  /* istanbul ignore else -- #cbDragCsv is always present in the app shell */
+  if (!_cbPendingDragTable && fileEl) fileEl.value = '';
+}
+
 /** Open form in add mode. */
 export function openCustomBulletAdd() {
   pendingDeleteId = null;
   editingCustomId = null;
+  _cbPendingDragTable = null;
+  _cbPendingDragName  = '';
+  _syncCbDragCsvUI('');
   const form = document.getElementById('customBulletForm');
   const title = document.getElementById('customBulletFormTitle');
   /* istanbul ignore else -- #customBulletForm is always present in the app shell */
@@ -1318,6 +1536,11 @@ export function openCustomBulletEdit(id) {
   if (!record) return;
   pendingDeleteId = null;
   editingCustomId = id;
+  _cbPendingDragTable = record.customDragTable
+    ? record.customDragTable.map(p => ({ mach: p.mach, cd: p.cd }))
+    : null;
+  _cbPendingDragName = '';
+  _syncCbDragCsvUI('');
   const form  = document.getElementById('customBulletForm');
   const title = document.getElementById('customBulletFormTitle');
   /* istanbul ignore else -- #customBulletForm is always present in the app shell */
@@ -1356,6 +1579,9 @@ export function openCustomBulletEdit(id) {
 /** Close the custom bullet form and reset state. */
 export function closeCustomBulletForm() {
   editingCustomId = null;
+  _cbPendingDragTable = null;
+  _cbPendingDragName  = '';
+  _syncCbDragCsvUI('');
   const form   = document.getElementById('customBulletForm');
   const addBtn = document.getElementById('addCustomBulletBtn');
   /* istanbul ignore else -- #customBulletForm is always present in the app shell */
@@ -1510,7 +1736,8 @@ function _handleCustomBulletSubmit() {
   }
 
   const isEditing  = editingCustomId != null;
-  const next       = upsertCustomBullet(customRecords, result.value, editingCustomId);
+  const payload    = { ...result.value, customDragTable: _cbPendingDragTable };
+  const next       = upsertCustomBullet(customRecords, payload, editingCustomId);
   const saveResult = saveCustomBullets(next);
   if (!saveResult.ok) {
     const formErrEl = document.getElementById('customBulletFormError');
@@ -1552,6 +1779,8 @@ function _resetState() {
   unitSystem = UNIT_SYSTEMS.METRIC;
   setUnitSystemState(UNIT_SYSTEMS.METRIC);
   _customDragTable = null;
+  _cbPendingDragTable = null;
+  _cbPendingDragName  = '';
   customRecords = []; customStorageStatus = 'ok';
   editingCustomId = null; pendingDeleteId = null;
   _lazyModPromises.io = null;

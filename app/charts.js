@@ -684,8 +684,9 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
   rc.style.display = 'flex';
   const cc = document.getElementById('chartContainer');
   const modelEl = document.getElementById('modelStatus');
+  const isCustomModel = Boolean(req.customDragTable?.length || results.some(r => r.dragModel === 'custom'));
   /* istanbul ignore else -- #modelStatus is always present in the app shell */
-  if (modelEl) modelEl.textContent = `MODEL: ${req.customDragTable?.length ? 'CUSTOM' : (req.dragModel ?? 'G1')}`;
+  if (modelEl) modelEl.textContent = `MODEL: ${isCustomModel ? 'CUSTOM' : (req.dragModel ?? 'G1')}`;
 
   resetCrosshairState();
   _readoutCache = null;

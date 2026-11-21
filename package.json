@@ -32,6 +32,7 @@
       "app/sweep.js",
       "app/io.js",
       "app/custom-bullets.js",
+      "app/profiles.js",
       "app/tools.js",
       "app/units.js",
       "app/url-state.js",

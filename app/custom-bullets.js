@@ -165,6 +165,24 @@ export function validateCustomBulletInput(raw, ctx) {
   };
 }
 
+// ── Drag table validation (ENH-5) ─────────────────────────────────────────────
+
+/** Validate a custom Mach→Cd drag table array (3–100 strictly increasing points). */
+export function isValidCustomDragTable(arr) {
+  if (!Array.isArray(arr) || arr.length < 3 || arr.length > 100) return false;
+  for (const p of arr) {
+    if (p === null || typeof p !== 'object' || Array.isArray(p)) return false;
+    if (typeof p.mach !== 'number' || !Number.isFinite(p.mach) || p.mach < 0 || p.mach > 5) return false;
+    if (typeof p.cd   !== 'number' || !Number.isFinite(p.cd)   || p.cd   < 0.001 || p.cd > 2) return false;
+  }
+  for (let i = 1; i < arr.length; i++) {
+    if (arr[i].mach <= arr[i - 1].mach) return false;
+  }
+  if (!arr.some(p => p.mach <= 0.5)) return false;
+  if (!arr.some(p => p.mach >= 2.0)) return false;
+  return true;
+}
+
 // ── Storage-side validation ───────────────────────────────────────────────────
 
 /** Validates a parsed record from storage against the schema. Returns boolean. */
@@ -206,6 +224,11 @@ export function isValidCustomBulletRecord(obj) {
     if (g7 < lim.min || g7 > lim.max) return false;
   }
 
+  // customDragTable: optional; when present and non-null, must be valid
+  if (obj.customDragTable !== undefined && obj.customDragTable !== null) {
+    if (!isValidCustomDragTable(obj.customDragTable)) return false;
+  }
+
   return true;
 }
 
@@ -242,7 +265,7 @@ export function loadCustomBullets() {
 
       seenIds.add(item.id);
       seenNames.add(nameLc);
-      // Rebuild with only the 8 schema properties (strips extra/prototype keys)
+      // Rebuild with only the allowed schema properties (strips extra/prototype keys)
       records.push({
         id:                     item.id,
         name:                   item.name,
@@ -252,6 +275,7 @@ export function loadCustomBullets() {
         ballisticCoefficientG7: item.ballisticCoefficientG7,
         bulletDiameterInches:   item.bulletDiameterInches,
         muzzleVelocityFps:      item.muzzleVelocityFps,
+        ...(item.customDragTable ? { customDragTable: item.customDragTable.map(p => ({ mach: p.mach, cd: p.cd })) } : {}),
       });
     }
 
@@ -282,15 +306,19 @@ export function saveCustomBullets(records) {
  * editingId == null -> append. editingId set -> replace at same index.
  */
 export function upsertCustomBullet(records, value, editingId) {
+  const cleanValue = { ...value };
+  if (cleanValue.customDragTable == null) delete cleanValue.customDragTable;
   if (editingId == null) {
     const existingIds = new Set(records.map(r => r.id));
     const id = newCustomBulletId(existingIds);
-    return [...records, { id, ...value }];
+    return [...records, { id, ...cleanValue }];
   }
   const idx = records.findIndex(r => r.id === editingId);
   if (idx === -1) return [...records];
   const next = [...records];
-  next[idx] = { ...records[idx], ...value, id: editingId };
+  const updated = { ...records[idx], ...cleanValue, id: editingId };
+  if (value.customDragTable === null) delete updated.customDragTable;
+  next[idx] = updated;
   return next;
 }
 
@@ -325,6 +353,7 @@ export function toBullet(record) {
     shortName:                record.shortName,
     ballisticCoefficientG7:   record.ballisticCoefficientG7,
     source:                   'custom',
+    ...(record.customDragTable ? { customDragTable: record.customDragTable } : {}),
   };
 }
 
@@ -453,6 +482,9 @@ export function renderCustomBulletGroup(listEl, customBullets, ctx) {
     let specText = `${b.shortName} · ${displayGrains} gr · ${displayFps} fps · G1 ${displayBcG1}`;
     if (b.ballisticCoefficientG7 != null) {
       specText += ` · G7 ${b.ballisticCoefficientG7}`;
+    }
+    if (b.customDragTable) {
+      specText += ' · CSV';
     }
     specs.textContent = specText;
     card.appendChild(specs);

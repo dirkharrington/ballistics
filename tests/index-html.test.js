@@ -42,3 +42,15 @@ describe('PERF-24: index.html single module script entry', () => {
     expect(matches[0]).toContain('ballistics.js');
   });
 });
+
+describe('ENH-5: profile bar, atmosphere/Eotvos controls, custom drag CSV & clean copy', () => {
+  test('removes stale HTTPS server copy from #latitudeDeg tooltip and includes ENH-5 controls', () => {
+    expect(html).not.toContain('requests over HTTPS');
+    expect(html).toContain('id="profileBar"');
+    expect(html).toContain('id="pressureHpa"');
+    expect(html).toContain('id="humidityPercent"');
+    expect(html).toContain('id="includeEotvos"');
+    expect(html).toContain('id="cbDragCsv"');
+    expect(html).toContain('id="eotvosColHeader"');
+  });
+});
