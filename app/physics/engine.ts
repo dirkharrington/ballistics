@@ -133,7 +133,7 @@ function validate(bullet: Bullet, params: TrajectoryParams): void {
  * drag coefficients. The custom `cd` drops into the same slot and is still divided by the
  * bullet's BC, with no Cd→retardation conversion. Results are self-consistent and respond
  * correctly to the shape of the curve, but the absolute effect of a custom curve is small
- * due to the engine's near-vacuum drag behaviour. See WA-13 for details.
+ * due to the engine's near-vacuum drag behaviour. See contracts/feat3-custom-drag-ts.md for details.
  * @internal
  */
 export function toDragTable(points: readonly DragPoint[]): DragTable {
@@ -144,7 +144,7 @@ export function toDragTable(points: readonly DragPoint[]): DragTable {
  * Flat typed-array drag table for zero-allocation O(1)-amortized RK4 lookups (PERF-15).
  * @internal
  */
-export interface CompiledDragTable {
+interface CompiledDragTable {
   readonly v: Float64Array;
   readonly f: Float64Array;
   readonly dv: Float64Array;
@@ -200,43 +200,6 @@ export function findBracket(v: number, ct: CompiledDragTable, idx: number): numb
   return idx;
 }
 
-/**
- * Evaluates piecewise-linear drag at speed v using pre-found bracket idx.
- * Uses the exact same arithmetic order as interpolateDragTable for bit-identical results.
- * @internal
- */
-export function evalCompiledDrag(v: number, ct: CompiledDragTable, idx: number): number {
-  if (v <= ct.v[0]!) return ct.f[0]!;
-  if (v >= ct.v[ct.last]!) return ct.f[ct.last]!;
-  const t = (v - ct.v[idx - 1]!) / ct.dv[idx]!;
-  return ct.f[idx - 1]! + t * ct.df[idx]!;
-}
-
-/**
- * Interpolates the drag coefficient for speed |v| from a drag table.
- * Precondition: table v-values (column 0) are strictly ascending.
- * @internal
- */
-export function interpolateDragTable(v: number, table: DragTable): number {
-  if (Number.isNaN(v)) return Number.NaN;
-  v = Math.abs(v);
-  if (v <= table[0]![0]) return table[0]![1];
-  const last = table.length - 1;
-  if (v >= table[last]![0]) return table[last]![1];
-  // Lower-bound binary search: find smallest i in [1, n-1] with table[i][0] >= v.
-  // Picks the same bracket as the former linear scan.
-  let lo = 1, hi = last;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (table[mid]![0] < v) lo = mid + 1;
-    else hi = mid;
-  }
-  const a = table[lo - 1]!;
-  const b = table[lo]!;
-  const t = (v - a[0]) / (b[0] - a[0]);
-  return a[1] + t * (b[1] - a[1]);
-}
-
 /** @internal */
 export function airDensityRatio(altFt: number, tempF: number): number {
   const stdTemp    = ATMOSPHERE.stdTempF - ATMOSPHERE.lapseRatePer1000Ft * (altFt / 1000);
@@ -288,7 +251,7 @@ export function spinDriftInches(sg: number, tofSec: number): number {
 }
 
 /** Per-point add-ons computed alongside the RK4 samples. @internal */
-export interface PointExtras {
+interface PointExtras {
   /** Gyroscopic stability factor. null/undefined = spin drift disabled (spinDriftCm = 0). */
   readonly stabilityFactor?: number | null;
   /** OMEGA × sin(lat) × muzzleVelocityMps (m/s²). null/undefined = Coriolis disabled (key omitted). */
