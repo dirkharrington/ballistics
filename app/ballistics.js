@@ -1,17 +1,17 @@
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { decodeState, mergeIntoSearch } from './url-state.js';
-import { loadPresets, savePreset, deletePreset, renderPresetList } from './custom-rounds.js';
 import { TrajectoryInputError } from './physics/errors.ts';
 import { simulateAsync, solveBCAsync, prewarmPhysicsWorker } from './physics/engine-async.ts';
 import {
-  loadCustomBullets, saveCustomBullets, mergeCatalog, isCustomBulletId,
+  loadCustomBullets, saveCustomBullets, migrateLegacyCustomRounds,
+  mergeCatalog, isCustomBulletId,
   renderCustomBulletGroup, syncCustomDeleteGuards, syncCustomRovingTabindex,
   upsertCustomBullet, removeCustomBullet, validateCustomBulletInput,
-  bulletForDragModel, isValidCustomDragTable,
+  bulletForDragModel,
 } from './custom-bullets.js';
 import {
-  PREF_DEFAULTS, CUSTOM_DRAG_TABLE_KEY,
-  safeSetItem, safeRemoveItem, loadAutoComputePref, saveAutoComputePref,
+  PREF_DEFAULTS,
+  loadAutoComputePref, saveAutoComputePref,
   savePrefs as _savePrefs, loadPrefs, initThemeToggle as _initThemeToggle,
   escapeHtml, computeAdjustments, showToast, _setSimStatus, _setSimulationError,
 } from './prefs.js';
@@ -68,7 +68,6 @@ function debounce(fn, delayMs) {
 }
 
 // ── Module state ──────────────────────────────────────────────────────────────
-let _customDragTable = null;
 let _cbPendingDragTable = null;
 let _cbPendingDragName  = '';
 
@@ -103,9 +102,6 @@ const UNIT_INPUT_CONFIG = Object.freeze({
   step:         { kind: 'step',        metric: { min: '10',  max: '100',  step: '10'   }, imperial: { min: '10',    max: '110',   step: '1'     } },
   sightHeight:  { kind: 'sightHeight', metric: { min: '10',  max: '100',  step: '0.1'  }, imperial: { min: '0.4',   max: '4',     step: '0.01'  } },
   mpbrVitalCm:  { kind: 'vitalZone',   metric: { min: '2',   max: '100',  step: '1'    }, imperial: { min: '0.8',   max: '40',    step: '0.1'   } },
-  customWeight: { kind: 'weight',      metric: { min: '1',   max: '30',   step: '0.1'  }, imperial: { min: '15',    max: '465',   step: '0.1'   } },
-  customMV:     { kind: 'velocity',    metric: { min: '200', max: '1800', step: '10'   }, imperial: { min: '650',   max: '5900',  step: '1'     } },
-  customDia:    { kind: 'diameter',    metric: { min: '4',   max: '20',   step: '0.01' }, imperial: { min: '0.15',  max: '0.8',   step: '0.001' } },
 });
 
 const ALL_UNIT_INPUTS = Object.freeze({
@@ -118,9 +114,6 @@ const ALL_UNIT_INPUTS = Object.freeze({
   step:          'step',
   sightHeight:   'sightHeight',
   mpbrVitalCm:   'vitalZone',
-  customWeight:  'weight',
-  customMV:      'velocity',
-  customDia:     'diameter',
   bcCalcWeightG: 'weight',
   bcCalcMvMps:   'velocity',
   bcCalcDropCm:  'drop',
@@ -296,34 +289,7 @@ function _nextSimSignal() {
   return _simAbortController.signal;
 }
 
-// ── Custom drag table helpers ─────────────────────────────────────────────────
-function _updateDragTableStatus(fileName, rowCount) {
-  const statusDiv = document.getElementById('dragTableStatus');
-  const nameEl    = document.getElementById('dragTableName');
-  const helpEl    = document.getElementById('dragTableHelp');
-  /* istanbul ignore else -- #dragTableStatus is always present in the app shell */
-  if (statusDiv) statusDiv.style.display = (fileName || _customDragTable) ? 'block' : 'none';
-  /* istanbul ignore else -- #dragTableName is always present in the app shell */
-  if (nameEl)    nameEl.textContent = fileName
-    ? `${fileName} (${rowCount} rows)`
-    : (_customDragTable ? `Loaded (${_customDragTable.length} rows)` : '');
-  if (helpEl && !fileName) helpEl.textContent = 'Mach,CD columns. Overrides the drag model for custom-round runs.';
-}
-
-function _clearCustomDragTable() {
-  _customDragTable = null;
-  safeRemoveItem(CUSTOM_DRAG_TABLE_KEY);
-  const statusDiv  = document.getElementById('dragTableStatus');
-  const fileInput  = document.getElementById('dragTableFile');
-  const helpEl     = document.getElementById('dragTableHelp');
-  /* istanbul ignore else -- #dragTableStatus is always present in the app shell */
-  if (statusDiv)  statusDiv.style.display = 'none';
-  /* istanbul ignore else -- #dragTableFile is always present in the app shell */
-  if (fileInput)  fileInput.value = '';
-  /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-  if (helpEl)     helpEl.textContent = 'Mach,CD columns. Overrides the drag model for custom-round runs.';
-}
-
+// ── Custom drag table CSV reader ──────────────────────────────────────────────
 async function _readDragCsvFile(file, { onSuccess, onError }) {
   if (!file) return;
   if (file.size > 64 * 1024) {
@@ -636,7 +602,7 @@ function syncRunButton() {
 }
 
 // ── Simulation ────────────────────────────────────────────────────────────────
-function _readEnvExtras(includeTwist) {
+function _readEnvExtras() {
   const get = id => document.getElementById(id);
   const latRaw   = get('latitudeDeg')?.value;
   const azRaw    = get('azimuthDeg')?.value;
@@ -647,7 +613,7 @@ function _readEnvExtras(includeTwist) {
   const humRaw   = get('humidityPercent')?.value;
   const humidityPercent = humRaw != null && humRaw !== '' ? +humRaw : null;
   const includeEotvos = Boolean(get('includeEotvos')?.checked);
-  const twistRaw = includeTwist ? get('twistRate')?.value : '';
+  const twistRaw = get('twistRate')?.value;
 
   let error = null;
   if (latRaw && (+latRaw < -90 || +latRaw > 90)) error = 'Latitude must be between −90 and 90.';
@@ -677,7 +643,7 @@ async function runSimulation() {
   _persistInputs.flush();
   _setSimulationError(null);
 
-  const extras = _readEnvExtras(true);
+  const extras = _readEnvExtras();
   if (extras.error) { _setSimulationError(extras.error); return; }
 
   const btn = document.getElementById('runBtn');
@@ -769,77 +735,6 @@ function exportMarkdown() {
 
 function exportPNG(chartId) {
   return _withIo(io => io.exportPNG(chartId));
-}
-
-// ── Custom round ──────────────────────────────────────────────────────────────
-function showCustomError(msg) {
-  const el = document.getElementById('customError');
-  /* istanbul ignore next -- #customError is always present when this function is called */
-  if (!el) return;
-  el.textContent = msg;
-  el.style.display = msg ? 'block' : 'none';
-}
-
-async function runCustom() {
-  _persistInputs.flush();
-  _setSimulationError(null);
-  const get    = id => document.getElementById(id);
-  const name   = get('customName').value.trim() || 'Custom Load';
-  const weight = readMetricInputValue(get('customWeight'), 'weight',   unitSystem, 0);
-  const mv     = readMetricInputValue(get('customMV'),     'velocity', unitSystem, 0);
-  const bc     = +get('customBC').value;
-  const dia    = readMetricInputValue(get('customDia'),    'diameter', unitSystem, 0);
-
-  if (!(weight > 0))           return showCustomError('Weight must be greater than 0');
-  if (!(mv > 0))               return showCustomError('Muzzle velocity must be greater than 0');
-  if (!(bc > 0 && bc <= 1.2))  return showCustomError('BC must be between 0 and 1.2');
-  if (!(dia > 0))              return showCustomError('Diameter must be greater than 0');
-  const extras = _readEnvExtras(false);
-  if (extras.error)            return showCustomError(extras.error);
-  showCustomError('');
-  _warmChart();
-
-  const req = {
-    name,
-    bulletWeightGrams:     weight,
-    muzzleVelocityMps:     mv,
-    ballisticCoefficient:  bc,
-    bulletDiameterMm:      dia,
-    zeroRangeMeters:       readMetricInputValue(get('zeroRange'),   'range',       unitSystem, 0),
-    maxRangeMeters:        readMetricInputValue(get('maxRange'),    'range',       unitSystem, 0),
-    stepMeters:            readMetricInputValue(get('step'),        'step',        unitSystem, 0),
-    windSpeedKph:          readMetricInputValue(get('windSpeed'),   'windSpeed',   unitSystem, 0),
-    windDirectionDeg:      +get('windDir').value,
-    altitudeMeters:        readMetricInputValue(get('altitude'),    'altitude',    unitSystem, 0),
-    temperatureC:          readMetricInputValue(get('temperature'), 'temp',        unitSystem, 0),
-    sightHeightMm:         readMetricInputValue(get('sightHeight'), 'sightHeight', unitSystem, 0),
-    shootingAngleDegrees:  +get('shootingAngle').value,
-    dragModel:             get('dragModel').value,
-    ...extras.fields,
-    ...(_customDragTable ? { customDragTable: _customDragTable } : {}),
-  };
-
-  const bullet = {
-    id: 'custom', name, caliber: 'Custom',
-    bulletWeightGrams: weight, muzzleVelocityMps: mv,
-    ballisticCoefficient: bc, bulletDiameterMm: dia,
-    muzzleEnergyJoules: Math.round(0.5 * (weight / 1000) * mv * mv),
-  };
-  const signal = _nextSimSignal();
-  let result;
-  try {
-    result = await simulateAsync(bullet, req, { signal });
-  } catch (err) {
-    if (err?.name === 'AbortError') return;
-    if (err instanceof TrajectoryInputError) {
-      return showCustomError(err.message);
-    }
-    throw err;
-  }
-  if (signal.aborted) return;
-  lastResults = [result];
-  lastReq = req;
-  renderResults([result], req);
 }
 
 // ── Mobile sidebar drawer toggle ──────────────────────────────────────────────
@@ -1150,16 +1045,18 @@ function init() {
     }
   }
 
-  // UX-1: Load and merge custom bullets
+  // UX-1: Migrate legacy custom-round presets once, then load and merge custom bullets
   {
+    const builtIn = getBuiltInBullets();
+    migrateLegacyCustomRounds(builtIn.map(b => b.name));
     const { records, status } = loadCustomBullets();
     customRecords       = records;
     customStorageStatus = status;
     if (status === 'corrupt') {
       console.warn('Custom bullets: stored data was invalid and has been ignored');
     }
+    bullets = mergeCatalog(builtIn, customRecords);
   }
-  bullets = mergeCatalog(getBuiltInBullets(), customRecords);
   _syncBulletIndex(bullets);
 
   // Restore bullet selection: URL params take precedence over saved prefs (capped at MAX_SELECTED_BULLETS)
@@ -1270,42 +1167,7 @@ function init() {
         .forEach(d => d.classList.remove('open'));
     }
   }, { signal });
-  document.getElementById('runCustomBtn')?.addEventListener('click', () => { closeSidebar(); runCustom(); }, { signal });
   document.getElementById('copyLinkBtn')?.addEventListener('click', copyLink, { signal });
-
-  const handlers = {
-    onLoad(p) {
-      document.getElementById('customName').value   = p.name;
-      writeMetricInputValue(document.getElementById('customWeight'), 'weight', p.weightG, unitSystem);
-      writeMetricInputValue(document.getElementById('customMV'), 'velocity', p.mvMps, unitSystem);
-      document.getElementById('customBC').value     = p.bc;
-      writeMetricInputValue(document.getElementById('customDia'), 'diameter', p.diaMm, unitSystem);
-      showCustomError('');
-    },
-    onDelete(id) {
-      renderPresetList(deletePreset(id), handlers);
-    },
-  };
-  document.getElementById('savePresetBtn')?.addEventListener('click', () => {
-    const name    = document.getElementById('customName').value;
-    const weightG = readMetricInputValue(document.getElementById('customWeight'), 'weight', unitSystem, 0);
-    const mvMps   = readMetricInputValue(document.getElementById('customMV'), 'velocity', unitSystem, 0);
-    const bc      = +document.getElementById('customBC').value;
-    const diaMm   = readMetricInputValue(document.getElementById('customDia'), 'diameter', unitSystem, 0);
-    const result  = savePreset({ name, weightG, mvMps, bc, diaMm });
-    if (result.ok) {
-      showCustomError('');
-      renderPresetList(result.presets, handlers);
-      showToast(result.replaced ? 'Preset updated' : 'Preset saved');
-    } else if (result.error === 'full') {
-      showToast('Preset library full (20). Delete one to save another.');
-    } else if (result.error === 'invalid') {
-      showCustomError(result.message);
-    } else {
-      showToast("Couldn't save preset: browser storage unavailable");
-    }
-  }, { signal });
-  renderPresetList(loadPresets(), handlers);
 
   document.querySelector('#dataTable thead')?.addEventListener('click', e => {
     const th = e.target.closest('th[data-sort-key]');
@@ -1326,43 +1188,6 @@ function init() {
   document.getElementById('sweepParam')?.addEventListener('change', () => { _loadSweep().catch(() => {}); }, { signal });
   document.getElementById('sweepBtn')?.addEventListener('click', runSweep, { signal });
   document.getElementById('clearSweepBtn')?.addEventListener('click', clearSweep, { signal });
-
-  // WA-12: Load custom drag table from localStorage on startup
-  try {
-    const stored = localStorage.getItem(CUSTOM_DRAG_TABLE_KEY);
-    if (stored) {
-      const arr = JSON.parse(stored);
-      if (!isValidCustomDragTable(arr)) throw new Error('invalid');
-      _customDragTable = arr.map(p => ({ mach: p.mach, cd: p.cd }));
-      _updateDragTableStatus();
-    }
-  } catch (_) {
-    _customDragTable = null;
-    safeRemoveItem(CUSTOM_DRAG_TABLE_KEY);
-  }
-
-  // WA-12: Wire file input for custom drag table (lazy-loads drag-csv.js, PERF-28)
-  document.getElementById('dragTableFile')?.addEventListener('change', async e => {
-    const file = e.target.files?.[0];
-    const helpEl = document.getElementById('dragTableHelp');
-    await _readDragCsvFile(file, {
-      onSuccess(table) {
-        _customDragTable = table;
-        safeSetItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
-        _updateDragTableStatus(file.name, table.length);
-        /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-        if (helpEl) helpEl.textContent = 'Loaded — custom-round results use this table instead of G1/G7.';
-      },
-      onError(msg) {
-        _customDragTable = null;
-        safeRemoveItem(CUSTOM_DRAG_TABLE_KEY);
-        /* istanbul ignore else -- #dragTableHelp is always present in the app shell */
-        if (helpEl) helpEl.textContent = msg;
-      },
-    });
-  }, { signal });
-
-  document.getElementById('dragTableClearBtn')?.addEventListener('click', _clearCustomDragTable, { signal });
 
   // ENH-5: Wire rifle profiles bar
   _renderProfileSelect();
@@ -1747,7 +1572,6 @@ function _resetState() {
   sweepMode = false; sweepResults = null; lastReq = null;
   unitSystem = UNIT_SYSTEMS.METRIC;
   setUnitSystemState(UNIT_SYSTEMS.METRIC);
-  _customDragTable = null;
   _cbPendingDragTable = null;
   _cbPendingDragName  = '';
   customRecords = []; customStorageStatus = 'ok';
@@ -1781,14 +1605,13 @@ export {
   _scheduleAutoCompute,
   renderResults, switchTab, init,
   exportTrajectoryCSV,
-  exportCSV, exportJSON, exportMarkdown, exportPNG, importResultsFromFile, runCustom,
+  exportCSV, exportJSON, exportMarkdown, exportPNG, importResultsFromFile,
   openSidebar, closeSidebar,
   currentState, syncUrl, copyLink,
   updateSweepButtonVisibility, runSweep, clearSweep, renderSweepCharts, _loadSweep,
   _getState, _resetState, _setBullets, _setSelectedIds, _setLastResults,
   _loadIo, _loadTools, _loadDragCsv,
   debounce,
-  _updateDragTableStatus, _clearCustomDragTable,
   _setCustomRecords, _setCustomStorageStatus,
   initThemeToggle,
   setUnitSystem, toggleUnitSystem,

@@ -36,7 +36,6 @@
       "app/tools.js",
       "app/units.js",
       "app/url-state.js",
-      "app/custom-rounds.js",
       "app/physics/engine.ts",
       "app/physics/engine-async.ts",
       "app/physics/errors.ts",

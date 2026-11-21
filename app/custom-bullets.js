@@ -5,8 +5,10 @@
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-export const CUSTOM_BULLETS_KEY    = 'ballistics:custom-bullets:v1';
-export const CUSTOM_BULLET_ID_RE   = /^usr-[0-9a-f]{16}$/;
+export const CUSTOM_BULLETS_KEY       = 'ballistics:custom-bullets:v1';
+export const LEGACY_CUSTOM_ROUNDS_KEY = 'bv_customRounds';
+export const LEGACY_CUSTOM_DRAG_KEY   = 'ballistics.customDragTable';
+export const CUSTOM_BULLET_ID_RE      = /^usr-[0-9a-f]{16}$/;
 export const MAX_CUSTOM_BULLETS    = 50;
 
 export const CUSTOM_BULLET_LIMITS  = Object.freeze({
@@ -291,6 +293,100 @@ export function saveCustomBullets(records) {
     console.warn('Custom bullets: storage write failed', e);
     return { ok: false, error: 'storage' };
   }
+}
+
+/**
+ * One-time idempotent migration from retired Custom Round accordion storage
+ * (`bv_customRounds` and `ballistics.customDragTable`) into `CUSTOM_BULLETS_KEY`.
+ * Returns { migrated, status: 'noop'|'migrated'|'cleaned'|'storage-error'|'unavailable' }.
+ */
+export function migrateLegacyCustomRounds(builtInNames = []) {
+  let rawRounds;
+  let rawDrag;
+  try {
+    rawRounds = window.localStorage.getItem(LEGACY_CUSTOM_ROUNDS_KEY);
+    rawDrag   = window.localStorage.getItem(LEGACY_CUSTOM_DRAG_KEY);
+  } catch (_) {
+    return { migrated: 0, status: 'unavailable' };
+  }
+  if (rawRounds === null && rawDrag === null) {
+    return { migrated: 0, status: 'noop' };
+  }
+
+  let legacyDrag;
+  if (rawDrag !== null) {
+    try {
+      const parsedDrag = JSON.parse(rawDrag);
+      if (isValidCustomDragTable(parsedDrag)) {
+        legacyDrag = parsedDrag.map(p => ({ mach: p.mach, cd: p.cd }));
+      }
+    } catch (_) { /* ignore corrupt legacy drag table */ }
+  }
+
+  const { records: existing } = loadCustomBullets();
+  const nextRecords = [...existing];
+  const existingIds = new Set(nextRecords.map(r => r.id));
+  const seenNames   = new Set([
+    ...builtInNames.map(n => n.toLowerCase()),
+    ...nextRecords.map(r => r.name.toLowerCase()),
+  ]);
+
+  let migrated = 0;
+  if (rawRounds !== null) {
+    let parsedRounds = null;
+    try {
+      parsedRounds = JSON.parse(rawRounds);
+    } catch (_) { /* ignore corrupt legacy presets */ }
+
+    if (Array.isArray(parsedRounds)) {
+      const clamp = (v, lim) => Math.min(lim.max, Math.max(lim.min, v));
+      for (const p of parsedRounds) {
+        if (nextRecords.length >= MAX_CUSTOM_BULLETS) break;
+        if (!p || typeof p !== 'object' || typeof p.name !== 'string') continue;
+        const name = p.name.trim().slice(0, 64).trim();
+        if (!name || FORBIDDEN_CHARS_RE.test(name)) continue;
+        const { weightG, mvMps, bc, diaMm } = p;
+        if (
+          typeof weightG !== 'number' || !Number.isFinite(weightG) || weightG <= 0 ||
+          typeof mvMps   !== 'number' || !Number.isFinite(mvMps)   || mvMps   <= 0 ||
+          typeof bc      !== 'number' || !Number.isFinite(bc)      || bc      <= 0 ||
+          typeof diaMm   !== 'number' || !Number.isFinite(diaMm)   || diaMm   <= 0
+        ) continue;
+        const nameLc = name.toLowerCase();
+        if (seenNames.has(nameLc)) continue;
+
+        const id = newCustomBulletId(existingIds);
+        existingIds.add(id);
+        seenNames.add(nameLc);
+        nextRecords.push({
+          id,
+          name,
+          shortName:              name.slice(0, 16).trim(),
+          bulletWeightGrains:     clamp(Math.round((weightG / GRAINS_TO_GRAMS) * 10) / 10, CUSTOM_BULLET_LIMITS.bulletWeightGrains),
+          ballisticCoefficientG1: clamp(Math.round(bc * 1000) / 1000, CUSTOM_BULLET_LIMITS.ballisticCoefficientG1),
+          ballisticCoefficientG7: null,
+          bulletDiameterInches:   clamp(Math.round((diaMm / INCH_TO_MM) * 1000) / 1000, CUSTOM_BULLET_LIMITS.bulletDiameterInches),
+          muzzleVelocityFps:      clamp(Math.round(mvMps / FPS_TO_MPS), CUSTOM_BULLET_LIMITS.muzzleVelocityFps),
+          ...(legacyDrag ? { customDragTable: legacyDrag.map(pt => ({ mach: pt.mach, cd: pt.cd })) } : {}),
+        });
+        migrated++;
+      }
+    }
+  }
+
+  if (migrated > 0) {
+    const saveRes = saveCustomBullets(nextRecords);
+    if (!saveRes.ok) {
+      return { migrated: 0, status: 'storage-error' };
+    }
+  }
+
+  try {
+    window.localStorage.removeItem(LEGACY_CUSTOM_ROUNDS_KEY);
+    window.localStorage.removeItem(LEGACY_CUSTOM_DRAG_KEY);
+  } catch (_) { /* ignore */ }
+
+  return { migrated, status: migrated > 0 ? 'migrated' : 'cleaned' };
 }
 
 // ── CRUD ──────────────────────────────────────────────────────────────────────
