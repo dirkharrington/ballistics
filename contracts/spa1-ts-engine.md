@@ -3,8 +3,8 @@
 Version: 1.0.0 — 2026-11-15
 Status: **Proposed** (pending user review)
 ADR: [`../docs/adr/008-typescript-sole-physics-engine.md`](../docs/adr/008-typescript-sole-physics-engine.md)
-Supersedes on merge: [`wasm-integration.md`](./wasm-integration.md) §3–§8 and §10 (engine client, fallback chain, async facade, overlay, WASM Jest strategy). Retires its mitigations M2, M3, M4, M6 (WASM part), M7, and M8 (§12.3).
-Related: [`engine-parity.md`](./engine-parity.md) §7 (field formulas; `dropCm` is bore-line-relative), [`wa12-custom-drag.md`](./wa12-custom-drag.md), [`wa13-coriolis.md`](./wa13-coriolis.md)
+Supersedes on merge: `wasm-integration.md` (removed) §3–§8 and §10 (engine client, fallback chain, async facade, overlay, WASM Jest strategy). Retires its mitigations M2, M3, M4, M6 (WASM part), M7, and M8 (§12.3).
+Related: `engine-parity.md` (removed) §7 (field formulas; `dropCm` is bore-line-relative), `wa12-custom-drag.md` (removed), `wa13-coriolis.md` (removed)
 Owners: frontend builder (§2–§9, §11, §13.1), backend builder (§10.1, §13.2), devsecops (§10.2, §12 review, §13.3)
 
 Builders implement this contract exactly. To change it, propose the change to the architect. Don't edit this file.

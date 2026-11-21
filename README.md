@@ -26,14 +26,14 @@ A physics-accurate external ballistics calculator and trajectory visualizer. Com
 | Feature | Detail |
 |---|---|
 | **Multi-round comparison** | Select up to 5 rounds from the 37 built-in cartridges (G1 + G7 BCs) or saved custom bullets and plot them on the same axes |
-| **Custom round** | Enter your own weight, muzzle velocity, BC, and diameter, or save reusable custom bullets & presets |
+| **Custom bullets** | Add, edit, and save reusable custom bullets locally (weight, muzzle velocity, G1/G7 BCs, diameter, optional drag CSV), with automatic migration of legacy `bv_customRounds` presets |
 | **Named rifle profiles** | Save and recall complete rifle/zero/optic/ammo setups locally |
 | **Five charts** | Bullet drop (cm), velocity (m/s), energy (J), wind drift (cm), and dual-axis elevation adjustment (MOA / MRAD) vs. range |
 | **Data table** | Sortable full tabular output — range, drop, velocity, energy, wind drift, time of flight, MOA, MRAD, spin drift, Coriolis |
 | **CSV / JSON / Markdown / PNG export** | Download trajectory tables as CSV, JSON, or Markdown, re-import exported JSON, or save any chart as a PNG |
 | **Spin drift** | Litz simplified formula; displayed in wind drift chart and data table when twist rate is set |
 | **Coriolis & Eötvös** | First-order horizontal Coriolis deflection and Eötvös vertical correction; displayed when latitude and azimuth are set |
-| **Custom drag table** | Upload a `Mach,CD` CSV for the custom round; overrides G1/G7 drag |
+| **Custom drag table** | Upload a `Mach,CD` CSV on any custom bullet in `#customBulletForm`; overrides G1/G7 drag |
 | **Configurable atmosphere & units** | Zero range, max range, step interval, wind speed/direction, altitude, temperature, station pressure & humidity, plus Metric / Imperial toggle |
 | **DOPE, MPBR & ballistics tools** | Interactive & printable DOPE come-ups card, Maximum Point Blank Range (MPBR) calculator, worker-backed BC back-calculator, MOA/MRAD & unit converters |
 | **Offline capable & themes** | Service Worker with navigation preload caches all assets for offline runs; light/dark theme toggle persisted to `localStorage` |
@@ -220,7 +220,7 @@ All four gates are enforced in every CI run — a failure blocks the build.
 | Functions | 100 % |
 | Lines | 100 % |
 
-### Test suites
+### Test suites (20 Jest unit suites + 1 Puppeteer E2E suite)
 
 | File | What it covers |
 |---|---|
@@ -234,8 +234,7 @@ All four gates are enforced in every CI run — a failure blocks the build.
 | `tests/prefs.test.js` | Preference persistence, theme toggle, toast & aria-live status helpers |
 | `tests/units.test.js` | Metric / Imperial conversion helpers, labels, and drift-free input helpers |
 | `tests/profiles.test.js` | Named rifle profile schema validation and `localStorage` CRUD |
-| `tests/custom-bullets.test.js` | Custom bullet catalog CRUD, validation, `localStorage` persistence |
-| `tests/custom-rounds.test.js` | Custom-round preset persistence and validation |
+| `tests/custom-bullets.test.js` | Custom bullet catalog CRUD, validation, `localStorage` persistence & legacy `bv_customRounds` migration |
 | `tests/bullet-catalog.test.js` | Build-time `catalog-projection.cjs` projection of `bullets.yaml` |
 | `tests/sw.test.js` | Service Worker install, immutable chunk copy, navigation preload, fetch intercept |
 | `tests/tools.test.js` | DOPE card, MPBR / BC back-calculator, MOA/MRAD & unit converters, `interpolateAt` |
@@ -244,7 +243,7 @@ All four gates are enforced in every CI run — a failure blocks the build.
 | `tests/drag-csv.test.js` | Custom `Mach,CD` CSV drag table parsing and validation |
 | `tests/fonts.test.js` | Font file existence, deduplication SHA-256 check, preload and `@font-face` consistency |
 | `tests/index-html.test.js` | Preload attributes, single module script entry, `aria-live` region, CSP `<meta>` assertions |
-| `tests/css-perf.test.js` | Compositor layer promotion, `transition: all` guard, `content-visibility`, `table-layout: fixed` |
+| `tests/css-perf.test.js` | Compositor layer promotion, `transition: all` guard, `content-visibility`, `table-layout: fixed`, defined CSS custom properties |
 | `tests/e2e/app.e2e.test.js` | Puppeteer end-to-end smoke tests against built `dist/` (`vite preview`) |
 
 ---
@@ -266,8 +265,7 @@ ballistics/
 │   ├── ballistics.css                 # Styles, themes, metric-matched font fallbacks
 │   ├── chart-loader.js                # Named Chart.js exports for Rolldown tree-shaking
 │   ├── charts.js                      # Trajectory chart rendering, reuse & crosshair sync
-│   ├── custom-bullets.js              # Custom bullet catalog management
-│   ├── custom-rounds.js               # Custom round presets
+│   ├── custom-bullets.js              # Custom bullet catalog management & legacy migration
 │   ├── drag-csv.js                    # Custom Mach,CD CSV parser (lazy chunk)
 │   ├── io.js                          # CSV/JSON/Markdown/PNG export & JSON import (lazy chunk)
 │   ├── prefs.js                       # localStorage prefs, theme toggle & DOM feedback
@@ -302,7 +300,6 @@ ballistics/
 │   ├── charts.test.js
 │   ├── css-perf.test.js
 │   ├── custom-bullets.test.js
-│   ├── custom-rounds.test.js
 │   ├── drag-csv.test.js
 │   ├── fonts.test.js
 │   ├── index-html.test.js
@@ -329,6 +326,7 @@ ballistics/
 │       └── physics-tables.js          # Jest mock for virtual:physics-tables
 │
 ├── contracts/                         # Current-era Architecture Decision Records & contracts
+├── docs/                              # Architecture Decision Records, security audits & screenshots
 │
 └── dist/                              # Vite build output (gitignored; deployed by CI)
 ```

@@ -4,6 +4,26 @@ All notable changes are documented here following [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+### Changed
+
+- Added automatic one-time startup migration of legacy `localStorage['bv_customRounds']` presets (and `ballistics.customDragTable` if present) into Custom Bullets (`ballistics:custom-bullets:v1`) before clearing legacy storage keys (`CLN-11`).
+- Replaced duplicate `_esc()` and inline MOA/MRAD arithmetic in `app/tools.js` with shared `escapeHtml` and `computeAdjustments` from `app/prefs.js`, collapsed tool unit tracking into `_toolsUnitSystem`, and simplified `initDopeCard()` / `initBcSolver()` to the worker-backed signature (`CLN-5`).
+- Consolidated `customDragTable` `localStorage` validation in `app/ballistics.js` onto `isValidCustomDragTable` from `app/custom-bullets.js`, renamed `getMockBullets()` to `getBuiltInBullets()`, passed `{ signal }` to all static `init()` event listeners, and replaced raw Unicode bidi characters in `FORBIDDEN_CHARS_RE` with explicit escape sequences (`CLN-6`).
+- Updated `docs/adr/008-typescript-sole-physics-engine.md` status to `Accepted`, refreshed `docs/sec2-innerHTML-audit.md` for the modular frontend architecture, converted broken relative links in `contracts/spa1-ts-engine.md` and ADR 008 to plain historical references, and updated `README.md` and `BACKLOG.md` (`CLN-9`).
+
+### Removed
+
+- Retired the legacy `<details class="custom-section">` accordion (`app/custom-rounds.js`, `tests/custom-rounds.test.js`, `#customForm`, `#customError`, `#savePresetBtn`, `#customPresetSection`, and `runCustom` orchestration in `app/ballistics.js`) in favor of the unified Custom Bullets workflow (`CLN-11`).
+- Deleted 6 obsolete pre-SPA Java/Spring/WASM files under `docs/adr/` and `docs/architecture/` plus redundant `docs/screenshots/.gitkeep` (`CLN-9`).
+- Removed dead `maven` and `docker` blocks from `.github/dependabot.yml`, `target/**` from `.github/workflows/ci.yml` CodeQL `paths-ignore`, `target/` from `.gitignore`, unused `bulletCatalogPlugin()` from `worker.plugins` in `vite.config.mjs`, and unused `@tootallnate/once` (`3.0.1`) override from `package.json` (`CLN-3`).
+- Removed unused CSS tokens (`--green`, `--orange`, `--blue`, `--purple`), dead `@keyframes pulse-border`, dead `.bullet-custom-item:focus-visible` rule, and orphan Bootstrap HTML classes in `app/index.html` (`CLN-4`).
+- Removed dead pre-worker `calcBC()` / `_bcSimulateFn` / `_simulateBulletFn` code from `app/tools.js` (`CLN-5`), unused `evalCompiledDrag()` / `interpolateDragTable()` helpers from `app/physics/engine.ts` (`CLN-7`), duplicate `updateSweepButtonVisibility` from `app/sweep.js`, dead internal `export` modifiers across `app/` (`CLN-6`, `CLN-7`), ~40 legacy passthrough re-exports from `app/ballistics.js`, and obsolete JSON-RPC / `fetch` / `alert` server mocks from `tests/ballistics.test.js` (`CLN-8`).
+
+### Fixed
+
+- Fixed undefined CSS custom property references in `app/ballistics.css` (`--hover`, `--input-bg`, `--bg-secondary`, `--color-error`, `--color-error-bg`, `--color-error-border`) and `app/tools.js` (`--warn`, `--surface`) across dark and light themes (`CLN-4`).
+- Removed unreachable fallback loops and redundant post-render DOM syncs in `app/ballistics.js`, dead `nameOk` local and unused fallback branches in `app/custom-bullets.js`, and stale `WA-13` JSDoc reference in `app/physics/engine.ts` (`CLN-6`, `CLN-7`).
+
 ## [3.0.0] — 2026-11-19
 
 ### Added

@@ -50,7 +50,7 @@ the WASM/JS dispatch path.
 
 ## Milestone 2 — Drop the server
 
-### ~~SPA-2 · Remove server API calls · FE · Size M~~ · **DONE** (PR #TBD)
+### ~~SPA-2 · Remove server API calls · FE · Size M~~ ✅ Done (PR #89)
 
 Replace every `fetch('/api/...')` call with direct calls to the TS engine from
 SPA-1. No network requests are made at runtime.
@@ -76,7 +76,7 @@ SPA-1. No network requests are made at runtime.
 
 ---
 
-### ~~SPA-3 · Delete Java backend and Rust engine · DevSecOps · Size S~~ ✅ Done (PR #TBD)
+### ~~SPA-3 · Delete Java backend and Rust engine · DevSecOps · Size S~~ ✅ Done (PR #92)
 
 Delete every artefact the Java backend and WASM pipeline produced. After SPA-1
 and SPA-2, nothing in the runtime references them.
@@ -222,7 +222,7 @@ bullet catalog section (update path to `app/data/bullets.yaml`).
 
 ## Milestone 6 — Performance
 
-### ✅ PERF-1 · Move `simulate()` to a Web Worker · FE · Size M · DONE
+### ~~PERF-1 · Move `simulate()` to a Web Worker · FE · Size M~~ ✅ Done (PR #99)
 
 `simulate()` is synchronous and runs on the main thread. In worst-case usage
 (10 bullets, 2 000 m range, 1 m step) it performs ~20 000 RK4 iterations per
@@ -279,7 +279,7 @@ only on first use. A full offline load after cache warm-up still fetches
 
 ---
 
-### ~~PERF-3~~ · Lazy-load Chart.js · FE · Size XS ✅ Done (PR #106)
+### ~~PERF-3 · Lazy-load Chart.js · FE · Size XS~~ ✅ Done (PR #106)
 
 Chart.js adds ≈ 200 KB (gzipped ≈ 65 KB) to the initial bundle. It is not
 needed until the user clicks "Simulate". Dynamic import reduces the initial
@@ -307,7 +307,7 @@ for Chart constructor; update mock path if needed).
 
 ## Milestone 7 — User Experience
 
-### ✅ UX-3 · Bullet list selection UX · FE · Size S · DONE
+### ~~UX-3 · Bullet list selection UX · FE · Size S~~ ✅ Done (PR #113)
 
 The bullet list currently selects all rounds on first visit, has no way to
 toggle all at once, and blocks simulation with a browser `alert()` when nothing
@@ -364,7 +364,7 @@ than an interrupting dialog.
 
 ---
 
-### ✅ UX-1 · Custom bullet catalog · FE · Size M · DONE
+### ~~UX-1 · Custom bullet catalog · FE · Size M~~ ✅ Done (PR #113)
 
 Users can only select bullets bundled at build time. Adding a custom load
 (wildcat cartridge, handload, suppressor-specific subsonic) requires a code
@@ -403,7 +403,7 @@ storage throws.
 
 ---
 
-### ✅ UX-2 · Trajectory export · FE · Size S · DONE
+### ~~UX-2 · Trajectory export · FE · Size S~~ ✅ Done (PR #113)
 
 After a simulation the user has no way to take the data elsewhere — into a
 spreadsheet, a ballistic card, or another tool. This story adds a one-click
@@ -442,7 +442,7 @@ before and after simulation.
 
 ## Milestone 8 — Security hygiene
 
-### ✅ SEC-1 · Pin vulnerable transitive Jest dependencies · DevSecOps · Size XS · DONE (PR #146)
+### ~~SEC-1 · Pin vulnerable transitive Jest dependencies · DevSecOps · Size XS~~ ✅ Done (PR #146)
 
 Dependabot and Trivy report three open vulnerabilities (medium × 2, low × 1),
 all transitive dependencies pulled in by Jest. None reach the browser bundle —
@@ -484,7 +484,7 @@ red and will block any future devsecops gate that enforces zero open findings.
 
 ---
 
-### ✅ SEC-2 · Resolve stale CodeQL XSS alert and audit innerHTML usage · DevSecOps · Size XS · DONE
+### ~~SEC-2 · Resolve stale CodeQL XSS alert and audit innerHTML usage · DevSecOps · Size XS~~ ✅ Done (PR #113)
 
 CodeQL alert #12 flags `innerHTML` usage as a potential DOM XSS vector at
 `src/main/resources/static/tools.js` — a path that was deleted in SPA-4 (moved
@@ -801,7 +801,7 @@ Stack order for physics stories: FEAT-1 → FEAT-2 → FEAT-3 (all three touch `
 
 ---
 
-### FEAT-1 · Gyroscopic spin drift in physics engine and data table · FE · Size S · DONE (PR #139)
+### ~~FEAT-1 · Gyroscopic spin drift in physics engine and data table · FE · Size S~~ ✅ Done (PR #139)
 
 The barrel twist rate input has existed since Sprint 7 and round-trips through URL state, but the engine marks `twistRateInchesPerTurn` as IGNORED. The chart and readout rendering code already checks for `p.spinDriftCm` and will activate automatically; this story implements the Litz simplified formula in the TypeScript engine, adds `spinDriftCm` to `TrajectoryPoint`, and adds the missing "Spin Drift (cm)" header to the data table.
 
@@ -830,7 +830,7 @@ The barrel twist rate input has existed since Sprint 7 and round-trips through U
 
 ---
 
-### FEAT-2 · Coriolis deflection in physics engine · FE · Size S ✓ Done
+### ~~FEAT-2 · Coriolis deflection in physics engine · FE · Size S~~ ✅ Done (PR #147)
 
 The latitude and azimuth inputs were added in Sprint 7 and encoded in URL state. The engine marks both RESERVED. The chart, range readout, data table column, and DOPE card rendering code **all already conditionally handle `coriolisDeflectionCm`**; they never activate because the engine never produces the field.
 
@@ -857,7 +857,7 @@ The latitude and azimuth inputs were added in Sprint 7 and encoded in URL state.
 
 ---
 
-### FEAT-3 · Wire custom drag CSV to physics engine · FE · Size M ✅ Done (PR #144)
+### ~~FEAT-3 · Wire custom drag CSV to physics engine · FE · Size M~~ ✅ Done (PR #144)
 
 The Custom Round panel has had a drag table CSV uploader since before Sprint 1. The engine marks `customDragTable` as RESERVED and ignores it — every trajectory still uses G1 or G7 regardless of what the user uploads.
 
@@ -888,7 +888,7 @@ The Custom Round panel has had a drag table CSV uploader since before Sprint 1. 
 
 ---
 
-### UX-6 · Remove stale "server update" drag table help text · FE · Size XS ✅ Done (PR #130)
+### ~~UX-6 · Remove stale "server update" drag table help text · FE · Size XS~~ ✅ Done (PR #130)
 
 The drag table help text reads "Stored for future use — drag model override requires server update" in three places. The server was removed in Sprint 5 (SPA-3). CLN-1 fixed `app/drag-csv.js` but missed `app/ballistics.js` (two functions) and `app/index.html`. With FEAT-3 shipping this sprint the custom drag table is live; the copy must be accurate before it merges.
 
@@ -908,7 +908,7 @@ The drag table help text reads "Stored for future use — drag model override re
 
 ---
 
-### ~~ACC-1 · Keyboard-navigable bullet selector · FE · Size S~~ — DONE
+### ~~ACC-1 · Keyboard-navigable bullet selector · FE · Size S~~ ✅ Done (PR #140)
 
 Bullet selection cards are `<div>` elements with click listeners only. They are unreachable by Tab and cannot be activated with Enter or Space. A keyboard-only user or screen reader user cannot select a round without a mouse.
 
@@ -932,7 +932,7 @@ Bullet selection cards are `<div>` elements with click listeners only. They are 
 
 ---
 
-### UX-4 · Spin drift column in trajectory table · FE · Size S · DONE (PR #TBD)
+### ~~UX-4 · Spin drift column in trajectory table · FE · Size S~~ ✅ Done (PR #148)
 
 Add `spinDriftCm` from FEAT-1 to the trajectory data table and per-range readout in `ballistics.js`.
 
@@ -946,7 +946,7 @@ Add `spinDriftCm` from FEAT-1 to the trajectory data table and per-range readout
 
 ---
 
-### ~~UX-5 · Density altitude in result stat cards · FE · Size XS~~ DONE
+### ~~UX-5 · Density altitude in result stat cards · FE · Size XS~~ ✅ Done (PR #141)
 
 The stat card template in `renderStatCards` already conditionally renders `r.densityAltitudeMeters` as "X m density alt", but `TrajectoryResult` has no such field and the branch is dead code today. Density altitude converts altitude plus temperature into a single number describing how the air behaves relative to sea level.
 
@@ -971,7 +971,7 @@ The stat card template in `renderStatCards` already conditionally renders `r.den
 
 ---
 
-### ~~ACC-2 · Screen reader announcements for simulation lifecycle · FE · Size XS~~ ✓ DONE
+### ~~ACC-2 · Screen reader announcements for simulation lifecycle · FE · Size XS~~ ✅ Done (PR #136)
 
 A screen reader user clicking "Compute Trajectories" receives no feedback that the simulation is running or complete. `#simulationError` handles errors (`aria-live="assertive"`) and `#toast` handles toasts, but neither fires for in-progress or success states.
 
@@ -993,7 +993,7 @@ A screen reader user clicking "Compute Trajectories" receives no feedback that t
 
 ---
 
-### ~~DM-1 · Re-import previously exported trajectory JSON · FE · Size S~~ — DONE (PR #TBD)
+### ~~DM-1 · Re-import previously exported trajectory JSON · FE · Size S~~ ✅ Done (PR #138)
 
 Users can export trajectory results as JSON but have no way to reload a saved session. The exported JSON file contains everything needed to redisplay the results.
 
@@ -1021,7 +1021,7 @@ Users can export trajectory results as JSON but have no way to reload a saved se
 
 ---
 
-### ~~PERF-14 · Warm physics worker on idle · FE · Size XS~~ ✓ Done
+### ~~PERF-14 · Warm physics worker on idle · FE · Size XS~~ ✅ Done (PR #135)
 
 The physics Web Worker is created lazily on the first `simulateAsync()` call. Worker startup on a mid-range mobile is 20–60 ms. Triggering `_getWorker()` during the idle period after `init()` completes removes that startup cost from the critical path of the first click.
 
@@ -1075,7 +1075,7 @@ The repo has no `.vscode/` directory. Developers opening the project in VS Code 
 
 ---
 
-### ~~UX-8 · Chart.js tooltip with many bullets · FE · Size S~~ ✅ Done
+### ~~UX-8 · Chart.js tooltip with many bullets · FE · Size S~~ ✅ Done (PR #134)
 
 When 6 or more bullets are selected and the user hovers over the trajectory charts, the tooltip renders one item per dataset per chart — easily 10–15 lines for a full bullet selection — overflowing the viewport and obscuring the chart data the user is trying to read. The issue is that `interaction: { mode: 'index' }` shows all series at the hovered x-position simultaneously.
 
@@ -1100,7 +1100,7 @@ When 6 or more bullets are selected and the user hovers over the trajectory char
 
 ---
 
-### ~~UX-9 · Light / dark mode toggle · FE · Size S~~ ✅ Done (PR #TBD)
+### ~~UX-9 · Light / dark mode toggle · FE · Size S~~ ✅ Done (PR #137)
 
 The app ships with a fixed dark theme (deep navy/cyan). Users in bright environments or with accessibility needs that prefer high-contrast light backgrounds have no way to switch. The CSS already uses custom properties (`--bg`, `--text`, `--accent`, etc.) on `:root`, making a light theme a matter of overriding those variables. The toggle state persists in `localStorage` and respects `prefers-color-scheme` on first load.
 
@@ -1132,7 +1132,7 @@ The app ships with a fixed dark theme (deep navy/cyan). Users in bright environm
 
 ---
 
-### ~~UX-10 · Sticky compute button in sidebar · FE · Size XS~~ DONE
+### ~~UX-10 · Sticky compute button in sidebar · FE · Size XS~~ ✅ Done (PR #133)
 
 The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter form in the sidebar — after the bullet list, custom bullet panel, and 10+ parameter inputs. On a typical laptop screen the button is off-screen below the fold when several bullets are selected or the custom bullet form is expanded, requiring users to scroll to the bottom of the sidebar to trigger a simulation.
 
@@ -1157,11 +1157,11 @@ The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter fo
 
 ### Icebox (future sprints)
 
-- **ACC-3 · Arrow-key roving tabindex in bullet list** — Follow-on to ACC-1; Up/Down arrows navigate within the bullet list. 2 pts. ✅ Done
+- **~~ACC-3 · Arrow-key roving tabindex in bullet list~~** — Follow-on to ACC-1; Up/Down arrows navigate within the bullet list. 2 pts. ✅ Done (delivered via ENH-6, PR #172)
 - **FEAT-4 · G7 BC on custom bullets** — Custom bullets with `dragModel: 'G7'` currently use the G1 reference table. Add optional `bcG7` to the custom bullet form. 3 pts.
-- **UX-7 · Print-friendly DOPE card** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts. ✅ Done
-- **DX-2 · Named session saves** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts.
-- **SEC-3 · Content Security Policy header audit** — GitHub Pages does not support custom headers; evaluate `<meta http-equiv="Content-Security-Policy">` or Cloudflare Pages migration. 3 pts.
+- **~~UX-7 · Print-friendly DOPE card~~** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts. ✅ Done (delivered via ENH-4, PR #174)
+- **~~DX-2 · Named session saves~~** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts. ✅ Done / Superseded by ENH-5 (`app/profiles.js`, PR #176)
+- **~~SEC-3 · Content Security Policy header audit~~** — GitHub Pages does not support custom headers; evaluate `<meta http-equiv="Content-Security-Policy">` or Cloudflare Pages migration. 3 pts. ✅ Done / Superseded by ENH-9 (`<meta http-equiv="Content-Security-Policy">` in `app/index.html`, PR #177)
 
 
 ---
@@ -1174,7 +1174,7 @@ Merge order: REL-1 first (reduces noise in subsequent diffs). REL-2, REL-3, REL-
 
 ---
 
-### REL-1 · Delete stale backend/WASM contracts · DX · Size S [Must Have]
+### ~~REL-1 · Delete stale backend/WASM contracts · DX · Size S [Must Have]~~ ✅ Done (delivered via ENH-9, PR #177)
 
 The `contracts/` directory carries 28 artefacts from the deleted Java/Spring Boot backend and Rust/WASM engine. They describe interfaces that have not existed since Sprint 5 (SPA-3, PR #92), confuse new contributors about what the project does today, and add surface area to `git grep` and editor indexing. The opening paragraph of `contracts/CHANGELOG.md` still names "springdoc" and the REST API as the subject of that file, which is misleading.
 
@@ -1230,7 +1230,7 @@ The `contracts/` directory carries 28 artefacts from the deleted Java/Spring Boo
 
 ---
 
-### REL-2 · Write root CHANGELOG.md in Keep a Changelog format · DX · Size M [Must Have]
+### ~~REL-2 · Write root CHANGELOG.md in Keep a Changelog format · DX · Size M [Must Have]~~ ✅ Done (delivered via ENH-9, PR #177)
 
 No user-readable `CHANGELOG.md` exists at the repo root. GitHub's auto-generated release notes are just PR titles and are not meaningful to a user or deployer. The app has gone through three distinct eras (Java/REST API baseline → SPA migration → physics completeness) and anyone who deployed or integrated the old API needs an explicit migration guide. This file will also serve as the body of the GitHub Release created in REL-4.
 
@@ -1281,13 +1281,13 @@ No user-readable `CHANGELOG.md` exists at the repo root. GitHub's auto-generated
 
 ---
 
-### REL-3 · Fix BACKLOG.md hygiene and README accuracy · DX · Size XS [Must Have]
+### ~~REL-3 · Fix BACKLOG.md hygiene and README accuracy · DX · Size XS [Must Have]~~ ✅ Done (README via ENH-9, PR #177; BACKLOG hygiene finalized in CLN-9)
 
-`BACKLOG.md` has 15 stories marked done but missing PR numbers (`PR #TBD` or no PR annotation at all), and done-story headings use at least five different formats (`✅ Done`, `✓ Done`, `DONE`, `— DONE`, `~~strikethrough~~ ✅ Done (PR #N)`) making the file inconsistent. `README.md` has two factual inaccuracies: the Tech Stack table says "Vite 6" (the app uses Vite 8), and the Architecture section says `simulate()` "runs synchronously on the main thread" (PERF-1 moved it to a Web Worker in PR #99). Three Sprint 10 features (spin drift, Coriolis deflection, custom drag table) and two Sprint 9 test files are absent from the README.
+`BACKLOG.md` has 15 stories marked done but missing PR numbers (`TBD` PR placeholders or no PR annotation at all), and done-story headings use at least five different formats (`✅ Done`, `✓ Done`, `DONE`, `— DONE`, `~~strikethrough~~ ✅ Done (PR #N)`) making the file inconsistent. `README.md` has two factual inaccuracies: the Tech Stack table says "Vite 6" (the app uses Vite 8), and the Architecture section says `simulate()` "runs synchronously on the main thread" (PERF-1 moved it to a Web Worker in PR #99). Three Sprint 10 features (spin drift, Coriolis deflection, custom drag table) and two Sprint 9 test files are absent from the README.
 
 **Work items:**
 
-1. In `BACKLOG.md`, fill in all missing PR numbers using the table below. For each story, replace `PR #TBD` with the actual PR number, or append `(PR #N)` after the done marker where none exists:
+1. In `BACKLOG.md`, fill in all missing PR numbers using the table below. For each story, replace each `TBD` PR placeholder with the actual PR number, or append `(PR #N)` after the done marker where none exists:
 
    | Story | PR |
    |---|---|
@@ -1328,7 +1328,7 @@ No user-readable `CHANGELOG.md` exists at the repo root. GitHub's auto-generated
 
 **Acceptance:**
 
-- `grep -c 'PR #TBD' BACKLOG.md` returns `0`.
+- `grep -c 'PR #[T]BD' BACKLOG.md` returns `0`.
 - `grep -ic 'vite 6' README.md` returns `0`.
 - `grep -ic 'synchronously on the main thread' README.md` returns `0`.
 - README Features table contains rows for "Spin drift", "Coriolis deflection", and "Custom drag table".
@@ -1336,7 +1336,7 @@ No user-readable `CHANGELOG.md` exists at the repo root. GitHub's auto-generated
 
 ---
 
-### REL-4 · Bump version to 3.0.0 and create GitHub Release · DevSecOps · Size XS [Must Have]
+### ~~REL-4 · Bump version to 3.0.0 and create GitHub Release · DevSecOps · Size XS [Must Have]~~ ✅ Done (version bump via ENH-10, PR #179)
 
 `package.json` still declares `"version": "1.0.0"`. There is no git tag or GitHub Release for the current state of the project. The 3.0.0 release represents a complete architectural rewrite (SPA migration from Java/REST) and two full feature sprints (Sprint 9 performance, Sprint 10 physics). Anyone checking `package.json` or the repository releases page cannot determine what version is running in production.
 
@@ -1368,7 +1368,7 @@ No user-readable `CHANGELOG.md` exists at the repo root. GitHub's auto-generated
 
 ---
 
-### REL-5 · Add explicit job-level CI permissions and dismiss remaining code scanning alert · DevSecOps · Size XS [Must Have]
+### ~~REL-5 · Add explicit job-level CI permissions and dismiss remaining code scanning alert · DevSecOps · Size XS [Must Have]~~ ✅ Done (CI permissions via ENH-10, PR #179)
 
 The CI workflow has a workflow-level `permissions: contents: read` block but the `changes` and `frontend-build` jobs do not declare their own `permissions:` blocks; they silently inherit whatever the workflow-level sets. Principle of least privilege requires every job to explicitly state what it needs so a future workflow expansion cannot accidentally broaden a job's access. Additionally, one code scanning alert for GHSA-gcqx-w48m-w2h4 (deepmerge, Prototype Pollution) has been open since the Dependabot alert was dismissed in PR #146; the GitHub code scanning alert was not separately closed, leaving the Security dashboard partially red.
 
@@ -1391,7 +1391,7 @@ The CI workflow has a workflow-level `permissions: contents: read` block but the
 
 ---
 
-### ~~REL-6 · Arrow-key roving tabindex in bullet list (from icebox) · FE · Size XS [Should Have — stretch]~~ ✅ Done
+### ~~REL-6 · Arrow-key roving tabindex in bullet list (from icebox) · FE · Size XS [Should Have — stretch]~~ ✅ Done (delivered via ENH-6, PR #172)
 
 ACC-1 (PR #140) made bullet cards reachable by Tab and activatable with Enter/Space, but left roving tabindex as an explicit out-of-scope follow-on. Users navigating the bullet list with keyboard currently must Tab through every card in sequence; there is no way to jump down with the arrow keys, which is the standard interaction pattern for a list of `role="checkbox"` items. The pattern and CSS are already established by ACC-1, making this a contained follow-on.
 
@@ -1420,7 +1420,7 @@ ACC-1 (PR #140) made bullet cards reachable by Tab and activatable with Enter/Sp
 
 ---
 
-### ~~REL-7 · Remove select-all and enforce 5-munition selection limit · FE · Size S [Must Have]~~ ✅ Done
+### ~~REL-7 · Remove select-all and enforce 5-munition selection limit · FE · Size S [Must Have]~~ ✅ Done (delivered via ENH-6, PR #172)
 
 The select-all / deselect-all checkbox currently allows every bullet in the catalog to be selected simultaneously. With an unbounded selection, the chart and physics worker receive an arbitrary number of trajectories, producing an overcrowded, unreadable chart and unbounded computation cost. The checkbox also adds UI complexity that conflicts with the more intentional per-bullet selection model. This story removes the select-all control entirely and caps simultaneous selection at five munitions; attempting to activate a sixth is silently ignored with a visual cue on the blocked card.
 
@@ -1469,7 +1469,7 @@ The select-all / deselect-all checkbox currently allows every bullet in the cata
 
 ---
 
-### ~~PERF-15 · Zero-allocation RK4 hot loop & flat `Float64Array` drag lookup · FE · Size S~~ ✅ Done
+### ~~PERF-15 · Zero-allocation RK4 hot loop & flat `Float64Array` drag lookup · FE · Size S~~ ✅ Done (PR #153)
 
 Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `integrateTrajectoryFps` (`app/physics/engine.ts:226-283`) invokes a nested `deriv` closure that allocates a 2-element `[ax, ay]` tuple 4 times per step and calls `Math.hypot(vx, vy)` 4 times per step. Over a 2 000 m trajectory plus 64 zero-finding passes (~23 000 RK4 steps per bullet), this creates ~92 000 short-lived array allocations and ~92 000 `Math.hypot` calls per bullet. `Math.hypot` performs IEEE overflow/underflow scaling that is unnecessary for bullet speeds (`0–5 000 fps`, where `vx² + vy² ≤ 2.5×10⁷`). Meanwhile `G1_TABLE` and `G7_TABLE` are arrays of boxed `[v, f]` tuples requiring double indirection and binary search on every drag lookup even though projectile speed decreases monotonically during flight.
 
@@ -1505,7 +1505,7 @@ Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `inte
 
 ---
 
-### ~~PERF-16 · Fast bracketed secant/Brent zero-angle solver in `findZeroAngleFps` · FE · Size S~~ ✅ Done
+### ~~PERF-16 · Fast bracketed secant/Brent zero-angle solver in `findZeroAngleFps` · FE · Size S~~ ✅ Done (PR #154)
 
 `findZeroAngleFps` (`app/physics/engine.ts:196`) unconditionally runs **64 full RK4 integrations** from `x = 0` to `zeroFt` on every `simulate()` call. Because IEEE-754 float64 only has 53 bits of significand, iterations 53–64 make zero progress (`mid === lo || mid === hi`), and for a typical 100 m–300 m zero the zero-finder accounts for 50–70% of total simulation CPU time. Moreover, `f(θ) = y(θ; zeroFt) - sightHtFt` is smooth, strictly monotonic, and nearly linear over `[-0.05, 0.05]`, so a safeguarded secant/Illinois regula-falsi solver converges to sub-picoradian accuracy in 5–9 iterations instead of 64.
 
@@ -1531,7 +1531,7 @@ Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `inte
 
 ---
 
-### ~~PERF-17 · Move BC back-calculator solver into physics worker with tight tolerance · FE · Size S~~ ✅ Done
+### ~~PERF-17 · Move BC back-calculator solver into physics worker with tight tolerance · FE · Size S~~ ✅ Done (PR #155)
 
 `calcBC` (`app/tools.js:220-255`) executes **64 sequential `await simulateBulletFn(bullet, req)` calls** across the main-thread ↔ Web Worker `postMessage` boundary. Each iteration runs a full `simulate()` (including full zero-angle solve, allocating every 25 m `TrajectoryPoint` object, and structured-cloning the entire `TrajectoryResult` back to the main thread) just to read a single `dropCm` value, even though `calcBC` rounds its final output to 4 decimal places (`0.0001`). Over `[0.001, 1.5]`, 4-decimal precision needs only ~17 bisection iterations (or ~7–10 safeguarded secant iterations); the remaining ~47 full worker round-trips are pure waste.
 
@@ -1558,7 +1558,7 @@ Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `inte
 
 ---
 
-### ~~PERF-18 · Bounded Web Worker pool & stale-run cancellation in `engine-async.ts` · FE · Size M~~ ✅ Done
+### ~~PERF-18 · Bounded Web Worker pool & stale-run cancellation in `engine-async.ts` · FE · Size M~~ ✅ Done (PR #156)
 
 `app/physics/engine-async.ts` maintains a single `_worker` instance. When `computeClientSide()` (`app/ballistics.js:144`) dispatches 5 selected bullets via `Promise.all(...)` or `runSweep()` (`app/ballistics.js:1295`) dispatches 5 sweep runs, all 5 tasks queue sequentially on a single CPU core. Additionally, rapid re-clicks or parameter changes have no cancellation mechanism, so stale work continues occupying workers and can overwrite newer UI state if not guarded.
 
@@ -1585,7 +1585,7 @@ Every RK4 step in `findZeroAngleFps` (`app/physics/engine.ts:191-213`) and `inte
 
 ---
 
-### ~~PERF-19 · Bounded LRU memoization cache for simulation results · FE · Size XS~~ ✅ Done
+### ~~PERF-19 · Bounded LRU memoization cache for simulation results · FE · Size XS~~ ✅ Done (PR #157)
 
 Every Compute click recomputes every selected bullet from scratch, even when the user only adds or removes one bullet from an existing comparison, re-clicks Compute without changing parameters, or switches between Sweep mode and Trajectory mode (`clearSweep` or repeating a sweep). Because `simulate(bullet, params)` is a pure deterministic function of the physics fields, identical inputs always yield identical trajectories.
 
@@ -1612,7 +1612,7 @@ Every Compute click recomputes every selected bullet from scratch, even when the
 
 ---
 
-### ~~PERF-20 · Coalesce crosshair hover updates with `rAF` & index-change guard · FE · Size XS~~ ✅ Done
+### ~~PERF-20 · Coalesce crosshair hover updates with `rAF` & index-change guard · FE · Size XS~~ ✅ Done (PR #152)
 
 Both `buildChartConfig`'s `onHover` (`app/ballistics.js:844-859`) and `adjustChart`'s `onHover` (`app/ballistics.js:1095-1107`) run synchronously on every `mousemove` / `touchmove` event without checking whether `crosshairIndex` actually changed. Moving the pointer a few pixels inside the same range bucket (90%+ of pointer events) repeatedly rewrites `#readoutBody.innerHTML` and invokes `c.update('none')` on all 4 sibling Chart.js instances, causing continuous main-thread scripting and canvas redraw spikes on 60–120 Hz displays.
 
@@ -1637,7 +1637,7 @@ Both `buildChartConfig`'s `onHover` (`app/ballistics.js:844-859`) and `adjustCha
 
 ---
 
-### ~~PERF-21 · Chart.js fast path: `parsing: false`, LTTB decimation, instance reuse & single-pass MOA/MRAD · FE · Size M~~ ✅ Done
+### ~~PERF-21 · Chart.js fast path: `parsing: false`, LTTB decimation, instance reuse & single-pass MOA/MRAD · FE · Size M~~ ✅ Done (PR #152)
 
 Every `renderResults()` call (`app/ballistics.js:930-1135`) destroys all 5 Chart.js instances, wipes `#chartContainer.innerHTML`, rebuilds all 5 panel DOM trees, and constructs 5 brand-new charts with a 600 ms animation (`animation: { duration: 600 }`) running across all 5 canvases simultaneously. Every dataset is passed as `{ x, y }` objects with Chart.js's default `parsing: true` and `normalized: false`, forcing Chart.js to re-parse and sort-check every point even though `x` (`rangeMeters`) is already numeric and strictly ascending. For fine step sizes (e.g. 2 000 m at 1 m step = 2 001 points × 5 bullets = 10 005 points per chart), bezier smoothing (`tension: 0.3`) and un-decimated rendering create multi-hundred-millisecond paint stalls. In addition, `adjustChart` (`app/ballistics.js:1062-1085`) calls `computeAdjustments()` **twice** per point (once for MOA, once for MRAD), and `Chart.register` (`app/ballistics.js:84`) still registers unused `CategoryScale`.
 
@@ -1666,7 +1666,7 @@ Every `renderResults()` call (`app/ballistics.js:930-1135`) destroys all 5 Chart
 
 ---
 
-### ~~PERF-22 · Lazy hidden-tab table/DOPE rendering, cached `Intl.NumberFormat` & cached sort rows · FE · Size S~~ ✅ Done
+### ~~PERF-22 · Lazy hidden-tab table/DOPE rendering, cached `Intl.NumberFormat` & cached sort rows · FE · Size S~~ ✅ Done (PR #152)
 
 At the end of `renderResults()` (`app/ballistics.js:1139-1140`), the app synchronously builds and parses the full HTML for `#tableBody` (up to 10 000+ `<tr>` rows on small steps) AND `#dopeTable` even when the user is on the default **Trajectory Charts** tab and both `#dataPanel` and `#toolsPanel` are `display: none`. Inside `renderTable()` (`app/ballistics.js:1199-1200`), `p.velocityMps.toLocaleString()` and `p.energyJoules.toLocaleString()` are invoked on every row (each call does a slow locale lookup), and `onSortHeaderClick()` (`app/ballistics.js:1221`) re-runs `computeAdjustments()` and `escapeHtml()` for every single row on every sort click. Meanwhile `interpolateAt()` in `app/tools.js:68` still uses a linear scan over trajectory points.
 
@@ -1694,7 +1694,7 @@ At the end of `renderResults()` (`app/ballistics.js:1139-1140`), the app synchro
 
 ---
 
-### ~~PERF-23 · Debounce sidebar input persistence (`savePrefs` / `syncUrl`) & overlap Chart.js warm-up · FE · Size XS~~ ✅ Done
+### ~~PERF-23 · Debounce sidebar input persistence (`savePrefs` / `syncUrl`) & overlap Chart.js warm-up · FE · Size XS~~ ✅ Done (PR #152)
 
 Two subtle main-thread and waterfall issues remain in `app/ballistics.js`:
 1. Parameter inputs (`app/ballistics.js:1556-1559`) run `savePrefs()` (11 synchronous `localStorage.setItem` calls) and `syncUrl()` (12 DOM lookups, 3 `URLSearchParams` allocations, and `history.replaceState`) on **every single `input` event** — causing keystroke jitter and risking Safari's `SecurityError` when `history.replaceState` is called >100 times within 30 s (e.g. holding a number-input spinner).
@@ -1724,7 +1724,7 @@ Two subtle main-thread and waterfall issues remain in `app/ballistics.js`:
 
 ---
 
-### ~~PERF-24 · Defer SW registration & preserve immutable hashed chunks across deploys · FE / DevSecOps · Size S~~ ✅ Done
+### ~~PERF-24 · Defer SW registration & preserve immutable hashed chunks across deploys · FE / DevSecOps · Size S~~ ✅ Done (PR #158)
 
 Three loading/caching inefficiencies penalize both first visits and repeat-visit deploys:
 1. `app/ballistics.js:1490-1496` registers `sw.js` immediately inside `init()` (before `window.load`). On first visit, `handleInstall()` (`app/sw.js:64-70`) immediately fetches every URL in `STATIC_ASSETS_TO_PRECACHE` — including the lazy ~200 KB `vendor-*.js` (Chart.js) chunk and all 7 `.woff2` fonts — directly competing with critical-path CSS, entry JS, and preloaded fonts for mobile bandwidth.
@@ -1753,7 +1753,7 @@ Three loading/caching inefficiencies penalize both first visits and repeat-visit
 
 ---
 
-### ~~PERF-25 · CSS compositor & paint hygiene · FE · Size XS~~ ✅ Done
+### ~~PERF-25 · CSS compositor & paint hygiene · FE · Size XS~~ ✅ Done (PR #159)
 
 Audit of `app/ballistics.css` revealed four concrete layout/paint inefficiencies:
 1. `body::before` (`app/ballistics.css:138-151`) renders a full-viewport `position: fixed; z-index: 9999` `repeating-linear-gradient` scanline overlay without layer promotion or containment, forcing full-viewport alpha compositing/repainting over scrolling panels and animating canvases on lower-end GPUs.
@@ -1805,7 +1805,7 @@ Audit of `app/ballistics.css` revealed four concrete layout/paint inefficiencies
 
 ---
 
-### ~~PERF-26 · Tree-shake Chart.js via static named-import lazy wrapper (`app/chart-loader.js`) · FE · Size XS~~ ✅ Done
+### ~~PERF-26 · Tree-shake Chart.js via static named-import lazy wrapper (`app/chart-loader.js`) · FE · Size XS~~ ✅ Done (PR #160)
 
 `PERF-21` removed `CategoryScale` from `Chart.register(...)`, yet `dist/assets/vendor-ClZs5zoC.js` stayed **204,706 bytes (204.70 kB)**. Because `_loadChart()` (`app/ballistics.js:111-125`) calls `import('chart.js')` directly — a dynamic namespace import — Rolldown must preserve every export of the `chart.js` barrel. Verified via grep on `dist/assets/vendor-*.js`, at least 13 unused controllers, scales, and plugins (`BarController`, `BubbleController`, `CategoryScale`, `DoughnutController`, `Filler`, `LogarithmicScale`, `PieController`, `PolarAreaController`, `RadarController`, `RadialLinearScale`, `ScatterController`, `SubTitle`, `TimeScale`) are still shipped on first Compute.
 
@@ -1841,7 +1841,7 @@ Audit of `app/ballistics.css` revealed four concrete layout/paint inefficiencies
 
 ---
 
-### ~~PERF-27 · Strip unread catalog prose from `virtual:bullet-catalog` & prune dead chart config code · FE · Size XS~~ ✅ Done
+### ~~PERF-27 · Strip unread catalog prose from `virtual:bullet-catalog` & prune dead chart config code · FE · Size XS~~ ✅ Done (PR #161)
 
 `virtual:bullet-catalog` (`vite.config.js:45-62`) embeds all 37 rounds from `app/data/bullets.yaml` into the initial `dist/assets/index-*.js` entry bundle (**14,983 bytes**). Audit of `app/*.js`, `app/physics/*.ts`, and `app/index.html` confirms **zero runtime reads** of `.description` (37 entries = **6,350 bytes**) and **zero runtime reads** of `.caliber` (37 entries = **884 bytes**) — **7,234 bytes (48.3%)** of the bundled catalog is dead payload downloaded and parsed before first paint. Additionally, `buildChartConfig()` (`app/ballistics.js:976-987`) builds an unused local `annotations = { refLine: ... }` object (leftover from `chartjs-plugin-annotation`), and `velocityChart` (`app/ballistics.js:1179`) passes an unused `refLine` property.
 
@@ -1865,7 +1865,7 @@ Audit of `app/ballistics.css` revealed four concrete layout/paint inefficiencies
 
 ---
 
-### ~~PERF-28 · Lazy-load secondary feature modules (`tools.js`, `drag-csv.js`, extracted `io.js`) out of initial entry bundle · FE · Size M~~ ✅ Done
+### ~~PERF-28 · Lazy-load secondary feature modules (`tools.js`, `drag-csv.js`, extracted `io.js`) out of initial entry bundle · FE · Size M~~ ✅ Done (PR #162)
 
 Even after `PERF-27`, `app/ballistics.js:1-13` eagerly statically imports modules that are hidden or unused on initial page load:
 - `app/tools.js` (**15,397 B** source) — only used when the user opens the hidden **Tools** tab (`#toolsPanel`), yet initialized eagerly inside `init()` (`app/ballistics.js:1926-1928`).
@@ -1895,7 +1895,7 @@ Even after `PERF-27`, `app/ballistics.js:1-13` eagerly statically imports module
 
 ---
 
-### ~~PERF-29 · Zero-copy Transferable `Float64Array` worker protocol for trajectory results · FE · Size M~~ ✅ Done
+### ~~PERF-29 · Zero-copy Transferable `Float64Array` worker protocol for trajectory results · FE · Size M~~ ✅ Done (PR #163)
 
 `app/physics/engine.worker.ts:52-53` posts `{ id, result }` across the Web Worker boundary via structured clone. At fine step sizes (`maxRangeMeters: 5000, stepMeters: 1`), a single bullet produces **5,001 `TrajectoryPoint` objects** (25,005 objects / ~200,000 named properties for 5 bullets), causing noticeable structured-clone serialization stalls on the worker and polymorphic deserialization GC pauses on the main thread. In addition, the worker echoes back copies of `bullet` and `params` that the main thread already holds in memory.
 
@@ -1921,7 +1921,7 @@ Even after `PERF-27`, `app/ballistics.js:1-13` eagerly statically imports module
 
 ---
 
-### ~~PERF-30 · Safeguarded secant + warm-bracket `solveBC` & hoisted branchless RK4 inner loop · FE · Size S~~ ✅ Done
+### ~~PERF-30 · Safeguarded secant + warm-bracket `solveBC` & hoisted branchless RK4 inner loop · FE · Size S~~ ✅ Done (PR #164)
 
 Two CPU hot paths remain in `app/physics/engine.ts`:
 1. `solveBC()` (`app/physics/engine.ts:549-577`) still uses **pure bisection** (`hi - lo > 1e-5` over `[0.001, 1.5]`), unconditionally running **18 full trajectory integrations** (`evalDropCmAtRange`), and every call to `evalDropCmAtRange` (`app/physics/engine.ts:491`) invokes `findZeroAngleFps` cold over `[-0.05, 0.05]` (~8 zero-angle passes × 18 = ~144 zero-range RK4 passes + 18 full-range passes per BC solve).
@@ -1947,7 +1947,7 @@ Two CPU hot paths remain in `app/physics/engine.ts`:
 
 ---
 
-### ~~PERF-31 · Sidebar event delegation, O(1) bullet Map lookup, targeted single-card toggle & single-pass boot render · FE · Size S~~ ✅ Done
+### ~~PERF-31 · Sidebar event delegation, O(1) bullet Map lookup, targeted single-card toggle & single-pass boot render · FE · Size S~~ ✅ Done (PR #165)
 
 Four unnecessary `O(N)` DOM and JS loops remain in the sidebar and lookup paths of `app/ballistics.js`:
 1. `renderBulletList()` (`app/ballistics.js:218-260`) runs 37 `document.getElementById('card-' + b.id)` queries and registers **74 individual `click`/`keydown` closures** on every render.
@@ -1975,7 +1975,7 @@ Four unnecessary `O(N)` DOM and JS loops remain in the sidebar and lookup paths 
 
 ---
 
-### ~~PERF-32 · Viewport-aware crosshair redraws (`IntersectionObserver` + `chart.draw()`), cached readout cells & sweep chart reuse · FE · Size S~~ ✅ Done
+### ~~PERF-32 · Viewport-aware crosshair redraws (`IntersectionObserver` + `chart.draw()`), cached readout cells & sweep chart reuse · FE · Size S~~ ✅ Done (PR #166)
 
 Three rendering hot spots remain after `PERF-20` and `PERF-21`:
 1. In `scheduleCrosshairSync` (`app/ballistics.js:878-880`), every crosshair index change invokes `c.update('none')` on **all 4 sibling Chart.js instances**, running Chart.js's full `update()` pipeline (datasets, scales, layout) even though only `crosshairPlugin.afterDraw`'s vertical dashed line changed — AND redrawing charts that are scrolled completely off-screen!
@@ -2002,7 +2002,7 @@ Three rendering hot spots remain after `PERF-20` and `PERF-21`:
 
 ---
 
-### ~~PERF-33 · Font deduplication, dead weight removal (`rajdhani-700`) & metric-matched fallback fonts for 0.000 CLS · FE · Size XS~~ ✅ Done
+### ~~PERF-33 · Font deduplication, dead weight removal (`rajdhani-700`) & metric-matched fallback fonts for 0.000 CLS · FE · Size XS~~ ✅ Done (PR #167)
 
 Audit of `app/fonts/`, `app/ballistics.css`, and `app/index.html` revealed three concrete font wastes:
 1. `app/fonts/orbitron-400.woff2`, `orbitron-700.woff2`, and `orbitron-900.woff2` are **3 byte-for-byte identical copies** (11,800 B each, SHA-256 `c25a9f9da5d9f3db...`) of the Orbitron variable font, emitting 3 redundant `@font-face` blocks in `dist/assets/index-*.css`.
@@ -2030,7 +2030,7 @@ Audit of `app/fonts/`, `app/ballistics.css`, and `app/index.html` revealed three
 
 ---
 
-### ~~PERF-34 · Build pipeline optimization: native ESM `vite.config.mjs`, HTML/SW minification & Lightning CSS · FE / DevOps · Size S~~ ✅ Done
+### ~~PERF-34 · Build pipeline optimization: native ESM `vite.config.mjs`, HTML/SW minification & Lightning CSS · FE / DevOps · Size S~~ ✅ Done (PR #168)
 
 Four build-output and build-speed inefficiencies remain in `vite.config.js`:
 1. `vite.config.js` uses ESM `import`/`export` without `"type": "module"` in `package.json`, forcing Vite 8 to log an `ESM syntax in a file loaded as CommonJS` warning and bundle the config via CJS fallback on every run.
@@ -2060,7 +2060,7 @@ Four build-output and build-speed inefficiencies remain in `vite.config.js`:
 
 ---
 
-### ~~PERF-35 · Eliminate duplicate `npm ci` + `npm run build` in CI GitHub Pages deploy pipeline · DevSecOps / CI · Size XS~~ ✅ Done
+### ~~PERF-35 · Eliminate duplicate `npm ci` + `npm run build` in CI GitHub Pages deploy pipeline · DevSecOps / CI · Size XS~~ ✅ Done (PR #169)
 
 On every push to `main`, `.github/workflows/ci.yml:188-228` runs `pages-build` (`needs: [frontend-build]`), which boots a brand-new `ubuntu-24.04` runner and repeats `actions/checkout`, `actions/setup-node`, `~/.npm` cache restore, `npm ci`, and `npm run build` solely to upload `dist/` via `actions/upload-pages-artifact` — even though `frontend-build` (which has the exact same unprivileged `contents: read` permissions) just completed `npm run build` and `npm test -- --ci` seconds earlier.
 
@@ -2094,7 +2094,7 @@ Supersedes / closes open Sprint 11 and Icebox items: `REL-1`, `REL-2`, `REL-3`, 
 
 ---
 
-### ~~ENH-1 · Built-in G7 ballistic coefficients for all 37 catalog rounds · Physics · Size XS [Must Have]~~ ✅ Done
+### ~~ENH-1 · Built-in G7 ballistic coefficients for all 37 catalog rounds · Physics · Size XS [Must Have]~~ ✅ Done (PR #170)
 
 `app/custom-bullets.js` (`bulletForDragModel`) already supports switching to `bullet.ballisticCoefficientG7` when `dragModel === 'G7'`, and rounds 11–37 in `app/data/bullets.yaml` already annotate their G7 equivalents in comments, yet `ballisticCoefficientG7` is absent from all 37 catalog YAML entries and `catalog-projection.cjs` strips fields outside its explicit projection list. As a result, switching the Drag Model selector to G7 still runs built-in rounds against their G1 BC.
 
@@ -2116,7 +2116,7 @@ Supersedes / closes open Sprint 11 and Icebox items: `REL-1`, `REL-2`, `REL-3`, 
 
 ---
 
-### ~~ENH-2 · Station barometric pressure, relative humidity & opt-in vertical Coriolis (Eötvös) · Physics · Size M [Must Have]~~ ✅ Done
+### ~~ENH-2 · Station barometric pressure, relative humidity & opt-in vertical Coriolis (Eötvös) · Physics · Size M [Must Have]~~ ✅ Done (PR #180)
 
 External ballistics atmospheric correction currently models only altitude + temperature (`airDensityRatio`), omitting barometric pressure and relative humidity, while Coriolis deflection models horizontal drift (`coriolisDeflectionCm`) without vertical Eötvös deflection (`coriolisVerticalCm`). Care must be taken to keep all 28 existing cases in `tests/fixtures/spa1-golden.json` (including the horizontal Coriolis case) 100% key- and bit-identical.
 
@@ -2144,7 +2144,7 @@ External ballistics atmospheric correction currently models only altitude + temp
 
 ---
 
-### ~~ENH-3 · Global Metric / Imperial unit system (`app/units.js`, `#unitToggle`) · FE · Size M [Must Have]~~ ✅ Done
+### ~~ENH-3 · Global Metric / Imperial unit system (`app/units.js`, `#unitToggle`) · FE · Size M [Must Have]~~ ✅ Done (PR #175)
 
 Long-range shooters frequently work in yards, grains, feet per second, inches, °F, and inHg rather than purely SI metric units. Adding a first-class unit system toggle lets users operate seamlessly in Metric or Imperial across inputs, charts, stat cards, hover readout, data table, DOPE/MPBR tools, exports, and shared URLs while keeping physics engine internals and JSON exports canonical Metric.
 
@@ -2167,7 +2167,7 @@ Long-range shooters frequently work in yards, grains, feet per second, inches, �
 
 ---
 
-### ~~ENH-4 · Field DOPE windage MOA/MRAD, `@media print` pocket DOPE card (`UX-7`), & MPBR calculator · FE / UX · Size S [Must Have]~~ ✅ Done
+### ~~ENH-4 · Field DOPE windage MOA/MRAD, `@media print` pocket DOPE card (`UX-7`), & MPBR calculator · FE / UX · Size S [Must Have]~~ ✅ Done (PR #174)
 
 The Tools tab DOPE card currently outputs elevation come-ups (MOA↑ / MRAD↑) only and lacks windage holds or a clean printable pocket card (`UX-7`). Hunters and field shooters also rely on Maximum Point-Blank Range (MPBR) for a target vital-zone diameter (`20 cm` / `8 in` default).
 
@@ -2190,7 +2190,7 @@ The Tools tab DOPE card currently outputs elevation come-ups (MOA↑ / MRAD↑) 
 
 ---
 
-### ~~ENH-5 · Named rifle/setup profiles (`DX-2`), atmosphere & Eötvös controls, & unified custom drag-CSV · FE · Size M [Should Have]~~ ✅ Done
+### ~~ENH-5 · Named rifle/setup profiles (`DX-2`), atmosphere & Eötvös controls, & unified custom drag-CSV · FE · Size M [Should Have]~~ ✅ Done (PR #176)
 
 URL state allows sharing individual setups (`DX-2`), but users have no in-app way to save, switch, and delete named rifle/load profiles locally. Meanwhile, the new `ENH-2` atmosphere & Eötvös physics parameters need clean sidebar inputs, `#latitudeDeg` still displays an obsolete `"sent with computation requests over HTTPS"` tooltip from the deleted server era, and uploading a custom Mach→Cd drag CSV lives inside the legacy custom accordion rather than `#customBulletForm`.
 
@@ -2215,7 +2215,7 @@ URL state allows sharing individual setups (`DX-2`), but users have no in-app wa
 
 ---
 
-### ~~ENH-6 · Interactive sidebar UX — bullet search, 5-round cap (`REL-7`), roving arrow keys (`REL-6`), & debounced auto-compute · FE / ACC · Size M [Must Have]~~ ✅ Done
+### ~~ENH-6 · Interactive sidebar UX — bullet search, 5-round cap (`REL-7`), roving arrow keys (`REL-6`), & debounced auto-compute · FE / ACC · Size M [Must Have]~~ ✅ Done (PR #172)
 
 Selecting all 37 catalog rounds at once via `#selectAllBullets` causes chart clutter (`REL-7`), browsing 37+ rounds lacks live search filtering, keyboard users lack ArrowDown/ArrowUp roving focus across cards (`REL-6` / `ACC-3`), and users must click Compute repeatedly after minor sidebar tweaks instead of getting debounced live updates.
 
@@ -2241,7 +2241,7 @@ Selecting all 37 catalog rounds at once via `#selectAllBullets` causes chart clu
 
 ---
 
-### ~~ENH-7 · Decompose `app/ballistics.js` monolith into `prefs`, `charts`, `table` & lazy `sweep` · FE / Architecture · Size M [Should Have]~~ ✅ Done
+### ~~ENH-7 · Decompose `app/ballistics.js` monolith into `prefs`, `charts`, `table` & lazy `sweep` · FE / Architecture · Size M [Should Have]~~ ✅ Done (PR #173)
 
 `app/ballistics.js` has grown to ~2,500 lines mixing `localStorage`/theme/toast helpers, Chart.js rendering & crosshair management, Data Table DOM construction/sorting, and Parameter Sensitivity Sweep calculation/rendering (which is loaded eagerly on initial boot even though Sweep is secondary). Splitting these concerns clarifies ownership and reduces initial critical-path JS.
 
@@ -2267,7 +2267,7 @@ Selecting all 37 catalog rounds at once via `#selectAllBullets` causes chart clu
 
 ---
 
-### ~~ENH-8 · Modernize Puppeteer E2E smoke suite on built `dist/` (`vite preview`) & add CI job · QA / DevOps · Size S [Must Have]~~ ✅ Done
+### ~~ENH-8 · Modernize Puppeteer E2E smoke suite on built `dist/` (`vite preview`) & add CI job · QA / DevOps · Size S [Must Have]~~ ✅ Done (PR #178)
 
 `tests/e2e/app.e2e.test.js` and `jest-puppeteer.config.cjs` are broken relics of the pre-SPA era (asserting deleted `#statusPill`, `.status-offline`, 10 pre-selected cards, and localhost:5173 without `/ballistics/`), and `.github/workflows/ci.yml` never runs E2E tests. Running a fast smoke suite against production `dist/` via `vite preview` catches real bundling, worker, base-path (`/ballistics/`), and CSP regressions.
 
@@ -2290,7 +2290,7 @@ Selecting all 37 catalog rounds at once via `#selectAllBullets` causes chart clu
 
 ---
 
-### ~~ENH-9 · Release hygiene (`REL-1`–`REL-3`) & Content-Security-Policy meta tag (`SEC-3`) · DevSecOps / DX · Size S [Must Have]~~ ✅ Done
+### ~~ENH-9 · Release hygiene (`REL-1`–`REL-3`) & Content-Security-Policy meta tag (`SEC-3`) · DevSecOps / DX · Size S [Must Have]~~ ✅ Done (PR #177)
 
 Consolidates Sprint 11 documentation cleanup and Icebox security hardening: removes the 28 dead backend/WASM/Rust specs in `contracts/` (`REL-1`), creates root `CHANGELOG.md` (`REL-2`), brings `README.md` up to date (`REL-3`), and adds a strict `<meta http-equiv="Content-Security-Policy">` tag (`SEC-3`) compatible with static GitHub Pages hosting and Vite 8 assets/module workers.
 
@@ -2314,7 +2314,7 @@ Consolidates Sprint 11 documentation cleanup and Icebox security hardening: remo
 
 ---
 
-### ~~ENH-10 · Explicit job-level CI permissions (`REL-5`) & `v3.0.0` version bump (`REL-4`) · DevSecOps · Size XS [Must Have]~~ ✅ Done
+### ~~ENH-10 · Explicit job-level CI permissions (`REL-5`) & `v3.0.0` version bump (`REL-4`) · DevSecOps · Size XS [Must Have]~~ ✅ Done (PR #179)
 
 Finalizes Sprint 14 release readiness by ensuring every job in `.github/workflows/ci.yml` explicitly declares least-privilege `permissions:` (`REL-5`: `changes` and `frontend-build` join `codeql`, `trivy`, `e2e-smoke`, and `deploy`) and bumping `package.json` + `package-lock.json` from `1.0.0` to `3.0.0` (`REL-4`).
 
@@ -2332,5 +2332,266 @@ Finalizes Sprint 14 release readiness by ensuring every job in `.github/workflow
 - `npm test`, `npm run build`, and `npm run test:e2e` all pass.
 
 **Dependencies:** ENH-8, ENH-9.
+
+---
+
+## Sprint 15 — Dead Code Removal & Baseline Cleanup
+
+**Sprint Goal:** Strip accumulated pre-SPA relics, unreachable branches, duplicate helpers, broken CSS custom properties, dead physics/tool fallbacks, legacy re-export shims, fake JSON-RPC server test mocks, broken documentation links, and stale git branches/worktrees so the `v3.0.0` pure-browser SPA baseline is lean, accurate, and maintainable at 100/100/100/100 coverage.
+
+**Measured post-Sprint-14 baseline (`main` @ `514599d`):**
+- **CI / tooling / dependencies:** `.github/dependabot.yml` still scans deleted `maven` and `docker` ecosystems; `.github/workflows/ci.yml:193` and `.gitignore:2` still reference Maven's `target/`; `package.json:66` pins `@tootallnate/once@3.0.1` with 0 installed entries and 0 dependents in `package-lock.json`; `vite.config.mjs:225` registers `bulletCatalogPlugin()` inside `worker.plugins` though the physics worker never imports `virtual:bullet-catalog`.
+- **CSS / HTML:** `app/ballistics.css` defines 4 unused `:root` tokens (`--green`, `--orange`, `--blue`, `--purple`), 1 unused `@keyframes pulse-border`, 1 dead selector (`.bullet-custom-item:focus-visible`), and references 6 undefined `var(--*)` tokens (`--hover`, `--input-bg`, `--bg-secondary`, `--color-error`, `--color-error-bg`, `--color-error-border`) — while `app/tools.js` references 2 more undefined tokens (`--surface`, `--warn`). `app/index.html` carries 4 orphan classes with zero CSS rules (`.status-pill`, `.form-control`, `.form-label`, `.form-text`).
+- **Frontend JS (`app/*.js`):** `app/tools.js` keeps dead `_simulateBulletFn`, dead main-thread `calcBC` fallback + `_bcSimulateFn`, duplicate `_esc` and inline MOA/MRAD math, and 3 redundant unit-system state variables. `app/ballistics.js` retains an unreachable `if (!firstFieldId)` fallback loop (`lines 1724–1730`), inline duplicate drag-CSV validation (`lines 1336–1357`), stale `getMockBullets()` naming, dead `b?.caliber` lookup, redundant post-`renderBulletList()` DOM syncs, 13 `init()` listeners missing `{ signal }`, and ~40 legacy passthrough re-exports (`lines 1808–1831`). `app/sweep.js:25-29` exports an unused duplicate `updateSweepButtonVisibility`. `app/custom-bullets.js` has dead local `nameOk` (`lines 102–124`) and literal raw Unicode bidi control chars in `FORBIDDEN_CHARS_RE` (`line 31`).
+- **Physics (`app/physics/engine.ts`):** `evalCompiledDrag()` (`lines 208–213`) and `interpolateDragTable()` (`lines 220–238`) have zero callers in `app/` after `PERF-15`/`PERF-30` fused the RK4 drag lookup.
+- **Tests (`tests/ballistics.test.js` — 7,695 lines):** Contains 71 `fetch` references, 15 `alert` references, and dozens of fake `{ jsonrpc: '2.0' }` / HTTP 500 / `"offline"` fallback test cases left over from the deleted Java server, plus duplicate unit tests for modules already split out in `ENH-7`.
+- **Docs & repo hygiene:** `docs/` retains 6 pre-SPA Java/Spring/WASM files plus redundant `docs/screenshots/.gitkeep`, producing 15 broken relative markdown links (plus 4 more in `contracts/spa1-ts-engine.md`). `BACKLOG.md` still has `REL-1`–`REL-5` unmarked and 5 `TBD` PR entries. Local/remote git state carries 53 stale `.claude/worktrees/*` worktrees and 100+ obsolete merged branches.
+
+**Merge & execution plan (8-PR linear stack + closing ops hygiene):**
+- **8-PR linear stack:** `CLN-3` (CI/Dependabot/config/override) → `CLN-4` (CSS/HTML dead tokens & rules) → `CLN-7` (`app/physics/engine.ts` unused helpers & types) → `CLN-5` (`app/tools.js`) → `CLN-6` (`app/ballistics.js`, `custom-bullets.js`, `sweep.js`, `table.js`, internal export cleanup) → `CLN-8` (`tests/ballistics.test.js` stale server mock purge & re-export barrel pruning) → `CLN-11` (retire legacy `app/custom-rounds.js` accordion with `bv_customRounds` migration) → `CLN-9` (docs, broken links & `BACKLOG.md` hygiene).
+- **Closing repo & workspace hygiene:** `CLN-10` (stale branches & worktrees cleanup after the stack lands).
+
+---
+
+### ~~CLN-3 · Remove dead CI/Dependabot/config relics & obsolete npm override · DevSecOps / Build · Size XS [Must Have]~~ ✅ Done
+
+Several build and CI config files still carry dead entries from the deleted Java/Maven/Docker stack and an unused transitive npm override.
+
+**Work items:**
+
+1. `.github/dependabot.yml`: remove the obsolete `package-ecosystem: maven` (`lines 3–13`) and `package-ecosystem: docker` (`lines 32–42`) update blocks, leaving only `npm` and `github-actions`.
+2. `.github/workflows/ci.yml:193`: remove `- 'target/**'` from CodeQL `paths-ignore`.
+3. `.gitignore:2`: remove the Maven `target/` entry.
+4. `package.json:66`: remove unused `"@tootallnate/once": "3.0.1"` from `overrides` (0 installed packages and 0 dependents in `package-lock.json`) and regenerate `package-lock.json` via `npm install --package-lock-only`. Keep `deepmerge`, `glob`, and `minimatch` (active Jest/Puppeteer devDependencies).
+5. `vite.config.mjs:225`: remove unused `bulletCatalogPlugin()` from `worker.plugins` (`plugins: () => [physicsTablesPlugin()]`), since `app/physics/engine.worker.ts` only imports `virtual:physics-tables`.
+
+**Coverage:** Config/build-only change; existing 100/100/100/100 Jest coverage unchanged.
+
+**Acceptance:**
+
+- `grep -rnE 'maven|docker|target/|@tootallnate' .github/ .gitignore package.json` returns nothing (except valid comments if any).
+- `npm run build`, `npm test`, and `npm run test:e2e` all pass cleanly.
+
+**Dependencies:** None.
+
+---
+
+### ~~CLN-4 · Prune dead CSS rules, fix undefined `var()` tokens & remove orphan HTML classes · FE · Size S [Must Have]~~ ✅ Done
+
+Static CSS/HTML audit found unused tokens, a dead keyframe, a dead selector, 8 undefined CSS custom properties (3 of which have no fallback and silently fail to paint!), and 4 orphan Bootstrap/legacy HTML classes.
+
+**Work items:**
+
+1. `app/ballistics.css`:
+   - Delete unused `:root` tokens `--green`, `--orange`, `--blue`, `--purple` (`lines 96–99`).
+   - Delete unused `@keyframes pulse-border` (`lines 237–240`).
+   - Delete dead selector `.bullet-custom-item:focus-visible` (`line 425`).
+   - Fix undefined `var()` references:
+     - `line 957`: replace `background: var(--hover)` with `background: var(--bg3)`.
+     - `line 1223`: replace `background: var(--input-bg)` with `background: var(--bg3)`.
+     - `line 268`: simplify `var(--bg-secondary, var(--bg2))` to `var(--bg2)`.
+     - `lines 1348–1350`: replace undefined `--color-error`, `--color-error-bg`, `--color-error-border` with defined theme tokens in `:root` and `[data-theme="light"]` (consistent dark/light styling for `.simulation-error`).
+2. `app/tools.js`:
+   - `line 386`: replace undefined `var(--warn)` with `var(--accent2)` (or a defined `--warn` token).
+   - `line 185`: replace inline `style="..."` containing undefined `var(--surface,#1a2635)` on `.dope-dist-input` with a `.dope-dist-input` class rule in `app/ballistics.css`.
+3. `app/index.html`:
+   - Remove orphan Bootstrap classes (`form-control`, `form-label`, `form-text`) on `lines 259, 263, 340–342`.
+   - Either define explicit `.status-pill` styling in `app/ballistics.css` for `#modelStatus` (`line 48`) or style `#modelStatus` cleanly and drop the dead `.status-pill` class.
+4. `tests/css-perf.test.js`: add automated assertions guaranteeing zero undefined `var(--*)` references in `app/ballistics.css`, zero unused `:root` custom properties, zero unused `@keyframes`, and absence of `pulse-border` / `.bullet-custom-item`.
+
+**Coverage:** 100% Jest (`tests/css-perf.test.js`, `tests/tools.test.js`).
+
+**Acceptance:**
+
+- Every `var(--*)` referenced in `app/ballistics.css` and `app/*.js` resolves to a defined token in `:root` or inline style.
+- Every `:root` custom property and `@keyframes` block in `app/ballistics.css` is referenced at least once.
+- `npm test`, `npm run build`, and `npm run test:e2e` pass cleanly.
+
+**Dependencies:** None.
+
+---
+
+### ~~CLN-5 · Remove dead code & duplicate helpers in `app/tools.js` · FE · Size S [Must Have]~~ ✅ Done
+
+`app/tools.js` carries dead pre-worker code (`_simulateBulletFn`, `calcBC`, `_bcSimulateFn`), duplicates helpers that now live in `app/prefs.js` (`_esc` vs `escapeHtml`, inline MOA/MRAD math vs `computeAdjustments`), and tracks the active unit system in three separate identical module variables.
+
+**Work items:**
+
+1. Remove dead `_simulateBulletFn` (`lines 87, 214–215`), drop the unused parameter from `initDopeCard()`, and update the call site in `app/ballistics.js:266`.
+2. Remove the dead main-thread bisection fallback `calcBC()` and `_bcSimulateFn` (`lines 254, 270–305, 312–338`), since `PERF-17` moved BC solving into the Web Worker (`solveBCAsync`). Simplify `initBcSolver(solveBCFn)` to accept only the worker solver and update `app/ballistics.js:267`.
+3. Delete duplicate `_esc()` (`lines 49–54`) and import `escapeHtml` from `./prefs.js`.
+4. Replace inline MOA/MRAD math inside `_buildDopeTable` (`lines 133–136`) with `computeAdjustments` imported from `./prefs.js`.
+5. Collapse `_dopeUnitSystem`, `_mpbrUnitSystem`, and `_toolsUnitSystem` (`lines 90–98`) into a single `_toolsUnitSystem` variable.
+6. Update `tests/tools.test.js` (remove dead `calcBC` main-thread fallback tests and update `initDopeCard`/`initBcSolver` call signatures while preserving full coverage of worker-backed BC solving, DOPE, MPBR, MOA/MRAD, and unit conversion).
+
+**Coverage:** 100% Jest (`tests/tools.test.js`, `tests/ballistics.test.js`).
+
+**Acceptance:**
+
+- `grep -n '_simulateBulletFn\|_bcSimulateFn\|calcBC\|_esc\b\|_dopeUnitSystem\|_mpbrUnitSystem' app/tools.js` returns nothing.
+- `app/tools.js` imports `escapeHtml` and `computeAdjustments` from `./prefs.js`.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None (pairs cleanly before `CLN-6`).
+
+---
+
+### ~~CLN-6 · Remove dead branches, duplicate validation, listener leaks & dead internal exports in `app/` · FE · Size M [Must Have]~~ ✅ Done
+
+Modularization (`ENH-7`) and iterative feature sprints left dead locals, unreachable fallbacks, duplicated validation/DOM syncs, un-signaled listeners in `init()`, and unused `export` modifiers across frontend modules.
+
+**Work items:**
+
+1. `app/ballistics.js`:
+   - Delete the mathematically unreachable `if (!firstFieldId)` fallback loop and unused `idx` property in `_handleCustomBulletSubmit` (`lines 1717–1734`).
+   - Replace the duplicated 15-line inline `customDragTable` localStorage validation in `init()` (`lines 1336–1357`) with `isValidCustomDragTable` imported from `./custom-bullets.js`.
+   - Rename stale `getMockBullets()` (`lines 360–363`, remove `"offline fallback"` comment) to `getBuiltInBullets()` (or reference `BULLET_CATALOG` directly) and update callers/tests.
+   - Remove dead `b?.caliber` lookup in `_cardSearchText` (`line 417`, stripped from built-in rounds by `PERF-27`).
+   - Remove redundant `syncRunButton()` in `init()` (`line 1194`) and redundant `updateBulletCards()` calls immediately after `renderBulletList()` (`lines 1652, 1754`).
+   - Pass `{ signal }` to the remaining 13 static `addEventListener` calls in `init()` (`lines 1258–1326`) so `_initListenerController.abort()` cleanly removes all listeners.
+2. `app/sweep.js`: remove the unused duplicate `updateSweepButtonVisibility` export (`lines 25–29`; `app/ballistics.js:919-922` owns the live synchronous helper so Sweep stays lazy-loaded) and clean its unit test in `tests/sweep.test.js`.
+3. `app/custom-bullets.js`:
+   - Remove dead local `let nameOk = true` (`lines 102–124`, assigned 5 times and never read).
+   - Replace literal invisible Unicode bidi characters in `FORBIDDEN_CHARS_RE` (`line 31`) with explicit `\u202A-\u202E\u2066-\u2069` escape sequences (matching `app/profiles.js:9`).
+   - Clean up unused record-field fallback branches in `renderCustomBulletGroup` (`lines 423–431`) where `toBullet()` never populates `bulletWeightGrains`/`muzzleVelocityFps`/`ballisticCoefficientG1` (update synthetic test fixtures in `tests/custom-bullets.test.js` to pass canonical `toBullet()` shapes).
+4. `app/table.js:5`: delete passthrough `export { computeAdjustments };` and import `computeAdjustments` directly from `./prefs.js` in `app/ballistics.js`.
+5. Drop unused `export` keywords from internal-only constants (`UNIT_KIND_FOR_PREF` in `app/prefs.js:49`, `BULLET_NUMERIC_FIELDS` / `RESULT_NUMERIC_FIELDS` / `POINT_NUMERIC_FIELDS` in `app/io.js:5-19`, `IMMUTABLE_ASSET_RE` in `app/sw.js:65`).
+
+**Coverage:** 100% Jest across all modified modules (`tests/ballistics.test.js`, `tests/custom-bullets.test.js`, `tests/sweep.test.js`, `tests/table.test.js`).
+
+**Acceptance:**
+
+- Zero unreachable fallback loops, zero duplicate drag-CSV validators, zero duplicate `updateSweepButtonVisibility` definitions, and zero raw bidi control characters in `app/`.
+- Every `addEventListener` registered inside `init()` passes `{ signal }`.
+- `npm test` passes at 100/100/100/100 and `npm run build` / `npm run test:e2e` pass cleanly.
+
+**Dependencies:** CLN-5.
+
+---
+
+### ~~CLN-7 · Remove unused drag-lookup helpers & stale WASM references in `app/physics/engine.ts` · Physics · Size XS [Should Have]~~ ✅ Done
+
+After `PERF-15` and `PERF-30` compiled `G1_TABLE`/`G7_TABLE` into `Float64Array` structures and fused bracket search + interpolation into the RK4 loops, two internal helper functions in `app/physics/engine.ts` have zero production callers.
+
+**Work items:**
+
+1. Remove unused `evalCompiledDrag()` (`app/physics/engine.ts:208–213`) and its dead-helper tests in `tests/physics-engine.test.js`.
+2. Remove unused `interpolateDragTable()` (`app/physics/engine.ts:220–238`), migrating any unique drag-table clamping / monotonicity assertions in `tests/physics-engine.test.js` onto `compileDragTable` + `findBracket` / `simulate`.
+3. Drop `export` from internal-only interfaces `CompiledDragTable` (`line 147`) and `PointExtras` (`line 291`) if unused outside `engine.ts` (verify `tsc -p tsconfig.json` passes with `strict` + `noUnusedLocals`).
+4. Update stale JSDoc comment at `app/physics/engine.ts:136` (`See WA-13 for details`) to point to `contracts/feat3-custom-drag-ts.md`.
+
+**Coverage:** 100% Jest (`tests/physics-engine.test.js`); `tests/fixtures/spa1-golden.json` passes bit-identically untouched.
+
+**Acceptance:**
+
+- `evalCompiledDrag` and `interpolateDragTable` are removed from `app/physics/engine.ts`.
+- `tests/fixtures/spa1-golden.json` passes bit-identically without regeneration.
+- `npm test` (including `tsc -p tsconfig.json`) passes at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### ~~CLN-8 · Purge dead JSON-RPC/server mocks from `tests/ballistics.test.js` & prune legacy re-export barrel · QA / FE · Size M [Must Have]~~ ✅ Done
+
+`tests/ballistics.test.js` (7,695 lines) still mocks `global.fetch` (71 occurrences) and `global.alert` (15 occurrences) with fake `{ jsonrpc: '2.0' }` / HTTP 500 / `"offline"` fallback tests for the long-deleted Java server, and imports ~40 extracted module helpers through legacy re-exports at the bottom of `app/ballistics.js:1808–1831`.
+
+**Work items:**
+
+1. In `tests/ballistics.test.js`:
+   - Delete global `global.fetch = jest.fn()` and `global.alert = jest.fn()` setup (`lines 15–16, 214–215`) and stale `jsdom 20 / Jest 29` comment (`line 1`).
+   - Remove all obsolete fake `jsonrpc: '2.0'` / HTTP 500 / `mockRejectedValue(new Error('offline'))` server-fallback tests and `makeSweepApiResult()` boilerplate (e.g., `lines 1465–1570`, `2582–3041`, `3314–4173`, `4516`, `4782–4949`, `6329–6448`), replacing `await mod.init()` with synchronous `mod.init()`.
+   - Deduplicate unit test blocks for `prefs.js`, `charts.js`, `table.js`, `sweep.js`, and `units.js` that are already tested in `tests/prefs.test.js`, `tests/charts.test.js`, `tests/table.test.js`, `tests/sweep.test.js`, and `tests/units.test.js` (migrating any unique edge-case assertions into the owning test file so zero behavioral coverage is lost).
+2. In `app/ballistics.js:1808–1831`: prune legacy passthrough re-exports of symbols owned by `prefs.js`, `charts.js`, `table.js`, and `units.js` (`PREF_KEYS`, `PREF_DEFAULTS`, `BULLET_COLORS`, `HEX_COLOR_RE`, `colorFor`, `escapeHtml`, `computeAdjustments`, `crosshairPlugin`, `drawVLine`, `drawHLine`, `annotationPlugin`, `windChartSubtitle`, `_attachTouchForwarder`, `loadPrefs`, `showToast`, `_setSimulationError`, `_setSimStatus`, `updateToggleLabel`, `applyTheme`, `_applyChartTheme`, `SORTABLE_COLUMNS`, `TABLE_CHUNK_THRESHOLD`, `TABLE_CHUNK_SIZE`, `renderTable`, `onSortHeaderClick`, `updateSortIndicators`, `_getSortState`, `resetCrosshairState`, `renderStatCards`, `buildChartConfig`, `renderCharts`, `destroyCharts`, `updateReadout`, `scheduleCrosshairSync`, `_setCharts`, `_loadChart`, `_warmChart`, `getUnitSystem`, `AUTO_COMPUTE_KEY`, `CUSTOM_DRAG_TABLE_KEY`), keeping only orchestration exports actually owned by `app/ballistics.js`.
+
+**Coverage:** 100% Jest across all 18 files in `package.json` `jest.collectCoverageFrom`.
+
+**Acceptance:**
+
+- `grep -c 'jsonrpc\|global\.fetch\|global\.alert' tests/ballistics.test.js` returns `0`.
+- `app/ballistics.js` exports only symbols it defines (zero passthrough re-exports from `prefs.js`/`charts.js`/`table.js`/`units.js`).
+- `npm test` passes at 100/100/100/100 across all test suites.
+
+**Dependencies:** CLN-6.
+
+---
+
+### ~~CLN-9 · Delete stale Java/WASM `docs/`, fix broken markdown links & finish `BACKLOG.md` hygiene · DX · Size S [Must Have]~~ ✅ Done
+
+While `ENH-9` deleted 28 obsolete files from `contracts/`, `docs/` still holds 6 Java/Spring/WASM documents containing 15 broken relative links to those deleted contracts, `contracts/spa1-ts-engine.md` has 4 more broken links, `docs/sec2-innerHTML-audit.md` is stale after `ENH-7`, and `BACKLOG.md` still has unmarked Sprint 11 items (`REL-1`–`REL-5`) and 5 `TBD` PR placeholders.
+
+**Work items:**
+
+1. Delete obsolete pre-SPA docs & placeholder:
+   - `docs/adr/001-trajectory-service-layer.md`
+   - `docs/adr/002-per-client-rate-limiting.md`
+   - `docs/adr/003-ci-pipeline.md`
+   - `docs/adr/005-wasm-runtime-integration.md`
+   - `docs/architecture/trajectory-service-refactor.md`
+   - `docs/architecture/wasm-threat-model.md` (currently mislabeled `Status: Active`)
+   - `docs/screenshots/.gitkeep` (redundant alongside `docs/screenshots/ui-overview.png`)
+2. Update `docs/adr/008-typescript-sole-physics-engine.md`: change status from `Proposed` to `Accepted` and replace broken relative links to deleted `ADR 005` / `contracts/adr-004-wasm-engine.md` with plain historical text references.
+3. Fix the 4 broken relative links in `contracts/spa1-ts-engine.md` (`wasm-integration.md`, `engine-parity.md`, `wa12-custom-drag.md`, `wa13-coriolis.md`) by converting them to plain historical code spans, and verify zero broken links remain in `contracts/CHANGELOG.md`.
+4. Refresh `docs/sec2-innerHTML-audit.md` to accurately inventory current `innerHTML` / `insertAdjacentHTML` sites across `app/ballistics.js`, `app/charts.js`, `app/table.js`, `app/sweep.js`, and `app/tools.js`.
+5. `BACKLOG.md` hygiene:
+   - Mark `REL-1`, `REL-2`, `REL-3`, `REL-4`, `REL-5`, and Icebox `DX-2` / `SEC-3` cleanly done/superseded by Sprint 14 (`ENH-5`, `ENH-9`, `ENH-10`).
+   - Replace all remaining `TBD` PR markers (`SPA-2` #89, `SPA-3` #92, `UX-4` #148, `DM-1` #138, `UX-9` #137) and normalize done-heading formatting.
+   - Verify whether GitHub tag/release `v3.0.0` (`REL-4`) and any open code-scanning alert (`REL-5`) still need closing in GitHub UI/CLI.
+
+**Coverage:** Docs-only change; add or run a relative-link check verifying 0 broken links across `README.md`, `CHANGELOG.md`, `BACKLOG.md`, `docs/`, and `contracts/`.
+
+**Acceptance:**
+
+- Zero broken relative markdown links exist across `README.md`, `CHANGELOG.md`, `BACKLOG.md`, `docs/`, and `contracts/`.
+- `grep -c 'PR #[T]BD' BACKLOG.md` returns `0`.
+- `docs/adr/` and `docs/architecture/` contain zero Java/Spring/WASM-only relics.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None (merge after `CLN-3` and `CLN-11` so `CHANGELOG.md`, `README.md`, and `docs/sec2-innerHTML-audit.md` reflect the final Sprint 15 state).
+
+---
+
+### ~~CLN-10 · Git repository & local workspace hygiene (stale branches & worktrees) · DevOps / DX · Size XS [Should Have]~~ ✅ Done (closing repo/worktree cleanup)
+
+Months of stacked agent sprints left 53 stale worktrees under `.claude/worktrees/` (plus 2 temporary worktrees outside the repo) and 100+ obsolete merged branches on both local git and `origin` (including `origin/dependabot/maven/*`, `origin/dependabot/docker/*`, `origin/claude/wa*`, `origin/claude/be-*`, and `origin/sprint14/enh1-builtin-g7` / `enh10-ci-permissions-v3` tracking refs).
+
+**Work items:**
+
+1. Run `git fetch --prune origin` to drop stale remote-tracking refs.
+2. Audit all remaining `origin/*` branches via `gh pr list --state open` and `git branch -r --merged origin/main`; delete merged/obsolete remote branches (especially dead `dependabot/maven/*`, `dependabot/docker/*`, and pre-SPA `claude/*` branches) after verifying none belong to open PRs or unmerged work.
+3. Prune stale `.claude/worktrees/*` worktrees (`git worktree remove` / `git worktree prune`) after checking each for uncommitted changes, then delete merged local branches with `git branch -d`.
+4. Confirm `git worktree list` shows only the main workspace and `git branch -a` is clean (`main` + `origin/main`).
+
+**Coverage:** Ops / git hygiene only; zero tracked-file changes.
+
+**Acceptance:**
+
+- `git worktree list` reports only the primary workspace on `main`.
+- `git branch --merged main` contains only `main`.
+- Zero stale `dependabot/maven/*` or `dependabot/docker/*` branches remain on `origin`.
+
+**Dependencies:** None (run independently after confirming no active unmerged work lives in any worktree).
+
+---
+
+### ~~CLN-11 · Retire legacy `<details class="custom-section">` (`app/custom-rounds.js`) with `bv_customRounds` migration · FE / Product · Size M [Could Have — requires approval]~~ ✅ Done
+
+Since `UX-1` added full CRUD custom bullets (`app/custom-bullets.js`, `#customBulletPanel`) and `ENH-5` unified custom Mach→Cd drag-CSV upload directly into `#customBulletForm`, the older one-off `<details class="custom-section">` accordion (`app/custom-rounds.js`, `runCustom`, `#dragTableFile`, `#savePresetBtn`, `bv_customRounds`, `ballistics.customDragTable`) duplicates the custom-load workflow with fewer capabilities (single-round only, no G7 BC, no Sweep/multi-round comparison). Because existing users may have saved presets in `localStorage['bv_customRounds']`, retiring it requires explicit product approval and a lossless one-time migration.
+
+**Work items (only if approved):**
+
+1. Add a one-time idempotent startup migrator that converts any valid entries in `localStorage['bv_customRounds']` (plus `ballistics.customDragTable` if present) into `CustomBulletRecordV1` entries in `ballistics:custom-bullets:v1` (skipping name duplicates) before removing the legacy storage keys.
+2. Delete `app/custom-rounds.js`, `tests/custom-rounds.test.js`, `<details class="custom-section">` in `app/index.html:312–358`, its CSS rules (`.custom-section`, `.custom-form`, `.save-preset-btn`, `#customPresetSection`, `.preset-*`), and `runCustom` / `_customDragTable` / `_updateDragTableStatus` / `_clearCustomDragTable` / preset glue in `app/ballistics.js`.
+3. Remove `app/custom-rounds.js` from `package.json` `jest.collectCoverageFrom`, update `README.md` and `CHANGELOG.md`.
+
+**Coverage:** 100% Jest covering the `bv_customRounds` → `custom-bullets:v1` migration (empty, valid, duplicate-name, corrupt, storage-unavailable).
+
+**Acceptance:**
+
+- Existing `bv_customRounds` presets migrate automatically into Custom Bullets on first load without data loss.
+- Only one unified custom-round/bullet creation and drag-CSV upload flow exists in the sidebar.
+- `npm test`, `npm run build`, and `npm run test:e2e` pass cleanly at 100/100/100/100.
+
+**Dependencies:** CLN-6, CLN-8, and explicit user approval.
 
 ---

@@ -1,11 +1,11 @@
 # ADR 008: TypeScript port of the JS engine as the sole in-browser physics engine
 
 Date: 2026-11-15
-Status: **Proposed** (pending user review)
+Status: **Accepted** (implemented in SPA-1, PR #86)
 Deciders: Architect
 Related story: SPA-1 (first story of the pure-browser TypeScript SPA refactor)
 Contract: [`contracts/spa1-ts-engine.md`](../../contracts/spa1-ts-engine.md)
-Supersedes on acceptance: [ADR 005](./005-wasm-runtime-integration.md) (WASM runtime and three-tier fallback). Retires the browser-delivery part of [`contracts/adr-004-wasm-engine.md`](../../contracts/adr-004-wasm-engine.md).
+Supersedes: ADR 005 (removed; WASM runtime and three-tier fallback). Retires the browser-delivery part of `contracts/adr-004-wasm-engine.md` (removed).
 
 ## Context
 
