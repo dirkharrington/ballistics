@@ -1,6 +1,6 @@
 const {
   PREF_KEYS, PREF_DEFAULTS, DOM_ID_FOR_PREF,
-  AUTO_COMPUTE_KEY, THEME_KEY, CUSTOM_DRAG_TABLE_KEY,
+  AUTO_COMPUTE_KEY, THEME_KEY,
   formatNumber, safeGetItem, safeSetItem, safeRemoveItem,
   loadAutoComputePref, saveAutoComputePref,
   escapeHtml, computeAdjustments, showToast, _setSimStatus, _setSimulationError,
@@ -45,7 +45,6 @@ describe('prefs constants and formatting', () => {
     expect(DOM_ID_FOR_PREF.zero).toBe('zeroRange');
     expect(AUTO_COMPUTE_KEY).toBe('ballistics_auto_compute');
     expect(THEME_KEY).toBe('bv_theme');
-    expect(CUSTOM_DRAG_TABLE_KEY).toBe('ballistics.customDragTable');
   });
 
   test('formatNumber formats integers with locale grouping', () => {

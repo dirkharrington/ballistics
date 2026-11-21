@@ -235,32 +235,48 @@ describe('bullet selection, lazy tabs & exports', () => {
   });
 });
 
-// ── Custom round form ─────────────────────────────────────────────────────────
+// ── Custom bullet catalog ─────────────────────────────────────────────────────
 
-describe('custom round form', () => {
-  test('validates weight <= 0 and computes a valid custom round cleanly', async () => {
+describe('custom bullet catalog', () => {
+  test('validates required inputs, saves a custom bullet, selects it, and renders charts via Web Worker', async () => {
     await loadApp();
 
-    await page.$eval('.custom-section summary', el => el.scrollIntoView({ block: 'center' }));
-    await page.click('.custom-section summary');
+    await page.$eval('#addCustomBulletBtn', el => el.scrollIntoView({ block: 'center' }));
+    await page.click('#addCustomBulletBtn');
+    await page.waitForSelector('#customBulletForm:not([hidden])', { timeout: 3000 });
+
+    // Submit empty form to confirm validation error rendering
+    await page.$eval('#customBulletSaveBtn', el => el.scrollIntoView({ block: 'center' }));
+    await page.click('#customBulletSaveBtn');
+    const nameErr = await page.$eval('#cbName-error', el => el.textContent);
+    expect(nameErr).toMatch(/required/i);
+
+    // Fill valid custom bullet inputs and save
+    await page.type('#cbName', 'E2E 175gr SMK');
+    await page.type('#cbShortName', 'E2E175');
+    await page.type('#cbBulletWeightGrains', '175');
+    await page.type('#cbBcG1', '0.505');
+    await page.type('#cbBulletDiameterInches', '0.308');
+    await page.type('#cbMuzzleVelocityFps', '2650');
+
+    await page.$eval('#customBulletSaveBtn', el => el.scrollIntoView({ block: 'center' }));
+    await page.click('#customBulletSaveBtn');
+    await page.waitForSelector('#customBulletForm[hidden]', { timeout: 3000 });
+    await page.waitForSelector('.bullet-card--custom', { timeout: 3000 });
+
+    // Activate custom bullet card and compute trajectories
+    await page.$eval('.bullet-card--custom', el => el.scrollIntoView({ block: 'center' }));
+    await page.click('.bullet-card--custom');
     await page.waitForFunction(
-      () => document.querySelector('.custom-section')?.open,
+      () => document.querySelector('.bullet-card--custom')?.classList.contains('active'),
       { timeout: 3000 },
     );
 
-    await page.$eval('#customWeight', el => { el.value = '0'; });
-    await page.$eval('#runCustomBtn', el => el.scrollIntoView({ block: 'center' }));
-    await page.click('#runCustomBtn');
-    await page.waitForSelector('#customError', { visible: true, timeout: 3000 });
-    const errMsg = await page.$eval('#customError', el => el.textContent);
-    expect(errMsg).toMatch(/weight/i);
+    await page.$eval('#runBtn', el => el.scrollIntoView({ block: 'center' }));
+    await page.click('#runBtn');
+    await waitForResults(2);
 
-    await page.$eval('#customWeight', el => { el.value = '9.0'; });
-    await page.$eval('#runCustomBtn', el => el.scrollIntoView({ block: 'center' }));
-    await page.click('#runCustomBtn');
-    await waitForResults(1);
-
-    const count = await page.$$eval('.stat-card', cards => cards.length);
-    expect(count).toBeGreaterThan(0);
+    const statsText = await page.$eval('.stats-grid', el => el.textContent);
+    expect(statsText).toContain('E2E 175gr SMK');
   });
 });

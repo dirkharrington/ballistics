@@ -91,7 +91,6 @@ function buildDOM() {
       <span>Auto-compute on change</span>
     </label>
     <div id="simulationError" class="simulation-error" hidden aria-live="assertive" role="alert"></div>
-    <button id="runCustomBtn" class="run-btn"><span>▶ COMPUTE CUSTOM</span></button>
     <div id="chartsPanel" class="charts-panel active"></div>
     <div id="dataPanel"   class="data-panel"></div>
     <div id="emptyState"  style="display:block"></div>
@@ -131,24 +130,9 @@ function buildDOM() {
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
     <div id="toast"></div>
     <div id="simStatus" aria-live="polite" aria-atomic="true" class="sr-only"></div>
-    <input id="customName"   value="" />
-    <input id="customWeight" value="9.0" />
-    <input id="customMV"     value="850" />
-    <input id="customBC"     value="0.45" />
-    <input id="customDia"    value="7.82" />
-    <div   id="customError"  style="display:none"></div>
-    <input type="file" id="dragTableFile" accept=".csv,text/csv" />
-    <small id="dragTableHelp" style="display:block;">Mach,CD columns. Overrides the drag model for custom-round runs.</small>
-    <div id="dragTableStatus" style="display:none;">
-      <span id="dragTableName"></span>
-      <button type="button" id="dragTableClearBtn">Clear</button>
-    </div>
     <button type="button" id="importJsonBtn" class="copy-link-btn" aria-label="Import previously exported trajectory JSON">⬆ IMPORT JSON</button>
     <input type="file" id="importJsonFile" accept=".json,application/json" style="display:none" />
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
-    <button type="button" id="savePresetBtn">SAVE AS PRESET</button>
-    <div id="customPresetSection" hidden></div>
-    <ul id="customPresetList" aria-label="Saved custom round presets"></ul>
     <input id="twistRate" value="" />
     <input id="latitudeDeg" value="" />
     <input id="azimuthDeg"  value="" />
@@ -195,7 +179,7 @@ jest.mock('../app/physics/engine-async.ts', () => ({
 }));
 const { simulate } = require('../app/physics/engine.ts');
 const { simulateAsync } = require('../app/physics/engine-async.ts');
-const { PREF_KEYS, PREF_DEFAULTS, AUTO_COMPUTE_KEY, CUSTOM_DRAG_TABLE_KEY } = require('../app/prefs.js');
+const { PREF_KEYS, PREF_DEFAULTS, AUTO_COMPUTE_KEY } = require('../app/prefs.js');
 const { _setCharts } = require('../app/charts.js');
 const { onSortHeaderClick, _getSortState } = require('../app/table.js');
 const { getUnitSystem } = require('../app/units.js');
@@ -944,86 +928,6 @@ describe('init', () => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// runCustom validation
-// ─────────────────────────────────────────────────────────────────────────────
-describe('runCustom validation', () => {
-  function setCustomInputs({ weight = '9.0', mv = '850', bc = '0.45', dia = '7.82' } = {}) {
-    document.getElementById('customWeight').value = weight;
-    document.getElementById('customMV').value     = mv;
-    document.getElementById('customBC').value     = bc;
-    document.getElementById('customDia').value    = dia;
-  }
-
-  function errorText() {
-    return document.getElementById('customError').textContent;
-  }
-
-  function errorVisible() {
-    return document.getElementById('customError').style.display !== 'none';
-  }
-
-  test('shows error when weight is zero', async () => {
-    setCustomInputs({ weight: '0' });
-    await mod.runCustom();
-    expect(errorVisible()).toBe(true);
-    expect(errorText()).toMatch(/weight/i);
-  });
-
-  test('shows error when muzzle velocity is zero', async () => {
-    setCustomInputs({ mv: '0' });
-    await mod.runCustom();
-    expect(errorVisible()).toBe(true);
-    expect(errorText()).toMatch(/muzzle velocity/i);
-  });
-
-  test('shows error when BC is zero', async () => {
-    setCustomInputs({ bc: '0' });
-    await mod.runCustom();
-    expect(errorVisible()).toBe(true);
-    expect(errorText()).toMatch(/BC/i);
-  });
-
-  test('shows error when BC exceeds 1.2', async () => {
-    setCustomInputs({ bc: '1.3' });
-    await mod.runCustom();
-    expect(errorVisible()).toBe(true);
-    expect(errorText()).toMatch(/BC/i);
-  });
-
-  test('shows error when diameter is zero', async () => {
-    setCustomInputs({ dia: '0' });
-    await mod.runCustom();
-    expect(errorVisible()).toBe(true);
-    expect(errorText()).toMatch(/diameter/i);
-  });
-
-  test('shows error when latitudeDeg is out of range', async () => {
-    setCustomInputs();
-    document.getElementById('latitudeDeg').value = '95';
-    await mod.runCustom();
-    expect(errorVisible()).toBe(true);
-    expect(errorText()).toMatch(/latitude/i);
-    document.getElementById('latitudeDeg').value = '';
-  });
-
-  test('shows error when azimuthDeg is out of range', async () => {
-    setCustomInputs();
-    document.getElementById('azimuthDeg').value = '-5';
-    await mod.runCustom();
-    expect(errorVisible()).toBe(true);
-    expect(errorText()).toMatch(/azimuth/i);
-    document.getElementById('azimuthDeg').value = '';
-  });
-
-  test('clears error and proceeds when all inputs are valid', async () => {
-    setCustomInputs();
-    await mod.runCustom();
-    expect(errorVisible()).toBe(false);
-    expect(errorText()).toBe('');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // sight height (task 2)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('sight height parameter', () => {
@@ -1055,13 +959,6 @@ describe('sight height parameter', () => {
     await mod.runSimulation();
     jest.runAllTimers();
     expect(mod._getState().lastResults[0]?.request?.sightHeightMm).toBe(50);
-  });
-
-  test('runCustom includes sightHeightMm from the DOM input', async () => {
-    document.getElementById('sightHeight').value = '60';
-    await mod.runCustom();
-    const result = mod._getState().lastResults[0];
-    expect(result?.request?.sightHeightMm).toBe(60);
   });
 
   test('runSimulation includes latitudeDeg and azimuthDeg when DOM inputs are filled', async () => {
@@ -1134,13 +1031,6 @@ describe('shooting angle correction', () => {
     await mod.runSimulation();
     jest.runAllTimers();
     expect(mod._getState().lastResults[0]?.request?.shootingAngleDegrees).toBe(15);
-  });
-
-  test('runCustom includes shootingAngleDegrees from the DOM input', async () => {
-    document.getElementById('shootingAngle').value = '-10';
-    await mod.runCustom();
-    const result = mod._getState().lastResults[0];
-    expect(result?.request?.shootingAngleDegrees).toBe(-10);
   });
 });
 
@@ -1755,287 +1645,6 @@ describe('exportPNG', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// runCustom — server-success path (line 432: result = await res.json())
-// ─────────────────────────────────────────────────────────────────────────────
-describe('runCustom client-side compute', () => {
-  function setValidCustomInputs() {
-    document.getElementById('customWeight').value = '9.0';
-    document.getElementById('customMV').value     = '850';
-    document.getElementById('customBC').value     = '0.45';
-    document.getElementById('customDia').value    = '7.82';
-  }
-
-  test('computes result via simulate and stores in lastResults', async () => {
-    setValidCustomInputs();
-    await mod.runCustom();
-    const result = mod._getState().lastResults[0];
-    expect(result).toBeDefined();
-    expect(result.bullet).toBeDefined();
-    expect(result.bullet.id).toBe('custom');
-  });
-
-  test('shows custom error when simulateAsync throws TrajectoryInputError', async () => {
-    setValidCustomInputs();
-    const { TrajectoryInputError } = require('../app/physics/engine.ts');
-    simulateAsync.mockRejectedValueOnce(new TrajectoryInputError('maxRangeMeters', 'too large'));
-    await mod.runCustom();
-    expect(document.getElementById('customError').style.display).toBe('block');
-  });
-
-  test('re-throws non-TrajectoryInputError from simulateAsync', async () => {
-    setValidCustomInputs();
-    simulateAsync.mockRejectedValueOnce(new Error('unexpected'));
-    await expect(mod.runCustom()).rejects.toThrow('unexpected');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WA-12: Custom drag table — _updateDragTableStatus, _clearCustomDragTable
-// ─────────────────────────────────────────────────────────────────────────────
-describe('_updateDragTableStatus', () => {
-  test('shows status div with file name and row count when fileName is provided', () => {
-    mod._updateDragTableStatus('g1-custom.csv', 50);
-    expect(document.getElementById('dragTableStatus').style.display).toBe('block');
-    expect(document.getElementById('dragTableName').textContent).toBe('g1-custom.csv (50 rows)');
-  });
-
-  test('shows status div using _customDragTable length when no fileName given', () => {
-    // Inject a fake table via the localStorage → init path simulation
-    // We can't directly set _customDragTable from tests, but we can test
-    // the branch where _customDragTable is null (no fileName, no table)
-    mod._updateDragTableStatus();
-    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
-  });
-});
-
-describe('_clearCustomDragTable', () => {
-  beforeEach(() => {
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
-    document.getElementById('dragTableStatus').style.display = 'block';
-    document.getElementById('dragTableName').textContent = 'test.csv (3 rows)';
-    document.getElementById('dragTableHelp').textContent = 'some error';
-  });
-
-  test('hides status div', () => {
-    mod._clearCustomDragTable();
-    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
-  });
-
-  test('removes localStorage key', () => {
-    mod._clearCustomDragTable();
-    expect(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY)).toBeNull();
-  });
-
-  test('resets help text', () => {
-    mod._clearCustomDragTable();
-    expect(document.getElementById('dragTableHelp').textContent).toContain('Mach,CD');
-  });
-});
-
-describe('dragTableClearBtn click', () => {
-  test('calls _clearCustomDragTable when button is clicked', () => {
-    mod.init();
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
-    document.getElementById('dragTableStatus').style.display = 'block';
-    document.getElementById('dragTableClearBtn').click();
-    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
-    expect(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY)).toBeNull();
-  });
-});
-
-describe('dragTableFile change event — FileReader paths', () => {
-  async function triggerFileReader(csvText, fileName = 'test.csv') {
-    mod.init();
-
-    // Simulate FileReader by capturing the onload callback
-    let capturedOnload;
-    const mockReader = {
-      set onload(fn) { capturedOnload = fn; },
-      readAsText: jest.fn(),
-    };
-    jest.spyOn(global, 'FileReader').mockImplementation(() => mockReader);
-
-    const fileInput = document.getElementById('dragTableFile');
-    Object.defineProperty(fileInput, 'files', {
-      configurable: true,
-      get: () => [{ name: fileName }],
-    });
-    fileInput.dispatchEvent(new Event('change'));
-    await flushMicrotasks();
-
-    // Invoke the onload callback with the CSV text
-    capturedOnload({ target: { result: csvText } });
-
-    jest.restoreAllMocks();
-  }
-
-  test('valid CSV shows status div with file name', async () => {
-    const csv = 'Mach,CD\n0.3,0.3\n1.0,0.5\n2.5,0.4';
-    await triggerFileReader(csv, 'my-drag.csv');
-    expect(document.getElementById('dragTableStatus').style.display).toBe('block');
-    expect(document.getElementById('dragTableName').textContent).toBe('my-drag.csv (3 rows)');
-  });
-
-  test('valid CSV stores table in localStorage', async () => {
-    const csv = 'Mach,CD\n0.3,0.3\n1.0,0.5\n2.5,0.4';
-    await triggerFileReader(csv);
-    const stored = JSON.parse(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY));
-    expect(stored).toHaveLength(3);
-  });
-
-  test('invalid CSV shows error in helpEl and clears localStorage', async () => {
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
-    // CSV with subsonic coverage but no supersonic (all mach < 2.0)
-    const csv = 'Mach,CD\n0.3,0.3\n1.0,0.5\n1.9,0.4';
-    await triggerFileReader(csv);
-    expect(document.getElementById('dragTableHelp').textContent).toContain('supersonic coverage');
-    expect(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY)).toBeNull();
-  });
-
-  test('no file selected (empty files list) exits early', () => {
-    mod.init();
-
-    const fileInput = document.getElementById('dragTableFile');
-    Object.defineProperty(fileInput, 'files', {
-      configurable: true,
-      get: () => [],
-    });
-    // Should not throw
-    fileInput.dispatchEvent(new Event('change'));
-    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
-  });
-
-  test('file over 64 KB shows error message without reading', () => {
-    mod.init();
-
-    let capturedReadAsText;
-    const mockReader = {
-      set onload(_fn) {},
-      set onerror(_fn) {},
-      readAsText: jest.fn(f => { capturedReadAsText = f; }),
-    };
-    jest.spyOn(global, 'FileReader').mockImplementation(() => mockReader);
-
-    const fileInput = document.getElementById('dragTableFile');
-    Object.defineProperty(fileInput, 'files', {
-      configurable: true,
-      get: () => [{ name: 'big.csv', size: 65 * 1024 }],
-    });
-    fileInput.dispatchEvent(new Event('change'));
-
-    expect(capturedReadAsText).toBeUndefined();
-    expect(document.getElementById('dragTableHelp').textContent).toMatch(/too large/i);
-    jest.restoreAllMocks();
-  });
-
-  test('reader.onerror shows error message in helpEl', async () => {
-    mod.init();
-
-    let capturedOnerror;
-    const mockReader = {
-      set onload(_fn) {},
-      set onerror(fn) { capturedOnerror = fn; },
-      readAsText: jest.fn(),
-    };
-    jest.spyOn(global, 'FileReader').mockImplementation(() => mockReader);
-
-    const fileInput = document.getElementById('dragTableFile');
-    Object.defineProperty(fileInput, 'files', {
-      configurable: true,
-      get: () => [{ name: 'err.csv', size: 100 }],
-    });
-    fileInput.dispatchEvent(new Event('change'));
-    await flushMicrotasks();
-    capturedOnerror();
-
-    expect(document.getElementById('dragTableHelp').textContent).toMatch(/error reading file/i);
-    jest.restoreAllMocks();
-  });
-});
-
-describe('init loads customDragTable from localStorage', () => {
-  test('populates status when localStorage has a valid table', () => {
-    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
-    mod.init();
-    expect(document.getElementById('dragTableStatus').style.display).toBe('block');
-    expect(document.getElementById('dragTableName').textContent).toContain('3 rows');
-  });
-
-  test('ignores corrupt JSON in localStorage', () => {
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, 'not-json{{{');
-    mod.init();
-    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
-  });
-
-  test('discards and clears localStorage when stored table fails re-validation', () => {
-    const badTable = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 1.9, cd: 0.4 }];
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
-    mod.init();
-    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
-    expect(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY)).toBeNull();
-  });
-});
-
-describe('_resetState clears _customDragTable', () => {
-  test('_customDragTable is null after reset', () => {
-    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
-    mod.init();
-    mod._resetState();
-    mod._updateDragTableStatus();
-    expect(document.getElementById('dragTableStatus').style.display).toBe('none');
-  });
-});
-
-describe('runSimulation with customDragTable loaded', () => {
-  test('renders results when customDragTable is loaded (no crash)', async () => {
-    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
-
-    mod.init();
-    mod._setSelectedIds(new Set([mod.getBuiltInBullets()[0].id]));
-    await mod.runSimulation();
-    jest.runAllTimers();
-    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
-  });
-});
-
-describe('runCustom with customDragTable loaded', () => {
-  test('passes customDragTable to simulate', async () => {
-    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
-
-    mod.init();
-
-    document.getElementById('customWeight').value = '9.0';
-    document.getElementById('customMV').value     = '850';
-    document.getElementById('customBC').value     = '0.45';
-    document.getElementById('customDia').value    = '7.82';
-
-    await mod.runCustom();
-    expect(mod._getState().lastResults).toHaveLength(1);
-  });
-
-  test('sets lastReq so MODEL pill remains stable after Clear', async () => {
-    const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
-
-    mod.init();
-
-    document.getElementById('customWeight').value = '9.0';
-    document.getElementById('customMV').value     = '850';
-    document.getElementById('customBC').value     = '0.45';
-    document.getElementById('customDia').value    = '7.82';
-
-    await mod.runCustom();
-    const { lastReq } = mod._getState();
-    expect(lastReq).not.toBeNull();
-    expect(lastReq.customDragTable).toHaveLength(3);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // export button wired up by renderResults (line 714 arrow fn)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('export button click handler', () => {
@@ -2327,30 +1936,6 @@ describe('G7 drag model — runSimulation and renderResults', () => {
     expect(mod._getState().lastResults[0]?.request?.dragModel).toBe('G7');
   });
 
-  test('runCustom includes dragModel from DOM select', async () => {
-    document.getElementById('dragModel').value = 'G7';
-    document.getElementById('customWeight').value = '9.0';
-    document.getElementById('customMV').value     = '850';
-    document.getElementById('customBC').value     = '0.45';
-    document.getElementById('customDia').value    = '7.82';
-    await mod.runCustom();
-    const result = mod._getState().lastResults[0];
-    expect(result?.request?.dragModel).toBe('G7');
-  });
-
-  test('runCustom includes latitudeDeg and azimuthDeg when DOM inputs are filled', async () => {
-    document.getElementById('customWeight').value = '9.0';
-    document.getElementById('customMV').value     = '850';
-    document.getElementById('customBC').value     = '0.45';
-    document.getElementById('customDia').value    = '7.82';
-    document.getElementById('latitudeDeg').value  = '45';
-    document.getElementById('azimuthDeg').value   = '180';
-    await mod.runCustom();
-    const result = mod._getState().lastResults[0];
-    expect(result?.request?.latitudeDeg).toBe(45);
-    expect(result?.request?.azimuthDeg).toBe(180);
-  });
-
   test('renderResults updates #modelStatus pill with dragModel from req', async () => {
     const results = [{
       bullet: { id: '308-win-168gr', name: '.308', muzzleVelocityMps: 807,
@@ -2455,13 +2040,6 @@ describe('openSidebar / closeSidebar', () => {
     mod.init();
     mod.openSidebar();
     document.getElementById('runBtn').click();
-    expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
-  });
-
-  test('runCustomBtn click closes sidebar before running custom', () => {
-    mod.init();
-    mod.openSidebar();
-    document.getElementById('runCustomBtn').click();
     expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
   });
 });
@@ -2654,129 +2232,26 @@ describe('init() with URL params (FE-1)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// init() FE-2: preset library glue
+// init() CLN-11: legacy custom-rounds migration on startup
 // ─────────────────────────────────────────────────────────────────────────────
-describe('init() FE-2: preset library glue', () => {
-  const VALID_FIELDS = {
-    customName:   'Test Load',
-    customWeight: '11.34',
-    customMV:     '800',
-    customBC:     '0.505',
-    customDia:    '7.82',
-  };
+describe('init() CLN-11: legacy custom-rounds migration', () => {
+  test('migrates bv_customRounds and ballistics.customDragTable into unified custom bullets catalog on boot', () => {
+    const { LEGACY_CUSTOM_ROUNDS_KEY, LEGACY_CUSTOM_DRAG_KEY } = require('../app/custom-bullets.js');
+    const drag = [{ mach: 0.4, cd: 0.2 }, { mach: 1.0, cd: 0.4 }, { mach: 2.5, cd: 0.3 }];
+    localStorage.setItem(LEGACY_CUSTOM_DRAG_KEY, JSON.stringify(drag));
+    localStorage.setItem(LEGACY_CUSTOM_ROUNDS_KEY, JSON.stringify([
+      { name: 'Legacy Boot Load', weightG: 11.34, mvMps: 792.48, bc: 0.505, diaMm: 7.823 },
+    ]));
 
-  function fillForm(fields = VALID_FIELDS) {
-    Object.entries(fields).forEach(([id, val]) => {
-      document.getElementById(id).value = val;
-    });
-  }
-
-  function runInit() {
     mod.init();
-  }
 
-  test('init() calls renderPresetList with stored presets on startup', async () => {
-    // Store one preset so the section becomes visible
-    const preset = {
-      id: '3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c',
-      name: 'Stored Load',
-      weightG: 11.34, mvMps: 800, bc: 0.505, diaMm: 7.82,
-      savedAt: '2026-11-01T14:03:22.511Z',
-    };
-    localStorage.setItem('bv_customRounds', JSON.stringify([preset]));
-    await runInit();
-    expect(document.getElementById('customPresetSection').hidden).toBe(false);
-    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
-  });
-
-  test('savePresetBtn saves preset and shows toast "Preset saved"', async () => {
-    await runInit();
-    fillForm();
-    const toastEl = document.getElementById('toast');
-    document.getElementById('savePresetBtn').click();
-    expect(toastEl.textContent).toBe('Preset saved');
-    expect(document.getElementById('customPresetSection').hidden).toBe(false);
-    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
-  });
-
-  test('savePresetBtn replaces preset with same name and shows "Preset updated"', async () => {
-    await runInit();
-    fillForm();
-    document.getElementById('savePresetBtn').click(); // first save
-    document.getElementById('customWeight').value = '12';
-    document.getElementById('savePresetBtn').click(); // replace
-    expect(document.getElementById('toast').textContent).toBe('Preset updated');
-    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
-  });
-
-  test('savePresetBtn shows full toast when library is full', async () => {
-    // Fill with 20 presets
-    const presets = Array.from({ length: 20 }, (_, i) => ({
-      id: `3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a${String(i).padStart(4, '0')}`,
-      name: `Load ${i}`,
-      weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82,
-      savedAt: '2026-11-01T14:03:22.511Z',
-    }));
-    localStorage.setItem('bv_customRounds', JSON.stringify(presets));
-    await runInit();
-    fillForm({ ...VALID_FIELDS, customName: 'New Load' });
-    document.getElementById('savePresetBtn').click();
-    expect(document.getElementById('toast').textContent).toContain('full');
-  });
-
-  test('savePresetBtn shows custom error when field is invalid', async () => {
-    await runInit();
-    fillForm({ ...VALID_FIELDS, customWeight: '0' });
-    document.getElementById('savePresetBtn').click();
-    const errEl = document.getElementById('customError');
-    expect(errEl.style.display).toBe('block');
-    expect(errEl.textContent).toContain('Weight');
-  });
-
-  test('savePresetBtn shows storage toast on localStorage failure', async () => {
-    await runInit();
-    fillForm();
-    const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
-      throw new Error('QuotaExceededError');
-    });
-    document.getElementById('savePresetBtn').click();
-    expect(document.getElementById('toast').textContent).toContain("Couldn't save preset");
-    spy.mockRestore();
-  });
-
-  test('onLoad fills form fields and clears custom error', async () => {
-    const preset = {
-      id: '3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c',
-      name: 'Stored Load', weightG: 9.5, mvMps: 900, bc: 0.45, diaMm: 6.0,
-      savedAt: '2026-11-01T14:03:22.511Z',
-    };
-    localStorage.setItem('bv_customRounds', JSON.stringify([preset]));
-    await runInit();
-    // Trigger a custom error first
-    document.getElementById('customError').style.display = 'block';
-    document.getElementById('customError').textContent = 'some error';
-    // Click the Load button
-    document.querySelector('.preset-load-btn').click();
-    expect(document.getElementById('customName').value).toBe('Stored Load');
-    expect(document.getElementById('customWeight').value).toBe('9.5');
-    expect(document.getElementById('customMV').value).toBe('900');
-    expect(document.getElementById('customBC').value).toBe('0.45');
-    expect(document.getElementById('customDia').value).toBe('6');
-    expect(document.getElementById('customError').style.display).toBe('none');
-  });
-
-  test('onDelete removes preset from rendered list', async () => {
-    const preset = {
-      id: '3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c',
-      name: 'Stored Load', weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82,
-      savedAt: '2026-11-01T14:03:22.511Z',
-    };
-    localStorage.setItem('bv_customRounds', JSON.stringify([preset]));
-    await runInit();
-    expect(document.querySelectorAll('.preset-row')).toHaveLength(1);
-    document.querySelector('.preset-delete-btn').click();
-    expect(document.querySelectorAll('.preset-row')).toHaveLength(0);
-    expect(document.getElementById('customPresetSection').hidden).toBe(true);
+    const { customRecords, bullets } = mod._getState();
+    expect(customRecords).toHaveLength(1);
+    expect(customRecords[0].name).toBe('Legacy Boot Load');
+    expect(customRecords[0].customDragTable).toEqual(drag);
+    expect(bullets.some(b => b.name === 'Legacy Boot Load')).toBe(true);
+    expect(localStorage.getItem(LEGACY_CUSTOM_ROUNDS_KEY)).toBeNull();
+    expect(localStorage.getItem(LEGACY_CUSTOM_DRAG_KEY)).toBeNull();
   });
 });
 
@@ -4132,7 +3607,7 @@ describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js wa
   });
 });
 
-describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSweep', () => {
+describe('PERF-18: Stale-run cancellation in runSimulation and runSweep', () => {
   test('rapid double runSimulation aborts first run and renders only the second', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getBuiltInBullets());
@@ -4191,21 +3666,9 @@ describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSw
     jest.runAllTimers();
   });
 
-  test('runCustom and runSweep silently exit on AbortError or post-resolve abort', async () => {
+  test('runSweep silently exits on AbortError or post-resolve abort', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getBuiltInBullets());
-
-    // runCustom AbortError
-    simulateAsync.mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'));
-    await expect(mod.runCustom()).resolves.toBeUndefined();
-
-    // runCustom post-resolve abort
-    let resCustom;
-    simulateAsync.mockImplementationOnce(() => new Promise(r => { resCustom = r; }));
-    const pc = mod.runCustom();
-    const pSim = mod.runSimulation(); // aborts custom run synchronously
-    resCustom({ bullet: mod.getBuiltInBullets()[0], request: {}, points: [] });
-    await Promise.all([pc, pSim]);
 
     // runSweep AbortError
     simulateAsync.mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'));
@@ -4326,7 +3789,7 @@ describe('PERF-28: lazy loading & retry on failed chunk import', () => {
     expect(initCalls).toBe(1);
   });
 
-  test('_loadDragCsv evicts failed promise, reports on #dragTableHelp, and retries cleanly', async () => {
+  test('_loadDragCsv evicts failed promise, reports on #cbDragCsv-error, and retries cleanly', async () => {
     let fail = true;
     let isoMod;
     document.body.innerHTML = '';
@@ -4345,8 +3808,9 @@ describe('PERF-28: lazy loading & retry on failed chunk import', () => {
     buildDOM();
     isoMod._resetState();
     isoMod.init();
+    isoMod.openCustomBulletAdd();
 
-    const fileInput = document.getElementById('dragTableFile');
+    const fileInput = document.getElementById('cbDragCsv');
     Object.defineProperty(fileInput, 'files', {
       configurable: true,
       get: () => [{ name: 'test.csv', size: 32 }],
@@ -4354,7 +3818,7 @@ describe('PERF-28: lazy loading & retry on failed chunk import', () => {
 
     fileInput.dispatchEvent(new Event('change'));
     await flushMicrotasks();
-    expect(document.getElementById('dragTableHelp').textContent).toContain("Couldn't load CSV parser");
+    expect(document.getElementById('cbDragCsv-error').textContent).toContain("Couldn't load CSV parser");
 
     fail = false;
     await expect(isoMod._loadDragCsv()).resolves.toHaveProperty('parseDragCsv');
@@ -5061,12 +4525,12 @@ describe('ENH-3: global Metric/Imperial unit system', () => {
     document.getElementById('zeroRange').remove(); // covers missing pref element guard in init()
     mod.init();
     expect(getUnitSystem()).toBe('imperial');
-    expect(document.getElementById('customWeight').value).toBe('138.9');
-    expect(document.getElementById('customWeight').dataset.unitApplied).toBe('imperial');
+    expect(document.getElementById('mpbrVitalCm').value).toBe('7.9');
+    expect(document.getElementById('mpbrVitalCm').dataset.unitApplied).toBe('imperial');
 
     // Re-running init() on same imperial inputs (when dataset.unitApplied === 'imperial') skips reconversion
     mod.init();
-    expect(document.getElementById('customWeight').value).toBe('138.9');
+    expect(document.getElementById('mpbrVitalCm').value).toBe('7.9');
 
     // 2. From localStorage without URL param
     history.replaceState(null, '', '/');
@@ -5086,7 +4550,7 @@ describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CS
     jest.restoreAllMocks();
   });
 
-  test('validates and propagates pressureHpa, humidityPercent, and includeEotvos in runSimulation, runCustom, and URL state', async () => {
+  test('validates and propagates pressureHpa, humidityPercent, and includeEotvos in runSimulation and URL state', async () => {
     mod.init();
 
     // Out-of-range pressure & humidity in runSimulation
@@ -5111,14 +4575,6 @@ describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CS
     expect(mod.currentState().pressureHpa).toBe(1013.25);
     expect(mod.currentState().humidityPercent).toBe(65);
     expect(mod.currentState().includeEotvos).toBe(true);
-
-    // Out-of-range in runCustom shows customError, valid passes through
-    document.getElementById('humidityPercent').value = '-5';
-    await mod.runCustom();
-    expect(document.getElementById('customError').textContent).toMatch(/Humidity/);
-    document.getElementById('humidityPercent').value = '50';
-    await mod.runCustom();
-    expect(mod._getState().lastReq.humidityPercent).toBe(50);
 
     // URL restore on init
     history.replaceState(null, '', '/?pressureHpa=990&humidityPercent=40&includeEotvos=1');
@@ -5309,6 +4765,12 @@ describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CS
     csvInput.dispatchEvent(new Event('change'));
     await flushMicrotasks();
     capturedOnerror();
+    expect(document.getElementById('cbDragCsv-error').textContent).toBe('Error reading file.');
+
+    // 6. Empty files list is a no-op
+    Object.defineProperty(csvInput, 'files', { configurable: true, get: () => [] });
+    csvInput.dispatchEvent(new Event('change'));
+    await flushMicrotasks();
     expect(document.getElementById('cbDragCsv-error').textContent).toBe('Error reading file.');
   });
 });

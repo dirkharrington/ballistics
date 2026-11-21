@@ -309,54 +309,6 @@
     <input type="file" id="importJsonFile" accept=".json,application/json" style="display:none" aria-hidden="true" tabindex="-1">
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
 
-    <details class="custom-section">
-      <summary>Custom Round <span class="chevron">▶</span></summary>
-    <div class="custom-form" id="customForm">
-      <div class="param-group">
-        <label>Name</label>
-        <input type="text" id="customName" placeholder="My Load" maxlength="64" style="width:100%">
-      </div>
-      <div class="param-row">
-        <div class="param-group">
-          <label for="customWeight">Weight (<span data-unit-kind="weight">g</span>)</label>
-          <input type="number" id="customWeight" value="9.0" min="1" max="30" step="0.1">
-        </div>
-        <div class="param-group">
-          <label for="customMV">MV (<span data-unit-kind="velocity">m/s</span>)</label>
-          <input type="number" id="customMV" value="850" min="200" max="1800" step="10">
-        </div>
-      </div>
-      <div class="param-row">
-        <div class="param-group">
-          <label for="customBC">BC (G1)</label>
-          <input type="number" id="customBC" value="0.450" min="0.1" max="1.2" step="0.001">
-        </div>
-        <div class="param-group">
-          <label for="customDia">Dia (<span data-unit-kind="diameter">mm</span>)</label>
-          <input type="number" id="customDia" value="7.82" min="4" max="20" step="0.01">
-        </div>
-      </div>
-      <div class="param-group" style="margin-top:8px;">
-        <label for="dragTableFile">Custom drag table (CSV, optional)</label>
-        <input type="file" id="dragTableFile" accept=".csv,text/csv" style="margin-top:4px;">
-        <small id="dragTableHelp" style="display:block; margin-top:3px; font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--text-dim)">Mach,CD columns. Overrides the drag model for custom-round runs.</small>
-        <div id="dragTableStatus" style="display:none; margin-top:4px; font-family:'Share Tech Mono',monospace; font-size:10px; color:#4ADE80;">
-          <span id="dragTableName"></span>
-          <button type="button" id="dragTableClearBtn" style="margin-left:8px; background:none; border:1px solid var(--border,#1e3040); color:var(--text-dim); cursor:pointer; font-family:'Share Tech Mono',monospace; font-size:10px; padding:2px 6px;">Clear</button>
-        </div>
-      </div>
-      <div id="customError" style="display:none;color:#f87171;font-size:11px;margin-top:6px;font-family:'Share Tech Mono',monospace"></div>
-      <button class="run-btn" id="runCustomBtn" style="margin:8px 0 0">
-        <span>▶ COMPUTE CUSTOM</span>
-      </button>
-      <button type="button" id="savePresetBtn" class="save-preset-btn">SAVE AS PRESET</button>
-      <div id="customPresetSection" hidden>
-        <div class="section-label">Saved presets</div>
-        <ul id="customPresetList" aria-label="Saved custom round presets"></ul>
-      </div>
-    </div>
-    </details>
-
   </aside>
 
   <!-- MAIN -->

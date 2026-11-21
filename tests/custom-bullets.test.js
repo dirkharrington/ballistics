@@ -16,11 +16,12 @@ global.crypto = {
 };
 
 const {
-  CUSTOM_BULLETS_KEY, CUSTOM_BULLET_ID_RE, MAX_CUSTOM_BULLETS,
+  CUSTOM_BULLETS_KEY, LEGACY_CUSTOM_ROUNDS_KEY, LEGACY_CUSTOM_DRAG_KEY,
+  CUSTOM_BULLET_ID_RE, MAX_CUSTOM_BULLETS,
   CUSTOM_BULLET_LIMITS, CUSTOM_BULLET_PALETTE, GRAINS_TO_GRAMS, FPS_TO_MPS, INCH_TO_MM,
   newCustomBulletId, isCustomBulletId, customColor,
   validateCustomBulletInput, isValidCustomBulletRecord, isValidCustomDragTable,
-  loadCustomBullets, saveCustomBullets,
+  loadCustomBullets, saveCustomBullets, migrateLegacyCustomRounds,
   upsertCustomBullet, removeCustomBullet,
   toBullet, mergeCatalog, bulletForDragModel,
   renderCustomBulletGroup, syncCustomDeleteGuards, syncCustomRovingTabindex,
@@ -1291,5 +1292,138 @@ describe('ENH-5: optional customDragTable on custom bullets', () => {
       onDelete: () => {},
     });
     expect(listEl.querySelector('.bullet-specs').textContent).toContain('CSV');
+  });
+});
+
+describe('CLN-11: migrateLegacyCustomRounds', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('returns noop when neither legacy key exists', () => {
+    expect(migrateLegacyCustomRounds()).toEqual({ migrated: 0, status: 'noop' });
+  });
+
+  test('returns unavailable when localStorage throws on read', () => {
+    jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    expect(migrateLegacyCustomRounds()).toEqual({ migrated: 0, status: 'unavailable' });
+  });
+
+  test('migrates valid presets, converts metric to imperial, attaches valid drag CSV, and removes legacy keys', () => {
+    const sampleDrag = [
+      { mach: 0.4, cd: 0.19 },
+      { mach: 1.0, cd: 0.42 },
+      { mach: 2.5, cd: 0.31 },
+    ];
+    localStorage.setItem(LEGACY_CUSTOM_DRAG_KEY, JSON.stringify(sampleDrag));
+    localStorage.setItem(LEGACY_CUSTOM_ROUNDS_KEY, JSON.stringify([
+      { name: '  175gr SMK Legacy  ', weightG: 11.34, mvMps: 792.48, bc: 0.505, diaMm: 7.823 },
+      { name: 'Matches Built-In', weightG: 10, mvMps: 800, bc: 0.4, diaMm: 7.82 },
+      { name: '175gr smk legacy', weightG: 10, mvMps: 800, bc: 0.4, diaMm: 7.82 }, // dup of earlier migrated entry
+      { name: 'Extreme Values', weightG: 0.01, mvMps: 50, bc: 5.0, diaMm: 0.1 },   // clamped within limits
+      null,
+      { name: 123, weightG: 10, mvMps: 800, bc: 0.4, diaMm: 7.82 },
+      { name: '   ', weightG: 10, mvMps: 800, bc: 0.4, diaMm: 7.82 },
+      { name: 'Bad\u0000Char', weightG: 10, mvMps: 800, bc: 0.4, diaMm: 7.82 },
+      { name: 'BadWeight', weightG: 0, mvMps: 800, bc: 0.4, diaMm: 7.82 },
+      { name: 'BadMV', weightG: 10, mvMps: NaN, bc: 0.4, diaMm: 7.82 },
+      { name: 'BadBC', weightG: 10, mvMps: 800, bc: -0.1, diaMm: 7.82 },
+      { name: 'BadDia', weightG: 10, mvMps: 800, bc: 0.4, diaMm: Infinity },
+    ]));
+
+    const res = migrateLegacyCustomRounds(['matches built-in']);
+    expect(res).toEqual({ migrated: 2, status: 'migrated' });
+    expect(localStorage.getItem(LEGACY_CUSTOM_ROUNDS_KEY)).toBeNull();
+    expect(localStorage.getItem(LEGACY_CUSTOM_DRAG_KEY)).toBeNull();
+
+    const { records, status } = loadCustomBullets();
+    expect(status).toBe('ok');
+    expect(records).toHaveLength(2);
+    expect(records.every(isValidCustomBulletRecord)).toBe(true);
+    expect(records[0].name).toBe('175gr SMK Legacy');
+    expect(records[0].bulletWeightGrains).toBeCloseTo(175, 1);
+    expect(records[0].muzzleVelocityFps).toBe(2600);
+    expect(records[0].ballisticCoefficientG1).toBe(0.505);
+    expect(records[0].ballisticCoefficientG7).toBeNull();
+    expect(records[0].bulletDiameterInches).toBe(0.308);
+    expect(records[0].customDragTable).toEqual(sampleDrag);
+    expect(records[1].bulletWeightGrains).toBe(CUSTOM_BULLET_LIMITS.bulletWeightGrains.min);
+    expect(records[1].ballisticCoefficientG1).toBe(CUSTOM_BULLET_LIMITS.ballisticCoefficientG1.max);
+    expect(records[1].muzzleVelocityFps).toBe(CUSTOM_BULLET_LIMITS.muzzleVelocityFps.min);
+    expect(records[1].bulletDiameterInches).toBe(CUSTOM_BULLET_LIMITS.bulletDiameterInches.min);
+  });
+
+  test('ignores corrupt legacy drag JSON / invalid drag table and handles non-array/corrupt presets cleanly', () => {
+    localStorage.setItem(LEGACY_CUSTOM_DRAG_KEY, '{corrupt');
+    localStorage.setItem(LEGACY_CUSTOM_ROUNDS_KEY, JSON.stringify({ not: 'an-array' }));
+    expect(migrateLegacyCustomRounds()).toEqual({ migrated: 0, status: 'cleaned' });
+    expect(localStorage.getItem(LEGACY_CUSTOM_ROUNDS_KEY)).toBeNull();
+    expect(localStorage.getItem(LEGACY_CUSTOM_DRAG_KEY)).toBeNull();
+
+    localStorage.setItem(LEGACY_CUSTOM_DRAG_KEY, JSON.stringify([{ mach: 0.4, cd: 0.2 }])); // invalid length < 3
+    localStorage.setItem(LEGACY_CUSTOM_ROUNDS_KEY, '{bad-json');
+    expect(migrateLegacyCustomRounds()).toEqual({ migrated: 0, status: 'cleaned' });
+
+    // Valid preset without legacy drag table and deduplicated against existing custom bullets
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([makeRecord({ name: 'Existing Custom' })]));
+    localStorage.setItem(LEGACY_CUSTOM_ROUNDS_KEY, JSON.stringify([
+      { name: 'Existing Custom', weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82 },
+      { name: 'Fresh Load', weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82 },
+    ]));
+    expect(migrateLegacyCustomRounds()).toEqual({ migrated: 1, status: 'migrated' });
+    const loaded = loadCustomBullets();
+    expect(loaded.records).toHaveLength(2);
+    expect(loaded.records[1].name).toBe('Fresh Load');
+    expect(loaded.records[1].customDragTable).toBeUndefined();
+  });
+
+  test('stops migrating at MAX_CUSTOM_BULLETS capacity', () => {
+    const existing = Array.from({ length: MAX_CUSTOM_BULLETS - 1 }, (_, i) => makeRecord({
+      id:   `usr-${String(i).padStart(16, '0')}`,
+      name: `Saved ${i}`,
+    }));
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify(existing));
+    localStorage.setItem(LEGACY_CUSTOM_ROUNDS_KEY, JSON.stringify([
+      { name: 'Fits One', weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82 },
+      { name: 'Overflow Two', weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82 },
+    ]));
+    expect(migrateLegacyCustomRounds()).toEqual({ migrated: 1, status: 'migrated' });
+    expect(loadCustomBullets().records).toHaveLength(MAX_CUSTOM_BULLETS);
+  });
+
+  test('returns storage-error and preserves legacy keys if saveCustomBullets fails', () => {
+    localStorage.setItem(LEGACY_CUSTOM_ROUNDS_KEY, JSON.stringify([
+      { name: 'Preserve Me', weightG: 11, mvMps: 800, bc: 0.5, diaMm: 7.82 },
+    ]));
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+    });
+    expect(migrateLegacyCustomRounds()).toEqual({ migrated: 0, status: 'storage-error' });
+    expect(localStorage.getItem(LEGACY_CUSTOM_ROUNDS_KEY)).not.toBeNull();
+  });
+
+  test('cleans orphaned LEGACY_CUSTOM_DRAG_KEY when LEGACY_CUSTOM_ROUNDS_KEY is absent', () => {
+    const sampleDrag = [
+      { mach: 0.4, cd: 0.19 },
+      { mach: 1.0, cd: 0.42 },
+      { mach: 2.5, cd: 0.31 },
+    ];
+    localStorage.setItem(LEGACY_CUSTOM_DRAG_KEY, JSON.stringify(sampleDrag));
+    expect(migrateLegacyCustomRounds()).toEqual({ migrated: 0, status: 'cleaned' });
+    expect(localStorage.getItem(LEGACY_CUSTOM_DRAG_KEY)).toBeNull();
+  });
+
+  test('swallows removeItem errors during cleanup and returns cleaned', () => {
+    localStorage.setItem(LEGACY_CUSTOM_ROUNDS_KEY, '[]');
+    jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    expect(migrateLegacyCustomRounds()).toEqual({ migrated: 0, status: 'cleaned' });
   });
 });

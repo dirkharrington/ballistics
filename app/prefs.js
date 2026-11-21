@@ -58,7 +58,6 @@ const UNIT_KIND_FOR_PREF = Object.freeze({
 
 export const AUTO_COMPUTE_KEY = 'ballistics_auto_compute';
 export const THEME_KEY = 'bv_theme';
-export const CUSTOM_DRAG_TABLE_KEY = 'ballistics.customDragTable';
 
 // ── Cached number formatter (PERF-22) ─────────────────────────────────────────
 const _numFmt = new Intl.NumberFormat();
