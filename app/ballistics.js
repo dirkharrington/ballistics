@@ -10,29 +10,24 @@ import {
   bulletForDragModel, isValidCustomDragTable,
 } from './custom-bullets.js';
 import {
-  PREF_KEYS, PREF_DEFAULTS, AUTO_COMPUTE_KEY, CUSTOM_DRAG_TABLE_KEY,
+  PREF_DEFAULTS, CUSTOM_DRAG_TABLE_KEY,
   safeSetItem, safeRemoveItem, loadAutoComputePref, saveAutoComputePref,
-  savePrefs as _savePrefs, loadPrefs, applyTheme, initThemeToggle as _initThemeToggle,
-  updateToggleLabel, escapeHtml, computeAdjustments, showToast, _setSimStatus, _setSimulationError,
+  savePrefs as _savePrefs, loadPrefs, initThemeToggle as _initThemeToggle,
+  escapeHtml, computeAdjustments, showToast, _setSimStatus, _setSimulationError,
 } from './prefs.js';
 import {
-  BULLET_COLORS, HEX_COLOR_RE, colorFor,
-  _loadChart, _warmChart,
-  drawVLine, drawHLine, annotationPlugin, crosshairPlugin,
-  _attachTouchForwarder, updateReadout, scheduleCrosshairSync,
-  resetCrosshairState, toggleReadoutPin, renderStatCards,
-  windChartSubtitle, buildChartConfig, renderCharts, destroyCharts,
-  _applyChartTheme, _getChartState, _resetChartState, _setCharts,
+  HEX_COLOR_RE, colorFor, _warmChart,
+  resetCrosshairState, toggleReadoutPin,
+  renderCharts, _applyChartTheme, _getChartState, _resetChartState,
 } from './charts.js';
 import {
-  SORTABLE_COLUMNS, TABLE_CHUNK_THRESHOLD, TABLE_CHUNK_SIZE,
-  renderTable, onSortHeaderClick, updateSortIndicators,
-  _getSortState, _cancelTableChunkRaf, setTablePendingResults,
+  renderTable, onSortHeaderClick,
+  _cancelTableChunkRaf, setTablePendingResults,
   flushTableIfDirty, clearTableDirty, getTableResults, _resetTableState,
 } from './table.js';
 import {
-  UNIT_SYSTEMS, normalizeUnitSystem, getUnitSystem, setUnitSystemState,
-  unitLabel, toDisplay, fromDisplay, loadUnitSystem, saveUnitSystem,
+  UNIT_SYSTEMS, normalizeUnitSystem, setUnitSystemState,
+  unitLabel, toDisplay, loadUnitSystem, saveUnitSystem,
   writeMetricInputValue, readMetricInputValue,
 } from './units.js';
 import { loadProfiles, saveProfile, deleteProfile } from './profiles.js';
@@ -1781,25 +1776,20 @@ if (document.getElementById('bulletList')) {
 
 export {
   getBuiltInBullets, computeClientSide,
-  MAX_SELECTED_BULLETS, AUTO_COMPUTE_KEY,
+  MAX_SELECTED_BULLETS,
   renderBulletList, toggleBullet, updateBulletCards, clearSelection, filterBulletList, syncRunButton, runSimulation,
   _scheduleAutoCompute,
-  resetCrosshairState, renderStatCards, buildChartConfig,
-  renderResults, renderCharts, destroyCharts, renderTable, updateReadout, switchTab, init,
-  onSortHeaderClick, updateSortIndicators, _getSortState, SORTABLE_COLUMNS,
+  renderResults, switchTab, init,
   exportTrajectoryCSV,
-  exportCSV, exportJSON, exportMarkdown, exportPNG, importResultsFromFile, runCustom, showToast,
-  BULLET_COLORS, HEX_COLOR_RE, colorFor, escapeHtml, computeAdjustments, crosshairPlugin,
-  drawVLine, drawHLine, annotationPlugin, windChartSubtitle, _attachTouchForwarder,
-  savePrefs, loadPrefs, PREF_KEYS, PREF_DEFAULTS,
+  exportCSV, exportJSON, exportMarkdown, exportPNG, importResultsFromFile, runCustom,
   openSidebar, closeSidebar,
   currentState, syncUrl, copyLink,
   updateSweepButtonVisibility, runSweep, clearSweep, renderSweepCharts, _loadSweep,
-  _getState, _resetState, _setBullets, _setSelectedIds, _setCharts, _setLastResults,
-  _setSimulationError, _setSimStatus, _loadChart, _warmChart, _loadIo, _loadTools, _loadDragCsv,
-  scheduleCrosshairSync, debounce, TABLE_CHUNK_THRESHOLD, TABLE_CHUNK_SIZE,
-  _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
+  _getState, _resetState, _setBullets, _setSelectedIds, _setLastResults,
+  _loadIo, _loadTools, _loadDragCsv,
+  debounce,
+  _updateDragTableStatus, _clearCustomDragTable,
   _setCustomRecords, _setCustomStorageStatus,
-  initThemeToggle, updateToggleLabel, applyTheme, _applyChartTheme,
-  setUnitSystem, toggleUnitSystem, getUnitSystem,
+  initThemeToggle,
+  setUnitSystem, toggleUnitSystem,
 };

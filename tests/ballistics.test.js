@@ -1,4 +1,3 @@
-// ── TextEncoder / TextDecoder (not exposed as globals by jsdom 20 / Jest 29) ──
 const { TextEncoder, TextDecoder } = require('util');
 if (!global.TextEncoder) global.TextEncoder = TextEncoder;
 if (!global.TextDecoder) global.TextDecoder = TextDecoder;
@@ -11,9 +10,6 @@ const {
   _mockDraw:    mockChartDraw,
 } = require('chart.js');
 
-// ── Mock fetch ────────────────────────────────────────────────────────────────
-global.fetch = jest.fn();
-global.alert = jest.fn();
 global.console.warn = jest.fn();
 
 // ── Suppress jsdom's unimplemented HTMLCanvasElement.getContext ───────────────
@@ -199,6 +195,10 @@ jest.mock('../app/physics/engine-async.ts', () => ({
 }));
 const { simulate } = require('../app/physics/engine.ts');
 const { simulateAsync } = require('../app/physics/engine-async.ts');
+const { PREF_KEYS, PREF_DEFAULTS, AUTO_COMPUTE_KEY, CUSTOM_DRAG_TABLE_KEY } = require('../app/prefs.js');
+const { _setCharts } = require('../app/charts.js');
+const { onSortHeaderClick, _getSortState } = require('../app/table.js');
+const { getUnitSystem } = require('../app/units.js');
 const mod = require('../app/ballistics.js');
 
 // Reset state and DOM before each test
@@ -211,8 +211,6 @@ beforeEach(() => {
   mockChartDestroy.mockClear();
   mockChartUpdate.mockClear();
   mockChartDraw.mockClear();
-  global.fetch.mockReset();
-  global.alert.mockClear();
   global.console.warn.mockClear();
   simulateAsync.mockReset();
   simulateAsync.mockImplementation((bullet, params) => Promise.resolve({
@@ -258,99 +256,6 @@ describe('getBuiltInBullets', () => {
     expect(ids).toContain('65-creedmoor-140gr');
   });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// escapeHtml
-// ─────────────────────────────────────────────────────────────────────────────
-describe('escapeHtml', () => {
-  test('escapes angle brackets', () => {
-    expect(mod.escapeHtml('<img>')).toBe('&lt;img&gt;');
-  });
-
-  test('escapes ampersands', () => {
-    expect(mod.escapeHtml('a & b')).toBe('a &amp; b');
-  });
-
-  test('escapes double and single quotes', () => {
-    expect(mod.escapeHtml('"hello"')).toBe('&quot;hello&quot;');
-    expect(mod.escapeHtml("it's")).toBe('it&#39;s');
-  });
-
-  test('full XSS payload is fully escaped', () => {
-    const payload = '<img src=x onerror=alert(1)>';
-    const escaped = mod.escapeHtml(payload);
-    expect(escaped).not.toContain('<');
-    expect(escaped).not.toContain('>');
-    expect(escaped).toContain('&lt;img');
-  });
-
-  test('passes through safe strings unchanged', () => {
-    expect(mod.escapeHtml('.308 Win 168gr BTHP')).toBe('.308 Win 168gr BTHP');
-  });
-
-  test('coerces non-string input to string', () => {
-    expect(mod.escapeHtml(42)).toBe('42');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// computeAdjustments
-// ─────────────────────────────────────────────────────────────────────────────
-describe('computeAdjustments', () => {
-  test('returns zero for both when range is 0', () => {
-    const adj = mod.computeAdjustments(-50, 0);
-    expect(adj.moa).toBe(0);
-    expect(adj.mrad).toBe(0);
-  });
-
-  test('returns zero for both when drop is 0', () => {
-    const adj = mod.computeAdjustments(0, 500);
-    expect(adj.moa).toBe(0);
-    expect(adj.mrad).toBe(0);
-  });
-
-  test('positive adjustment when drop is negative (bullet below LoS)', () => {
-    const adj = mod.computeAdjustments(-30, 500);
-    expect(adj.moa).toBeGreaterThan(0);
-    expect(adj.mrad).toBeGreaterThan(0);
-  });
-
-  test('negative adjustment when drop is positive (bullet above LoS)', () => {
-    const adj = mod.computeAdjustments(5, 50);
-    expect(adj.moa).toBeLessThan(0);
-    expect(adj.mrad).toBeLessThan(0);
-  });
-
-  test('MOA is numerically larger than MRAD for same drop/range', () => {
-    const adj = mod.computeAdjustments(-30, 500);
-    expect(adj.moa).toBeGreaterThan(adj.mrad);
-  });
-
-  test('values are rounded to 1 decimal place', () => {
-    const adj = mod.computeAdjustments(-30, 500);
-    expect(adj.moa).toBe(Math.round(adj.moa * 10) / 10);
-    expect(adj.mrad).toBe(Math.round(adj.mrad * 10) / 10);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BULLET_COLORS
-// ─────────────────────────────────────────────────────────────────────────────
-describe('BULLET_COLORS', () => {
-  test('maps all four known IDs', () => {
-    expect(mod.BULLET_COLORS['223-rem-55gr']).toBe('#4ADE80');
-    expect(mod.BULLET_COLORS['308-win-168gr']).toBe('#F97316');
-    expect(mod.BULLET_COLORS['3006-150gr']).toBe('#60A5FA');
-    expect(mod.BULLET_COLORS['65-creedmoor-140gr']).toBe('#E879F9');
-  });
-});
-
-
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// (simulateBulletJS tests removed — engine.ts is the sole physics engine now)
-// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // computeClientSide
@@ -584,246 +489,6 @@ describe('switchTab', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// renderTable
-// ─────────────────────────────────────────────────────────────────────────────
-describe('renderTable', () => {
-  const results = [
-    {
-      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
-      points: [
-        { rangeMeters: 0,   dropCm:  3.8, velocityMps: 807, energyJoules: 3552, windDriftCm:  0,   timeOfFlightSec: 0 },
-        { rangeMeters: 91, dropCm: -0.3, velocityMps: 750, energyJoules: 3000, windDriftCm:  8.1, timeOfFlightSec: 0.12 },
-        { rangeMeters: 457, dropCm: -107,  velocityMps: 550, energyJoules: 1639, windDriftCm: -5.1, timeOfFlightSec: 0.65 }
-      ]
-    }
-  ];
-
-  test('renders one row per trajectory point', () => {
-    mod.renderTable(results);
-    const rows = document.querySelectorAll('#tableBody tr');
-    expect(rows).toHaveLength(3);
-  });
-
-  test('positive drop gets + prefix', () => {
-    mod.renderTable(results);
-    const firstRow = document.querySelectorAll('#tableBody tr')[0];
-    expect(firstRow.textContent).toContain('+3.8 cm');
-  });
-
-  test('negative drop has no + prefix', () => {
-    mod.renderTable(results);
-    const secondRow = document.querySelectorAll('#tableBody tr')[1];
-    expect(secondRow.textContent).not.toContain('+-');
-    expect(secondRow.textContent).toContain('-0.3 cm');
-  });
-
-  test('positive wind drift gets + prefix', () => {
-    mod.renderTable(results);
-    const secondRow = document.querySelectorAll('#tableBody tr')[1];
-    expect(secondRow.textContent).toContain('+8.1 cm');
-  });
-
-  test('negative wind drift has no + prefix', () => {
-    mod.renderTable(results);
-    const thirdRow = document.querySelectorAll('#tableBody tr')[2];
-    expect(thirdRow.textContent).toContain('-5.1 cm');
-    expect(thirdRow.textContent).not.toContain('+-');
-  });
-
-  test('uses fallback color for unknown bullet id', () => {
-    const unknownResults = [{
-      bullet: { id: 'unknown-id', name: 'Unknown' },
-      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 2000, energyJoules: 1356, windDriftCm: 0, timeOfFlightSec: 0 }]
-    }];
-    mod.renderTable(unknownResults);
-    const row = document.querySelector('#tableBody tr');
-    expect(row).not.toBeNull();
-    expect(row.innerHTML).toContain('#4ADE80');
-  });
-
-  test('XSS payload in bullet name is escaped in table cell', () => {
-    const xssResults = [{
-      bullet: { id: '308-win-168gr', name: '<script>alert(1)</script>' },
-      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }]
-    }];
-    mod.renderTable(xssResults);
-    const tbody = document.getElementById('tableBody').innerHTML;
-    // Unescaped <script> would execute; escaped form is safe text
-    expect(tbody).not.toContain('<script>alert');
-    expect(tbody).toContain('&lt;script&gt;');
-  });
-
-  test('MOA and MRAD cells are present for each row', () => {
-    mod.renderTable(results);
-    const rows = document.querySelectorAll('#tableBody tr');
-    // muzzle point: range=0 → moa=0, mrad=0
-    expect(rows[0].textContent).toContain('0');
-    // far point: range=457, drop=-107 → positive adjustment
-    const farText = rows[2].textContent;
-    // MOA adjustment should be a positive number shown in the row
-    const moaMatch = farText.match(/\+?\d+\.\d+/g);
-    expect(moaMatch).not.toBeNull();
-  });
-
-  test('positive drop gets negative MOA adjustment with - prefix', () => {
-    const aboveResults = [{
-      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
-      points: [{ rangeMeters: 50, dropCm: 5, velocityMps: 800, energyJoules: 3500, windDriftCm: 0, timeOfFlightSec: 0.05 }]
-    }];
-    mod.renderTable(aboveResults);
-    const row = document.querySelector('#tableBody tr');
-    // drop is positive → MOA/MRAD are negative (no + prefix)
-    expect(row.textContent).not.toMatch(/\+.*MOA/);
-  });
-
-  test('coriolisColHeader hidden when no Coriolis data', () => {
-    mod.renderTable(results);
-    const hdr = document.getElementById('coriolisColHeader');
-    expect(hdr.style.display).toBe('none');
-  });
-
-  test('coriolisColHeader shown and cells rendered when Coriolis data present', () => {
-    const corResults = [{
-      bullet: { id: '308-win-168gr', name: '.308' },
-      points: [
-        { rangeMeters: 0,   dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    coriolisDeflectionCm: 0   },
-        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13, coriolisDeflectionCm: 1.2 },
-      ],
-    }];
-    mod.renderTable(corResults);
-    expect(document.getElementById('coriolisColHeader').style.display).toBe('');
-    const rows = document.querySelectorAll('#tableBody tr');
-    expect(rows[1].textContent).toContain('+1.2 cm');
-  });
-
-  test('negative coriolisDeflectionCm renders without + prefix', () => {
-    const corResults = [{
-      bullet: { id: '308-win-168gr', name: '.308' },
-      points: [
-        { rangeMeters: 0,   dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    coriolisDeflectionCm: -0.5 },
-        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13, coriolisDeflectionCm: -2.1 },
-      ],
-    }];
-    mod.renderTable(corResults);
-    const rows = document.querySelectorAll('#tableBody tr');
-    expect(rows[1].textContent).toContain('-2.1 cm');
-    expect(rows[1].textContent).not.toContain('+-');
-  });
-
-  test('spinDriftColHeader hidden when no Spin Drift data', () => {
-    mod.renderTable(results);
-    const hdr = document.getElementById('spinDriftColHeader');
-    expect(hdr.style.display).toBe('none');
-  });
-
-  test('spinDriftColHeader shown and cells rendered when Spin Drift data present', () => {
-    const spinResults = [{
-      bullet: { id: '308-win-168gr', name: '.308' },
-      points: [
-        { rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    spinDriftCm: 0   },
-        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13, spinDriftCm: 1.2 },
-      ],
-    }];
-    mod.renderTable(spinResults);
-    expect(document.getElementById('spinDriftColHeader').style.display).toBe('');
-    const rows = document.querySelectorAll('#tableBody tr');
-    expect(rows[1].textContent).toContain('1.2 cm');
-  });
-
-  test('spinDriftColHeader hidden when all Spin Drift values are zero', () => {
-    const noSpinResults = [{
-      bullet: { id: '308-win-168gr', name: '.308' },
-      points: [
-        { rangeMeters: 0,   dropCm: 0,  velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0,    spinDriftCm: 0 },
-        { rangeMeters: 100, dropCm: -3, velocityMps: 760, energyJoules: 3100, windDriftCm: 1, timeOfFlightSec: 0.13, spinDriftCm: 0 },
-      ],
-    }];
-    mod.renderTable(noSpinResults);
-    expect(document.getElementById('spinDriftColHeader').style.display).toBe('none');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// resetCrosshairState
-// ─────────────────────────────────────────────────────────────────────────────
-describe('resetCrosshairState', () => {
-  test('clears crosshairIndex and crosshairPinned', () => {
-    mod.resetCrosshairState();
-    const s = mod._getState();
-    expect(s.crosshairIndex).toBeNull();
-    expect(s.crosshairPinned).toBe(false);
-  });
-
-  test('resets pin button text and removes pinned class', () => {
-    const pinBtn = document.getElementById('readoutPin');
-    pinBtn.textContent = 'UNPIN';
-    pinBtn.classList.add('pinned');
-    mod.resetCrosshairState();
-    expect(pinBtn.textContent).toBe('PIN');
-    expect(pinBtn.classList.contains('pinned')).toBe(false);
-  });
-
-  test('hides the range readout panel', () => {
-    const readout = document.getElementById('rangeReadout');
-    readout.style.display = 'block';
-    mod.resetCrosshairState();
-    expect(readout.style.display).toBe('none');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// buildChartConfig
-// ─────────────────────────────────────────────────────────────────────────────
-describe('buildChartConfig', () => {
-  const sampleResults = [{
-    bullet: { id: '308-win-168gr', name: '.308', muzzleVelocityMps: 807,
-              muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-    points: [
-      { rangeMeters: 0,   velocityMps: 807, dropCm: 0,    energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
-      { rangeMeters: 100, velocityMps: 750, dropCm: -5.2, energyJoules: 3000, windDriftCm: 0, timeOfFlightSec: 0.13 }
-    ],
-    maxOrdinateCm: 8.1, maxOrdinateRangeMeters: 68, supersonicLimitMeters: 823
-  }];
-
-  const dropDef = {
-    id: 'dropChart', title: 'BULLET DROP', subtitle: 'zeroed at 100 m',
-    yLabel: 'Drop (cm)', key: 'dropCm'
-  };
-
-  const datasets = [{ label: '.308', data: [{ x: 0, y: 807 }] }];
-
-  test('returns an object with type "line"', () => {
-    const config = mod.buildChartConfig(dropDef, datasets, sampleResults);
-    expect(config.type).toBe('line');
-  });
-
-  test('passes datasets through to config.data.datasets', () => {
-    const config = mod.buildChartConfig(dropDef, datasets, sampleResults);
-    expect(config.data.datasets).toBe(datasets);
-  });
-
-  test('includes crosshairPlugin in plugins array', () => {
-    const config = mod.buildChartConfig(dropDef, datasets, sampleResults);
-    expect(config.plugins).toContain(mod.crosshairPlugin);
-  });
-
-  test('uses def.yLabel for y-axis title', () => {
-    const config = mod.buildChartConfig(dropDef, datasets, sampleResults);
-    expect(config.options.scales.y.title.text).toBe('Drop (cm)');
-  });
-
-  test('onHover callback is a function', () => {
-    const config = mod.buildChartConfig(dropDef, datasets, sampleResults);
-    expect(typeof config.options.onHover).toBe('function');
-  });
-
-  test('onClick callback is a function', () => {
-    const config = mod.buildChartConfig(dropDef, datasets, sampleResults);
-    expect(typeof config.options.onClick).toBe('function');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // renderResults
 // ─────────────────────────────────────────────────────────────────────────────
 describe('renderResults', () => {
@@ -859,7 +524,7 @@ describe('renderResults', () => {
 
   test('destroys existing charts before rendering new ones', async () => {
     const fakeChart = { destroy: jest.fn() };
-    mod._setCharts({ old: fakeChart });
+    _setCharts({ old: fakeChart });
     await mod.renderResults(results, req);
     expect(fakeChart.destroy).toHaveBeenCalled();
   });
@@ -1028,7 +693,6 @@ describe('runSimulation', () => {
   test('returns early without calling compute when no bullets selected', () => {
     mod._setSelectedIds(new Set());
     mod.runSimulation();
-    expect(global.alert).not.toHaveBeenCalled();
     expect(simulateAsync).not.toHaveBeenCalled();
   });
 
@@ -1143,19 +807,6 @@ describe('runSimulation — input validation', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // ACC-2: aria-live simulation lifecycle announcements
 // ─────────────────────────────────────────────────────────────────────────────
-describe('ACC-2: _setSimStatus', () => {
-  test('sets textContent on #simStatus', () => {
-    mod._setSimStatus('Computing trajectories…');
-    expect(document.getElementById('simStatus').textContent).toBe('Computing trajectories…');
-  });
-
-  test('clears textContent when called with empty string', () => {
-    mod._setSimStatus('some text');
-    mod._setSimStatus('');
-    expect(document.getElementById('simStatus').textContent).toBe('');
-  });
-});
-
 describe('ACC-2: runSimulation aria-live announcements', () => {
   test('announces "Computing trajectories…" when simulation starts', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
@@ -1198,66 +849,6 @@ describe('ACC-2: runSimulation aria-live announcements', () => {
 
     const text = document.getElementById('simStatus').textContent;
     expect(text).toMatch(/^Simulation failed: /);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FE-R2: savePrefs / loadPrefs map-driven loop
-// ─────────────────────────────────────────────────────────────────────────────
-describe('FE-R2: savePrefs loop', () => {
-  test('sets all 10 non-selectedIds keys with correct DOM values', () => {
-    document.getElementById('zeroRange').value     = '200';
-    document.getElementById('maxRange').value      = '900';
-    document.getElementById('windSpeed').value     = '5';
-    document.getElementById('windDir').value       = '0';
-    document.getElementById('altitude').value      = '1500';
-    document.getElementById('temperature').value   = '10';
-    document.getElementById('step').value          = '10';
-    document.getElementById('sightHeight').value   = '50';
-    document.getElementById('shootingAngle').value = '5';
-    document.getElementById('dragModel').value     = 'G7';
-
-    mod.savePrefs();
-
-    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('200');
-    expect(localStorage.getItem(mod.PREF_KEYS.maxRange)).toBe('900');
-    expect(localStorage.getItem(mod.PREF_KEYS.wind)).toBe('5');
-    expect(localStorage.getItem(mod.PREF_KEYS.windDir)).toBe('0');
-    expect(localStorage.getItem(mod.PREF_KEYS.altitude)).toBe('1500');
-    expect(localStorage.getItem(mod.PREF_KEYS.temp)).toBe('10');
-    expect(localStorage.getItem(mod.PREF_KEYS.step)).toBe('10');
-    expect(localStorage.getItem(mod.PREF_KEYS.sightHeight)).toBe('50');
-    expect(localStorage.getItem(mod.PREF_KEYS.angle)).toBe('5');
-    expect(localStorage.getItem(mod.PREF_KEYS.dragModel)).toBe('G7');
-  });
-});
-
-describe('FE-R2: loadPrefs loop', () => {
-  test('empty storage returns same keys/values as { ...PREF_DEFAULTS } with selectedIds null', () => {
-    const prefs = mod.loadPrefs();
-    const defaults = { ...mod.PREF_DEFAULTS };
-    defaults.selectedIds = null;
-    expect(prefs).toEqual(defaults);
-  });
-
-  test('with all keys in storage returns numeric for numbers and string for dragModel', () => {
-    localStorage.setItem(mod.PREF_KEYS.zero,        '150');
-    localStorage.setItem(mod.PREF_KEYS.maxRange,    '800');
-    localStorage.setItem(mod.PREF_KEYS.wind,        '20');
-    localStorage.setItem(mod.PREF_KEYS.windDir,     '270');
-    localStorage.setItem(mod.PREF_KEYS.altitude,    '500');
-    localStorage.setItem(mod.PREF_KEYS.temp,        '22');
-    localStorage.setItem(mod.PREF_KEYS.step,        '50');
-    localStorage.setItem(mod.PREF_KEYS.sightHeight, '40');
-    localStorage.setItem(mod.PREF_KEYS.angle,       '10');
-    localStorage.setItem(mod.PREF_KEYS.dragModel,   'G7');
-
-    const prefs = mod.loadPrefs();
-
-    expect(typeof prefs.zero).toBe('number');
-    expect(prefs.zero).toBe(150);
-    expect(typeof prefs.dragModel).toBe('string');
-    expect(prefs.dragModel).toBe('G7');
   });
 });
 
@@ -1461,21 +1052,13 @@ describe('sight height parameter', () => {
     mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
 
-    let capturedBody;
-    global.fetch.mockImplementation(async (url, opts) => {
-      if (url.includes('stream')) { capturedBody = JSON.parse(opts.body); throw new Error('no stream'); }
-      if (url.includes('compare')) { capturedBody = JSON.parse(opts.body); throw new Error('no batch'); }
-      throw new Error('offline');
-    });
-
     await mod.runSimulation();
     jest.runAllTimers();
-    expect(capturedBody?.sightHeightMm ?? mod._getState().lastResults[0]?.request?.sightHeightMm).toBe(50);
+    expect(mod._getState().lastResults[0]?.request?.sightHeightMm).toBe(50);
   });
 
   test('runCustom includes sightHeightMm from the DOM input', async () => {
     document.getElementById('sightHeight').value = '60';
-    global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runCustom();
     const result = mod._getState().lastResults[0];
     expect(result?.request?.sightHeightMm).toBe(60);
@@ -1486,7 +1069,6 @@ describe('sight height parameter', () => {
     document.getElementById('azimuthDeg').value  = '90';
     mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSimulation();
     jest.runAllTimers();
     const result = mod._getState().lastResults[0];
@@ -1498,7 +1080,6 @@ describe('sight height parameter', () => {
     document.getElementById('latitudeDeg').value = '';
     mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSimulation();
     jest.runAllTimers();
     const result = mod._getState().lastResults[0];
@@ -1550,537 +1131,16 @@ describe('shooting angle correction', () => {
     mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
 
-    let capturedBody;
-    global.fetch.mockImplementation(async (url, opts) => {
-      if (url.includes('stream')) { capturedBody = JSON.parse(opts.body); throw new Error('no stream'); }
-      if (url.includes('compare')) { capturedBody = JSON.parse(opts.body); throw new Error('no batch'); }
-      throw new Error('offline');
-    });
-
     await mod.runSimulation();
     jest.runAllTimers();
-    // Either captured from API call or from offline fallback
-    const angle = capturedBody?.shootingAngleDegrees ??
-                  mod._getState().lastResults[0]?.request?.shootingAngleDegrees;
-    expect(angle).toBe(15);
+    expect(mod._getState().lastResults[0]?.request?.shootingAngleDegrees).toBe(15);
   });
 
   test('runCustom includes shootingAngleDegrees from the DOM input', async () => {
     document.getElementById('shootingAngle').value = '-10';
-    global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runCustom();
     const result = mod._getState().lastResults[0];
     expect(result?.request?.shootingAngleDegrees).toBe(-10);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// crosshair plugin (task 5)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('crosshairPlugin', () => {
-  test('has id ballistics-crosshair', () => {
-    expect(mod.crosshairPlugin.id).toBe('ballistics-crosshair');
-  });
-
-  test('afterDraw does nothing when crosshairIndex is null', () => {
-    mod._resetState();
-    const fakeChart = {
-      getDatasetMeta: jest.fn(() => ({ data: [] })),
-      chartArea: { top: 0, bottom: 100 },
-      ctx: { save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), stroke: jest.fn(), setLineDash: jest.fn() }
-    };
-    mod.crosshairPlugin.afterDraw(fakeChart);
-    expect(fakeChart.ctx.beginPath).not.toHaveBeenCalled();
-  });
-
-  test('all five charts are created with crosshairPlugin in plugins array', async () => {
-    const results = [{
-      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
-                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-      request: {}, points: [
-        { rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }
-      ],
-      maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800
-    }];
-    MockChart.mockClear();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    expect(MockChart).toHaveBeenCalledTimes(5);
-    MockChart.mock.calls.forEach(([, cfg]) => {
-      expect(Array.isArray(cfg.plugins)).toBe(true);
-      expect(cfg.plugins.some(p => p.id === 'ballistics-crosshair')).toBe(true);
-    });
-  });
-
-  test('all five charts use interaction mode nearest', async () => {
-    const results = [{
-      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
-                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-      request: {}, points: [
-        { rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }
-      ],
-      maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800
-    }];
-    MockChart.mockClear();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    MockChart.mock.calls.forEach(([, cfg]) => {
-      expect(cfg.options.interaction.mode).toBe('nearest');
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// annotationPlugin (Task 7)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('annotationPlugin', () => {
-  /** Minimal mock canvas context with all methods used by draw helpers. */
-  function makeCtx() {
-    return {
-      save: jest.fn(), restore: jest.fn(),
-      beginPath: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(),
-      stroke: jest.fn(), setLineDash: jest.fn(),
-      fillText: jest.fn(),
-      strokeStyle: '', lineWidth: 0, fillStyle: '', font: '', textAlign: '',
-    };
-  }
-  /** Minimal fake chart wiring ctx + scales + chartArea. */
-  function makeChart(ctx, xMax = 1000) {
-    return {
-      ctx,
-      scales: {
-        x: { max: xMax, getPixelForValue: jest.fn(v => v) },
-        y: { getPixelForValue: jest.fn(v => -v) },   // invert so drop shows correctly
-      },
-      chartArea: { top: 0, bottom: 200, left: 0, right: 1000 },
-    };
-  }
-
-  test('plugin has id ballistics-annotations', () => {
-    expect(mod.annotationPlugin([]).id).toBe('ballistics-annotations');
-  });
-
-  test('afterDraw returns early and draws nothing when annotations is empty', () => {
-    const ctx = makeCtx();
-    mod.annotationPlugin([]).afterDraw(makeChart(ctx));
-    expect(ctx.save).not.toHaveBeenCalled();
-    expect(ctx.stroke).not.toHaveBeenCalled();
-  });
-
-  test('afterDraw draws one vertical line for a vertical annotation', () => {
-    const ctx = makeCtx();
-    const ann = { type: 'vertical', value: 800, label: 'SUPERSONIC ←', color: 'rgba(255,160,0,0.6)' };
-    mod.annotationPlugin([ann]).afterDraw(makeChart(ctx));
-    expect(ctx.save).toHaveBeenCalled();
-    expect(ctx.stroke).toHaveBeenCalledTimes(1);
-    expect(ctx.fillText).toHaveBeenCalledWith('SUPERSONIC ←', expect.any(Number), expect.any(Number));
-    expect(ctx.restore).toHaveBeenCalled();
-  });
-
-  test('afterDraw draws one horizontal line for a horizontal annotation', () => {
-    const ctx = makeCtx();
-    const ann = { type: 'horizontal', value: 5, label: 'MAX ORD', color: 'rgba(0,212,255,0.4)' };
-    mod.annotationPlugin([ann]).afterDraw(makeChart(ctx));
-    expect(ctx.stroke).toHaveBeenCalledTimes(1);
-    expect(ctx.fillText).toHaveBeenCalledWith('MAX ORD', expect.any(Number), expect.any(Number));
-  });
-
-  test('afterDraw draws stroke() once per annotation for mixed types', () => {
-    const ctx = makeCtx();
-    const anns = [
-      { type: 'vertical',   value: 800, label: 'SUPERSONIC ←', color: 'rgba(255,160,0,0.6)' },
-      { type: 'horizontal', value: 5,   label: 'MAX ORD',       color: 'rgba(0,212,255,0.4)' },
-      { type: 'vertical',   value: 50,  label: 'PEAK',          color: 'rgba(0,212,255,0.4)' },
-    ];
-    mod.annotationPlugin(anns).afterDraw(makeChart(ctx));
-    expect(ctx.stroke).toHaveBeenCalledTimes(3);
-    expect(ctx.fillText).toHaveBeenCalledTimes(3);
-  });
-
-  test('vertical annotation beyond xScale.max is clamped — no error thrown', () => {
-    const ctx = makeCtx();
-    // supersonicLimitMeters (1500) > maxRangeMeters (1000) — must clamp
-    const ann = { type: 'vertical', value: 1500, label: 'SUPERSONIC ←', color: 'rgba(255,160,0,0.6)' };
-    const chart = makeChart(ctx, 1000);
-    expect(() => mod.annotationPlugin([ann]).afterDraw(chart)).not.toThrow();
-    // getPixelForValue must be called with the clamped value (1000), not 1500
-    expect(chart.scales.x.getPixelForValue).toHaveBeenCalledWith(1000);
-  });
-
-  test('drawVLine is exported and draws a line on the context', () => {
-    const ctx = makeCtx();
-    const xScale   = { max: 1000, getPixelForValue: jest.fn(v => v) };
-    const chartArea = { top: 0, bottom: 200, left: 0, right: 1000 };
-    mod.drawVLine(ctx, xScale, chartArea, { value: 500, label: 'TEST', color: 'red' });
-    expect(ctx.stroke).toHaveBeenCalledTimes(1);
-    expect(ctx.fillText).toHaveBeenCalledWith('TEST', expect.any(Number), expect.any(Number));
-  });
-
-  test('drawHLine is exported and draws a line on the context', () => {
-    const ctx = makeCtx();
-    const yScale    = { getPixelForValue: jest.fn(v => -v) };
-    const chartArea = { top: 0, bottom: 200, left: 0, right: 1000 };
-    mod.drawHLine(ctx, yScale, chartArea, { value: 5, label: 'MAX ORD', color: 'cyan' });
-    expect(ctx.stroke).toHaveBeenCalledTimes(1);
-    expect(ctx.fillText).toHaveBeenCalledWith('MAX ORD', expect.any(Number), expect.any(Number));
-  });
-});
-
-describe('annotationPlugin integration with renderResults', () => {
-  function makeResult(overrides = {}) {
-    return {
-      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
-                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-      request: {},
-      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552,
-                 windDriftCm: 0, timeOfFlightSec: 0 }],
-      maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
-      ...overrides,
-    };
-  }
-
-  test('all five charts receive an annotationPlugin in their plugins array', async () => {
-    MockChart.mockClear();
-    await mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
-    expect(MockChart).toHaveBeenCalledTimes(5);
-    MockChart.mock.calls.forEach(([, cfg]) => {
-      const hasAnnot = cfg.plugins.some(p => p.id === 'ballistics-annotations');
-      expect(hasAnnot).toBe(true);
-    });
-  });
-
-  test('drop chart plugin carries 3 annotations (supersonic + maxOrd + peak)', async () => {
-    MockChart.mockClear();
-    await mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
-    // First Chart call is for dropChart
-    const dropCfg = MockChart.mock.calls[0][1];
-    const annotPlug = dropCfg.plugins.find(p => p.id === 'ballistics-annotations');
-    expect(annotPlug).toBeDefined();
-    // Call afterDraw with a fake chart to verify 3 strokes
-    const ctx = {
-      save: jest.fn(), restore: jest.fn(),
-      beginPath: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(),
-      stroke: jest.fn(), setLineDash: jest.fn(), fillText: jest.fn(),
-      strokeStyle: '', lineWidth: 0, fillStyle: '', font: '', textAlign: '',
-    };
-    annotPlug.afterDraw({
-      ctx,
-      scales: {
-        x: { max: 1000, getPixelForValue: v => v },
-        y: { getPixelForValue: v => -v },
-      },
-      chartArea: { top: 0, bottom: 200, left: 0, right: 1000 },
-    });
-    expect(ctx.stroke).toHaveBeenCalledTimes(3);
-  });
-
-  test('non-drop charts carry only 1 annotation (supersonic limit)', async () => {
-    MockChart.mockClear();
-    await mod.renderResults([makeResult()], { zeroRangeMeters: 100, windSpeedKph: 0 });
-    // calls[1] = velocityChart, [2] = energyChart, [3] = windChart
-    [1, 2, 3].forEach(i => {
-      const cfg = MockChart.mock.calls[i][1];
-      const annotPlug = cfg.plugins.find(p => p.id === 'ballistics-annotations');
-      const ctx = {
-        save: jest.fn(), restore: jest.fn(),
-        beginPath: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(),
-        stroke: jest.fn(), setLineDash: jest.fn(), fillText: jest.fn(),
-        strokeStyle: '', lineWidth: 0, fillStyle: '', font: '', textAlign: '',
-      };
-      annotPlug.afterDraw({
-        ctx,
-        scales: { x: { max: 1000, getPixelForValue: v => v }, y: { getPixelForValue: v => -v } },
-        chartArea: { top: 0, bottom: 200, left: 0, right: 1000 },
-      });
-      expect(ctx.stroke).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  test('empty results array → annotation plugin carries empty array → no strokes', () => {
-    MockChart.mockClear();
-    // renderResults with empty array won't call Chart at all — test annotationPlugin([]) directly
-    const plugin = mod.annotationPlugin([]);
-    const ctx = { save: jest.fn(), stroke: jest.fn(), restore: jest.fn() };
-    plugin.afterDraw({ ctx, scales: { x: {}, y: {} }, chartArea: {} });
-    expect(ctx.stroke).not.toHaveBeenCalled();
-  });
-
-  test('renderResults with empty array uses empty annotation arrays (ternary false branches)', async () => {
-    MockChart.mockClear();
-    // Covers sonicAnn = [] and dropAnns = [] branches when results[0] is undefined
-    await mod.renderResults([], { zeroRangeMeters: 100, windSpeedKph: 0 });
-    expect(MockChart).toHaveBeenCalledTimes(5);
-    MockChart.mock.calls.forEach(([, cfg]) => {
-      const annotPlug = cfg.plugins.find(p => p.id === 'ballistics-annotations');
-      expect(annotPlug).toBeDefined();
-      // Plugin should have empty annotations — afterDraw is a no-op
-      const ctx = { save: jest.fn(), stroke: jest.fn() };
-      annotPlug.afterDraw({ ctx, scales: { x: {}, y: {} }, chartArea: {} });
-      expect(ctx.stroke).not.toHaveBeenCalled();
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// updateReadout (task 5)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('updateReadout', () => {
-  const results = [{
-    bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
-    points: [
-      { rangeMeters: 0,   dropCm: 0,    velocityMps: 807, energyJoules: 3552, windDriftCm: 0   },
-      { rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1 },
-      { rangeMeters: 200, dropCm: -11,  velocityMps: 710, energyJoules: 2750, windDriftCm: 7.4 }
-    ]
-  }];
-
-  test('shows the readout panel', () => {
-    mod.updateReadout(results, 1);
-    expect(document.getElementById('rangeReadout').style.display).toBe('block');
-  });
-
-  test('displays the range for the hovered index', () => {
-    mod.updateReadout(results, 1);
-    expect(document.getElementById('readoutRange').textContent).toBe('100 m');
-  });
-
-  test('renders one row per result in the readout body', () => {
-    mod.updateReadout(results, 1);
-    const rows = document.querySelectorAll('#readoutBody tr');
-    expect(rows).toHaveLength(1);
-  });
-
-  test('row contains drop, velocity, energy and wind values', () => {
-    mod.updateReadout(results, 2);
-    const row = document.querySelector('#readoutBody tr');
-    expect(row.textContent).toContain('-11 cm');
-    expect(row.textContent).toContain('710 m/s');
-    expect(row.textContent).toContain('2750 J');
-    expect(row.textContent).toContain('+7.4 cm');
-  });
-
-  test('positive drop gets + prefix, negative drop has no extra sign', () => {
-    const posResults = [{
-      bullet: { id: '308-win-168gr', name: 'Test' },
-      points: [{ rangeMeters: 50, dropCm: 3.2, velocityMps: 807, energyJoules: 3552, windDriftCm: 0 }]
-    }];
-    mod.updateReadout(posResults, 0);
-    expect(document.querySelector('#readoutBody tr').textContent).toContain('+3.2 cm');
-  });
-
-  test('bullet name in readout row is HTML-escaped', () => {
-    const xssResults = [{
-      bullet: { id: '308-win-168gr', name: '<script>alert(1)</script>' },
-      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0 }]
-    }];
-    mod.updateReadout(xssResults, 0);
-    const tbody = document.getElementById('readoutBody').innerHTML;
-    expect(tbody).not.toContain('<script>alert');
-    expect(tbody).toContain('&lt;script&gt;');
-  });
-
-  test('does nothing when panel element is absent', () => {
-    document.getElementById('rangeReadout').remove();
-    expect(() => mod.updateReadout(results, 0)).not.toThrow();
-  });
-
-  test('shows Spin Drift cell with correct value when spinDriftCm > 0', () => {
-    const spinResults = [{
-      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
-      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, spinDriftCm: 1.23 }]
-    }];
-    mod.updateReadout(spinResults, 0);
-    const row = document.querySelector('#readoutBody tr');
-    expect(row.textContent).toContain('Spin Drift');
-    expect(row.textContent).toContain('1.2 cm');
-  });
-
-  test('omits Spin Drift cell when spinDriftCm === 0', () => {
-    const noSpinResults = [{
-      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
-      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, spinDriftCm: 0 }]
-    }];
-    mod.updateReadout(noSpinResults, 0);
-    const row = document.querySelector('#readoutBody tr');
-    expect(row.textContent).not.toContain('Spin Drift');
-  });
-
-  test('omits Spin Drift cell when spinDriftCm is absent', () => {
-    const noSpinResults = [{
-      bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP' },
-      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1 }]
-    }];
-    mod.updateReadout(noSpinResults, 0);
-    const row = document.querySelector('#readoutBody tr');
-    expect(row.textContent).not.toContain('Spin Drift');
-  });
-
-  test('shows Coriolis cell with + prefix for positive coriolisDeflectionCm', () => {
-    const corResults = [{
-      bullet: { id: '308-win-168gr', name: '.308' },
-      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, coriolisDeflectionCm: 2.3 }],
-    }];
-    mod.updateReadout(corResults, 0);
-    const row = document.querySelector('#readoutBody tr');
-    expect(row.textContent).toContain('Coriolis');
-    expect(row.textContent).toContain('+2.3 cm');
-  });
-
-  test('shows Coriolis cell without + prefix for negative coriolisDeflectionCm', () => {
-    const corResults = [{
-      bullet: { id: '308-win-168gr', name: '.308' },
-      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, coriolisDeflectionCm: -1.8 }],
-    }];
-    mod.updateReadout(corResults, 0);
-    const row = document.querySelector('#readoutBody tr');
-    expect(row.textContent).toContain('Coriolis');
-    expect(row.textContent).toContain('-1.8 cm');
-    expect(row.textContent).not.toContain('+-');
-  });
-
-  test('omits Coriolis cell when coriolisDeflectionCm is undefined', () => {
-    const noCorResults = [{
-      bullet: { id: '308-win-168gr', name: '.308' },
-      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1 }],
-    }];
-    mod.updateReadout(noCorResults, 0);
-    expect(document.querySelector('#readoutBody tr').textContent).not.toContain('Coriolis');
-  });
-
-  test('omits Coriolis cell when coriolisDeflectionCm is null', () => {
-    const nullCorResults = [{
-      bullet: { id: '308-win-168gr', name: '.308' },
-      points: [{ rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, coriolisDeflectionCm: null }],
-    }];
-    mod.updateReadout(nullCorResults, 0);
-    expect(document.querySelector('#readoutBody tr').textContent).not.toContain('Coriolis');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// offline retry (task 4)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('showToast', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  test('showToast removes toast-visible class after 3 seconds', () => {
-    mod.showToast('Hello');
-    const el = document.getElementById('toast');
-    expect(el.classList.contains('toast-visible')).toBe(true);
-    jest.advanceTimersByTime(3000);
-    expect(el.classList.contains('toast-visible')).toBe(false);
-  });
-
-  test('showToast hides toast element 300 ms after class removed', () => {
-    mod.showToast('Hello');
-    const el = document.getElementById('toast');
-    jest.advanceTimersByTime(3300);
-    expect(el.style.display).toBe('none');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// chart onHover / onClick callbacks (task 5 coverage)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('chart interaction callbacks', () => {
-  const singleResult = [{
-    bullet: { id: '308-win-168gr', name: '.308 Win 168gr', muzzleVelocityMps: 807,
-              muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-    request: {}, points: [
-      { rangeMeters: 0,   dropCm: 0,    velocityMps: 807, energyJoules: 3552, windDriftCm: 0 },
-      { rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 0 }
-    ],
-    maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800
-  }];
-
-  async function renderAndGetCallbacks() {
-    MockChart.mockClear();
-    await mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    return MockChart.mock.calls[0][1].options;
-  }
-
-  test('onHover with elements sets crosshairIndex and shows readout', async () => {
-    const opts = await renderAndGetCallbacks();
-    opts.onHover({}, [{ index: 1 }]);
-    expect(mod._getState().crosshairIndex).toBe(1);
-    jest.runOnlyPendingTimers();
-    expect(document.getElementById('rangeReadout').style.display).toBe('block');
-  });
-
-  test('onHover with no elements clears crosshairIndex and hides readout', async () => {
-    const opts = await renderAndGetCallbacks();
-    opts.onHover({}, [{ index: 0 }]);
-    jest.runOnlyPendingTimers();
-    opts.onHover({}, []);
-    jest.runOnlyPendingTimers();
-    expect(mod._getState().crosshairIndex).toBeNull();
-    expect(document.getElementById('rangeReadout').style.display).toBe('none');
-  });
-
-  test('onHover does nothing when crosshairPinned is true', async () => {
-    const opts = await renderAndGetCallbacks();
-    opts.onClick({}, [{ index: 0 }]);  // pin
-    expect(mod._getState().crosshairPinned).toBe(true);
-    opts.onHover({}, [{ index: 1 }]);
-    expect(mod._getState().crosshairIndex).toBe(0); // unchanged
-  });
-
-  test('onClick toggles pin and sets crosshairIndex', async () => {
-    const opts = await renderAndGetCallbacks();
-    opts.onClick({}, [{ index: 1 }]);
-    expect(mod._getState().crosshairPinned).toBe(true);
-    expect(mod._getState().crosshairIndex).toBe(1);
-    expect(document.getElementById('readoutPin').textContent).toBe('UNPIN');
-  });
-
-  test('onClick with no elements is a no-op', async () => {
-    const opts = await renderAndGetCallbacks();
-    opts.onClick({}, []);
-    expect(mod._getState().crosshairPinned).toBe(false);
-  });
-
-  test('onClick unpins and hides readout on second click', async () => {
-    const opts = await renderAndGetCallbacks();
-    opts.onClick({}, [{ index: 0 }]);
-    opts.onClick({}, [{ index: 0 }]);
-    expect(mod._getState().crosshairPinned).toBe(false);
-    expect(document.getElementById('rangeReadout').style.display).toBe('none');
-  });
-
-  test('crosshairPlugin afterDraw draws a line when crosshairIndex is set', async () => {
-    const opts = await renderAndGetCallbacks();
-    opts.onHover({}, [{ index: 1 }]);
-    const ctx = {
-      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(),
-      moveTo: jest.fn(), lineTo: jest.fn(), stroke: jest.fn(), setLineDash: jest.fn()
-    };
-    const fakeChart = {
-      getDatasetMeta: jest.fn(() => ({ data: [null, { x: 50 }] })),
-      chartArea: { top: 0, bottom: 100 },
-      ctx
-    };
-    mod.crosshairPlugin.afterDraw(fakeChart);
-    expect(ctx.beginPath).toHaveBeenCalled();
-    expect(ctx.stroke).toHaveBeenCalled();
-  });
-
-  test('crosshairPlugin uses brighter stroke when pinned', async () => {
-    const opts = await renderAndGetCallbacks();
-    opts.onClick({}, [{ index: 1 }]);  // pin
-    const ctx = {
-      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(),
-      moveTo: jest.fn(), lineTo: jest.fn(), stroke: jest.fn(), setLineDash: jest.fn()
-    };
-    mod.crosshairPlugin.afterDraw({
-      getDatasetMeta: jest.fn(() => ({ data: [null, { x: 50 }] })),
-      chartArea: { top: 0, bottom: 100 },
-      ctx
-    });
-    expect(ctx.strokeStyle).toContain('0.7');
   });
 });
 
@@ -2542,45 +1602,10 @@ describe('importResultsFromFile', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// colorFor — XSS protection
-// ─────────────────────────────────────────────────────────────────────────────
-describe('colorFor', () => {
-  test('returns hexColor when it is a valid #rrggbb value', () => {
-    expect(mod.colorFor({ hexColor: '#ff0000' })).toBe('#ff0000');
-    expect(mod.colorFor({ hexColor: '#4ADE80' })).toBe('#4ADE80');
-    expect(mod.colorFor({ hexColor: '#000000' })).toBe('#000000');
-  });
-
-  test('falls back to catalog colour when hexColor is a malicious string', () => {
-    const result = mod.colorFor({ hexColor: 'red><img src=x onerror=alert(1)>' });
-    expect(result).not.toContain('<');
-    expect(result).not.toContain('>');
-    expect(result).not.toContain('onerror');
-  });
-
-  test('falls back to catalog colour when hexColor is an invalid colour name', () => {
-    const result = mod.colorFor({ hexColor: 'red' });
-    expect(result).not.toBe('red');
-    expect(result.startsWith('#')).toBe(true);
-  });
-
-  test('falls back to catalog colour when hexColor is a 3-digit hex', () => {
-    const result = mod.colorFor({ hexColor: '#f00' });
-    expect(result).not.toBe('#f00');
-    expect(result.startsWith('#')).toBe(true);
-  });
-
-  test('returns default green when bullet has no hexColor and id is unknown', () => {
-    expect(mod.colorFor({ id: 'unknown-bullet-xyz', name: 'X' })).toBe('#4ADE80');
-  });
-});
-
 describe('importJsonBtn / importJsonFile wiring', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     buildDOM();
-    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
-    await mod.init();
+    mod.init();
   });
 
   test('clicking #importJsonBtn triggers click on #importJsonFile', () => {
@@ -2676,17 +1701,16 @@ describe('export dropdown toggle', () => {
         <button class="export-md-btn">Markdown</button>
       </div>`;
     document.body.appendChild(dropdown);
-    global.fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
   });
 
-  test('clicking .export-toggle adds "open" class to .export-dropdown', async () => {
-    await mod.init();
+  test('clicking .export-toggle adds "open" class to .export-dropdown', () => {
+    mod.init();
     document.querySelector('.export-toggle').click();
     expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(true);
   });
 
-  test('clicking outside the dropdown removes "open" class', async () => {
-    await mod.init();
+  test('clicking outside the dropdown removes "open" class', () => {
+    mod.init();
     document.querySelector('.export-toggle').click();
     expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(true);
     document.getElementById('runBtn').click();
@@ -2786,7 +1810,7 @@ describe('_updateDragTableStatus', () => {
 
 describe('_clearCustomDragTable', () => {
   beforeEach(() => {
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
     document.getElementById('dragTableStatus').style.display = 'block';
     document.getElementById('dragTableName').textContent = 'test.csv (3 rows)';
     document.getElementById('dragTableHelp').textContent = 'some error';
@@ -2799,7 +1823,7 @@ describe('_clearCustomDragTable', () => {
 
   test('removes localStorage key', () => {
     mod._clearCustomDragTable();
-    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+    expect(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY)).toBeNull();
   });
 
   test('resets help text', () => {
@@ -2809,28 +1833,19 @@ describe('_clearCustomDragTable', () => {
 });
 
 describe('dragTableClearBtn click', () => {
-  test('calls _clearCustomDragTable when button is clicked', async () => {
-    // Wire up init so the click listener is attached
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
+  test('calls _clearCustomDragTable when button is clicked', () => {
+    mod.init();
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
     document.getElementById('dragTableStatus').style.display = 'block';
     document.getElementById('dragTableClearBtn').click();
     expect(document.getElementById('dragTableStatus').style.display).toBe('none');
-    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+    expect(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY)).toBeNull();
   });
 });
 
 describe('dragTableFile change event — FileReader paths', () => {
   async function triggerFileReader(csvText, fileName = 'test.csv') {
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
+    mod.init();
 
     // Simulate FileReader by capturing the onload callback
     let capturedOnload;
@@ -2864,25 +1879,21 @@ describe('dragTableFile change event — FileReader paths', () => {
   test('valid CSV stores table in localStorage', async () => {
     const csv = 'Mach,CD\n0.3,0.3\n1.0,0.5\n2.5,0.4';
     await triggerFileReader(csv);
-    const stored = JSON.parse(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY));
+    const stored = JSON.parse(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY));
     expect(stored).toHaveLength(3);
   });
 
   test('invalid CSV shows error in helpEl and clears localStorage', async () => {
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify([{ mach: 0.5, cd: 0.3 }]));
     // CSV with subsonic coverage but no supersonic (all mach < 2.0)
     const csv = 'Mach,CD\n0.3,0.3\n1.0,0.5\n1.9,0.4';
     await triggerFileReader(csv);
     expect(document.getElementById('dragTableHelp').textContent).toContain('supersonic coverage');
-    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+    expect(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY)).toBeNull();
   });
 
-  test('no file selected (empty files list) exits early', async () => {
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
+  test('no file selected (empty files list) exits early', () => {
+    mod.init();
 
     const fileInput = document.getElementById('dragTableFile');
     Object.defineProperty(fileInput, 'files', {
@@ -2894,12 +1905,8 @@ describe('dragTableFile change event — FileReader paths', () => {
     expect(document.getElementById('dragTableStatus').style.display).toBe('none');
   });
 
-  test('file over 64 KB shows error message without reading', async () => {
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
+  test('file over 64 KB shows error message without reading', () => {
+    mod.init();
 
     let capturedReadAsText;
     const mockReader = {
@@ -2922,11 +1929,7 @@ describe('dragTableFile change event — FileReader paths', () => {
   });
 
   test('reader.onerror shows error message in helpEl', async () => {
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
+    mod.init();
 
     let capturedOnerror;
     const mockReader = {
@@ -2951,102 +1954,35 @@ describe('dragTableFile change event — FileReader paths', () => {
 });
 
 describe('init loads customDragTable from localStorage', () => {
-  test('populates status when localStorage has a valid table', async () => {
+  test('populates status when localStorage has a valid table', () => {
     const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+    mod.init();
     expect(document.getElementById('dragTableStatus').style.display).toBe('block');
     expect(document.getElementById('dragTableName').textContent).toContain('3 rows');
   });
 
-  test('ignores corrupt JSON in localStorage', async () => {
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, 'not-json{{{');
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
-    // Should not throw; status div stays hidden
+  test('ignores corrupt JSON in localStorage', () => {
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, 'not-json{{{');
+    mod.init();
     expect(document.getElementById('dragTableStatus').style.display).toBe('none');
   });
 
-  test('discards and clears localStorage when stored table fails re-validation', async () => {
-    // A table missing supersonic coverage (all mach < 2.0) is invalid
+  test('discards and clears localStorage when stored table fails re-validation', () => {
     const badTable = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 1.9, cd: 0.4 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
+    mod.init();
     expect(document.getElementById('dragTableStatus').style.display).toBe('none');
-    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
-  });
-
-  test('discards table with out-of-range mach value (> 5)', async () => {
-    const badTable = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 6.0, cd: 0.4 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
-    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
-  });
-
-  test('discards table with out-of-range cd value (< 0.001)', async () => {
-    const badTable = [{ mach: 0.3, cd: 0.0005 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
-    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
-  });
-
-  test('discards table with non-monotonic mach values', async () => {
-    const badTable = [{ mach: 0.3, cd: 0.3 }, { mach: 2.5, cd: 0.4 }, { mach: 1.0, cd: 0.5 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
-    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
-  });
-
-  test('discards table missing subsonic coverage (all mach > 0.5)', async () => {
-    const badTable = [{ mach: 0.6, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(badTable));
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
-    expect(localStorage.getItem(mod.CUSTOM_DRAG_TABLE_KEY)).toBeNull();
+    expect(localStorage.getItem(CUSTOM_DRAG_TABLE_KEY)).toBeNull();
   });
 });
 
-
 describe('_resetState clears _customDragTable', () => {
-  test('_customDragTable is null after reset', async () => {
-    // Load a table into state via init
+  test('_customDragTable is null after reset', () => {
     const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: jest.fn().mockResolvedValue({ result: mod.getBuiltInBullets() }),
-    });
-    await mod.init();
-    // After reset, the in-memory table should be gone
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+    mod.init();
     mod._resetState();
-    // No direct getter for _customDragTable, verify via _clearCustomDragTable side-effects:
-    // calling _updateDragTableStatus without a file name should show 'none'
     mod._updateDragTableStatus();
     expect(document.getElementById('dragTableStatus').style.display).toBe('none');
   });
@@ -3055,7 +1991,7 @@ describe('_resetState clears _customDragTable', () => {
 describe('runSimulation with customDragTable loaded', () => {
   test('renders results when customDragTable is loaded (no crash)', async () => {
     const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
 
     mod.init();
     mod._setSelectedIds(new Set([mod.getBuiltInBullets()[0].id]));
@@ -3068,7 +2004,7 @@ describe('runSimulation with customDragTable loaded', () => {
 describe('runCustom with customDragTable loaded', () => {
   test('passes customDragTable to simulate', async () => {
     const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
 
     mod.init();
 
@@ -3078,13 +2014,12 @@ describe('runCustom with customDragTable loaded', () => {
     document.getElementById('customDia').value    = '7.82';
 
     await mod.runCustom();
-    // If customDragTable was passed, lastResults should contain a result
     expect(mod._getState().lastResults).toHaveLength(1);
   });
 
   test('sets lastReq so MODEL pill remains stable after Clear', async () => {
     const table = [{ mach: 0.3, cd: 0.3 }, { mach: 1.0, cd: 0.5 }, { mach: 2.5, cd: 0.4 }];
-    localStorage.setItem(mod.CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
+    localStorage.setItem(CUSTOM_DRAG_TABLE_KEY, JSON.stringify(table));
 
     mod.init();
 
@@ -3191,142 +2126,23 @@ describe('ACC-1: bullet card keyboard listener', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// crosshairPlugin — afterDraw when the data point is absent (L504)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('crosshairPlugin afterDraw edge cases', () => {
-  test('returns early when meta.data[crosshairIndex] is undefined', async () => {
-    // Simulate a hover at index 5 but the chart only has data up to index 2
-    mod._getState().crosshairIndex;  // prime state via existing test pattern
-    // Directly set state via the exported helper would need a setter — use the
-    // existing chart-interaction tests pattern: call onHover to set index
-    const bullet = mod.getBuiltInBullets()[0];
-    const result = simulate(bullet, {
-      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
-      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
-    });
-    await mod.renderResults([result], {
-      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
-      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
-    });
-
-    // afterDraw: meta.data has fewer entries than crosshairIndex
-    const ctx = {
-      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(),
-      moveTo: jest.fn(), lineTo: jest.fn(), stroke: jest.fn(), setLineDash: jest.fn(),
-    };
-    // crosshairIndex=99 but chart data only has 3 points → data[99] is undefined
-    mod.crosshairPlugin.afterDraw({
-      getDatasetMeta: jest.fn(() => ({ data: [{ x: 10 }, { x: 20 }, { x: 30 }] })),
-      chartArea: { top: 0, bottom: 100 },
-      ctx,
-    });
-    // Since data[crosshairIndex] is null (crosshairIndex is null after reset), it returns early
-    expect(ctx.beginPath).not.toHaveBeenCalled();
-  });
-
-  test('returns early when crosshairIndex points past end of data array', async () => {
-    // Manually set crosshairIndex to a value beyond the data array length
-    // We do this by calling onHover with an element at a large index via the chart mock
-    const bullet = mod.getBuiltInBullets()[0];
-    const result = simulate(bullet, {
-      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
-      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
-    });
-    await mod.renderResults([result], {
-      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
-      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
-    });
-
-    // Get the onHover callback from the Chart mock and call it with index 99
-    const chartCalls = require('chart.js').Chart.mock.calls;
-    const lastCall = chartCalls[chartCalls.length - 1];
-    const onHover = lastCall[1].options.onHover;
-    onHover({}, [{ index: 99 }]);
-
-    const ctx = {
-      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(),
-      moveTo: jest.fn(), lineTo: jest.fn(), stroke: jest.fn(), setLineDash: jest.fn(),
-    };
-    mod.crosshairPlugin.afterDraw({
-      getDatasetMeta: jest.fn(() => ({ data: [{ x: 10 }, { x: 20 }] })),
-      chartArea: { top: 0, bottom: 100 },
-      ctx,
-    });
-    expect(ctx.beginPath).not.toHaveBeenCalled();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// updateReadout — edge cases (L525 early return, L536/537 in map callback)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('updateReadout edge cases', () => {
-  test('returns early when there is no point at dataIndex (L525 branch)', () => {
-    const bullet = mod.getBuiltInBullets()[0];
-    const result = simulate(bullet, {
-      zeroRangeMeters: 100, maxRangeMeters: 100, stepMeters: 100,
-      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
-    });
-    // Use an out-of-bounds index — result.points has 2-3 entries at most
-    expect(() => mod.updateReadout([result], 9999)).not.toThrow();
-    // readout panel should stay hidden (early return before setting display:block)
-    expect(document.getElementById('rangeReadout').style.display).not.toBe('block');
-  });
-
-  test('renders empty row when a result has no point at dataIndex (L536 branch)', () => {
-    const bullet = mod.getBuiltInBullets()[0];
-    // Two results: one normal, one without a point at index 1
-    const fullResult = simulate(bullet, {
-      zeroRangeMeters: 100, maxRangeMeters: 200, stepMeters: 100,
-      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
-    });
-    const sparseResult = {
-      ...fullResult,
-      bullet: { ...fullResult.bullet, id: 'unknown-test-id', name: 'Unknown' },
-      points: [fullResult.points[0]], // only one point — index 1 is undefined
-    };
-
-    // Index 1 exists in fullResult but not in sparseResult → L536 `if (!p) return ''`
-    expect(() => mod.updateReadout([fullResult, sparseResult], 1)).not.toThrow();
-  });
-
-  test('uses fallback color when bullet id is not in BULLET_COLORS (L547 || branch)', () => {
-    const bullet = mod.getBuiltInBullets()[0];
-    const fullResult = simulate(bullet, {
-      zeroRangeMeters: 100, maxRangeMeters: 100, stepMeters: 50,
-      windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15,
-    });
-    // Override bullet id with one not in BULLET_COLORS; keep all the points
-    const unknownResult = {
-      ...fullResult,
-      bullet: { ...fullResult.bullet, id: 'no-color-id', name: 'Unknown Caliber' },
-    };
-    // Index 0 exists and id not in BULLET_COLORS → `|| '#4ADE80'` fallback executes
-    expect(() => mod.updateReadout([unknownResult], 0)).not.toThrow();
-    expect(document.getElementById('readoutBody').innerHTML).toContain('#4ADE80');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// tab click listeners wired by init() (L798/L799 function() bodies)
+// tab click listeners wired by init()
 // ─────────────────────────────────────────────────────────────────────────────
 describe('tab click listeners wired by init()', () => {
-  test('clicking #tab-charts switches to charts panel', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
-    await mod.init();
+  test('clicking #tab-charts switches to charts panel', () => {
+    mod.init();
     document.getElementById('tab-charts').click();
     expect(document.getElementById('chartsPanel').classList.contains('active')).toBe(true);
   });
 
-  test('clicking #tab-data switches to data panel', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
-    await mod.init();
+  test('clicking #tab-data switches to data panel', () => {
+    mod.init();
     document.getElementById('tab-data').click();
     expect(document.getElementById('dataPanel').classList.contains('active')).toBe(true);
   });
 
   test('clicking #tab-tools switches to tools panel', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
-    await mod.init();
+    mod.init();
     document.getElementById('tab-tools').click();
     await flushMicrotasks();
     expect(document.getElementById('toolsPanel').classList.contains('active')).toBe(true);
@@ -3335,13 +2151,11 @@ describe('tab click listeners wired by init()', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// readoutPin second-click path: forEach(c => c.update) (L798 forEach arrow fn)
-// Requires charts to be populated so the forEach body actually executes.
+// readoutPin second-click path: forEach(c => c.update)
 // ─────────────────────────────────────────────────────────────────────────────
-describe('readoutPin unpin with populated charts (L815 forEach arrow fn)', () => {
-  test('second pin-click calls update() on every active chart', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
-    await mod.init();
+describe('readoutPin unpin with populated charts', () => {
+  test('second pin-click calls draw() on every active chart', async () => {
+    mod.init();
 
     // Populate charts by running a simulation
     const bullet = mod.getBuiltInBullets()[0];
@@ -3371,147 +2185,8 @@ describe('readoutPin unpin with populated charts (L815 forEach arrow fn)', () =>
 // ─────────────────────────────────────────────────────────────────────────────
 // auto-init guard (line 817–818: if (bulletList) init())
 // ─────────────────────────────────────────────────────────────────────────────
-// localStorage preference persistence
+// toggleBullet persists selection & init restores preferences
 // ─────────────────────────────────────────────────────────────────────────────
-describe('loadPrefs', () => {
-  test('returns PREF_DEFAULTS when storage is empty', () => {
-    const prefs = mod.loadPrefs();
-    expect(prefs.selectedIds).toBeNull();
-    expect(prefs.zero).toBe(mod.PREF_DEFAULTS.zero);
-    expect(prefs.maxRange).toBe(mod.PREF_DEFAULTS.maxRange);
-    expect(prefs.wind).toBe(mod.PREF_DEFAULTS.wind);
-    expect(prefs.windDir).toBe(mod.PREF_DEFAULTS.windDir);
-    expect(prefs.altitude).toBe(mod.PREF_DEFAULTS.altitude);
-    expect(prefs.temp).toBe(mod.PREF_DEFAULTS.temp);
-    expect(prefs.step).toBe(mod.PREF_DEFAULTS.step);
-    expect(prefs.sightHeight).toBe(mod.PREF_DEFAULTS.sightHeight);
-    expect(prefs.angle).toBe(mod.PREF_DEFAULTS.angle);
-  });
-
-  test('returns stored numeric values when storage is populated', () => {
-    localStorage.setItem(mod.PREF_KEYS.zero,        '200');
-    localStorage.setItem(mod.PREF_KEYS.maxRange,    '800');
-    localStorage.setItem(mod.PREF_KEYS.wind,        '5');
-    localStorage.setItem(mod.PREF_KEYS.windDir,     '270');
-    localStorage.setItem(mod.PREF_KEYS.altitude,    '1000');
-    localStorage.setItem(mod.PREF_KEYS.temp,        '20');
-    localStorage.setItem(mod.PREF_KEYS.step,        '50');
-    localStorage.setItem(mod.PREF_KEYS.sightHeight, '45.0');
-    localStorage.setItem(mod.PREF_KEYS.angle,       '15');
-    const prefs = mod.loadPrefs();
-    expect(prefs.zero).toBe(200);
-    expect(prefs.maxRange).toBe(800);
-    expect(prefs.wind).toBe(5);
-    expect(prefs.windDir).toBe(270);
-    expect(prefs.altitude).toBe(1000);
-    expect(prefs.temp).toBe(20);
-    expect(prefs.step).toBe(50);
-    expect(prefs.sightHeight).toBe(45.0);
-    expect(prefs.angle).toBe(15);
-  });
-
-  test('returns stored selectedIds array when present', () => {
-    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['308-win-168gr', '223-rem-55gr']));
-    const prefs = mod.loadPrefs();
-    expect(prefs.selectedIds).toEqual(['308-win-168gr', '223-rem-55gr']);
-  });
-
-  test('returns null selectedIds when JSON is invalid', () => {
-    localStorage.setItem(mod.PREF_KEYS.selectedIds, '{bad-json}');
-    const prefs = mod.loadPrefs();
-    expect(prefs.selectedIds).toBeNull();
-  });
-
-  test('returns null selectedIds when stored value is not an array', () => {
-    localStorage.setItem(mod.PREF_KEYS.selectedIds, '"just-a-string"');
-    const prefs = mod.loadPrefs();
-    expect(prefs.selectedIds).toBeNull();
-  });
-
-  test('returns defaults and logs warning when localStorage is unavailable', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const origLS  = window.localStorage;
-    // Replace localStorage entirely with an object whose getItem throws
-    Object.defineProperty(window, 'localStorage', {
-      value: { getItem() { throw new Error('storage disabled'); }, setItem() {} },
-      configurable: true, writable: true,
-    });
-    try {
-      const prefs = mod.loadPrefs();
-      expect(prefs.selectedIds).toBeNull();
-      expect(prefs.zero).toBe(100);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('localStorage'), expect.any(Error));
-    } finally {
-      Object.defineProperty(window, 'localStorage', { value: origLS, configurable: true, writable: true });
-      warnSpy.mockRestore();
-    }
-  });
-});
-
-describe('savePrefs', () => {
-  test('writes all expected keys with current input values', () => {
-    document.getElementById('zeroRange').value     = '150';
-    document.getElementById('maxRange').value      = '800';
-    document.getElementById('windSpeed').value     = '10';
-    document.getElementById('altitude').value      = '500';
-    document.getElementById('temperature').value   = '20';
-    document.getElementById('step').value          = '50';
-    document.getElementById('sightHeight').value   = '45';
-    document.getElementById('shootingAngle').value = '10';
-    document.getElementById('windDir').value       = '270';
-    mod._setSelectedIds(new Set(['308-win-168gr', '223-rem-55gr']));
-
-    mod.savePrefs();
-
-    expect(JSON.parse(localStorage.getItem(mod.PREF_KEYS.selectedIds)))
-      .toEqual(expect.arrayContaining(['308-win-168gr', '223-rem-55gr']));
-    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('150');
-    expect(localStorage.getItem(mod.PREF_KEYS.maxRange)).toBe('800');
-    expect(localStorage.getItem(mod.PREF_KEYS.wind)).toBe('10');
-    expect(localStorage.getItem(mod.PREF_KEYS.windDir)).toBe('270');
-    expect(localStorage.getItem(mod.PREF_KEYS.altitude)).toBe('500');
-    expect(localStorage.getItem(mod.PREF_KEYS.temp)).toBe('20');
-    expect(localStorage.getItem(mod.PREF_KEYS.step)).toBe('50');
-    expect(localStorage.getItem(mod.PREF_KEYS.sightHeight)).toBe('45');
-    expect(localStorage.getItem(mod.PREF_KEYS.angle)).toBe('10');
-  });
-
-  test('uses default strings for all absent input elements', () => {
-    // Remove ALL param inputs to exercise every ?. null and ?? default branch
-    ['zeroRange','maxRange','windSpeed','windDir','altitude','temperature','step','sightHeight','shootingAngle','dragModel']
-      .forEach(id => document.getElementById(id)?.remove());
-    mod.savePrefs();
-    // All defaults written because every get(id)?.value returned undefined
-    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('100');
-    expect(localStorage.getItem(mod.PREF_KEYS.maxRange)).toBe('1000');
-    expect(localStorage.getItem(mod.PREF_KEYS.wind)).toBe('16');
-    expect(localStorage.getItem(mod.PREF_KEYS.windDir)).toBe('90');
-    expect(localStorage.getItem(mod.PREF_KEYS.altitude)).toBe('0');
-    expect(localStorage.getItem(mod.PREF_KEYS.temp)).toBe('15');
-    expect(localStorage.getItem(mod.PREF_KEYS.step)).toBe('25');
-    expect(localStorage.getItem(mod.PREF_KEYS.sightHeight)).toBe('38.1');
-    expect(localStorage.getItem(mod.PREF_KEYS.angle)).toBe('0');
-    expect(localStorage.getItem(mod.PREF_KEYS.dragModel)).toBe('G1');
-  });
-
-  test('logs warning and does not throw when localStorage is unavailable', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const origLS  = window.localStorage;
-    // Replace localStorage entirely with an object whose setItem throws
-    Object.defineProperty(window, 'localStorage', {
-      value: { setItem() { throw new Error('quota exceeded'); }, getItem() { return null; } },
-      configurable: true, writable: true,
-    });
-    try {
-      expect(() => mod.savePrefs()).not.toThrow();
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('localStorage'), expect.any(Error));
-    } finally {
-      Object.defineProperty(window, 'localStorage', { value: origLS, configurable: true, writable: true });
-      warnSpy.mockRestore();
-    }
-  });
-});
-
 describe('toggleBullet persists selection', () => {
   test('writes selectedIds to localStorage after toggling a bullet', () => {
     mod._setBullets(mod.getBuiltInBullets());
@@ -3519,26 +2194,25 @@ describe('toggleBullet persists selection', () => {
     // Toggle a bullet and verify localStorage is updated directly
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod.toggleBullet('308-win-168gr'); // deselect
-    const saved = JSON.parse(localStorage.getItem(mod.PREF_KEYS.selectedIds));
+    const saved = JSON.parse(localStorage.getItem(PREF_KEYS.selectedIds));
     expect(Array.isArray(saved)).toBe(true);
     expect(saved).not.toContain('308-win-168gr');
   });
 });
 
 describe('init with saved preferences', () => {
-  test('restores saved numeric input values from localStorage', async () => {
-    localStorage.setItem(mod.PREF_KEYS.zero,        '200');
-    localStorage.setItem(mod.PREF_KEYS.maxRange,    '800');
-    localStorage.setItem(mod.PREF_KEYS.wind,        '5');
-    localStorage.setItem(mod.PREF_KEYS.windDir,     '270');
-    localStorage.setItem(mod.PREF_KEYS.altitude,    '1500');
-    localStorage.setItem(mod.PREF_KEYS.temp,        '25');
-    localStorage.setItem(mod.PREF_KEYS.step,        '50');
-    localStorage.setItem(mod.PREF_KEYS.sightHeight, '45');
-    localStorage.setItem(mod.PREF_KEYS.angle,       '-10');
-    global.fetch.mockRejectedValue(new Error('offline'));
+  test('restores saved numeric input values from localStorage', () => {
+    localStorage.setItem(PREF_KEYS.zero,        '200');
+    localStorage.setItem(PREF_KEYS.maxRange,    '800');
+    localStorage.setItem(PREF_KEYS.wind,        '5');
+    localStorage.setItem(PREF_KEYS.windDir,     '270');
+    localStorage.setItem(PREF_KEYS.altitude,    '1500');
+    localStorage.setItem(PREF_KEYS.temp,        '25');
+    localStorage.setItem(PREF_KEYS.step,        '50');
+    localStorage.setItem(PREF_KEYS.sightHeight, '45');
+    localStorage.setItem(PREF_KEYS.angle,       '-10');
 
-    await mod.init();
+    mod.init();
 
     expect(document.getElementById('zeroRange').value).toBe('200');
     expect(document.getElementById('maxRange').value).toBe('800');
@@ -3551,195 +2225,106 @@ describe('init with saved preferences', () => {
     expect(document.getElementById('shootingAngle').value).toBe('-10');
   });
 
-  test('restores saved bullet selection (subset of catalog)', async () => {
-    const bullets = mod.getBuiltInBullets();
-    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['308-win-168gr']));
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
+  test('restores saved bullet selection (subset of catalog)', () => {
+    localStorage.setItem(PREF_KEYS.selectedIds, JSON.stringify(['308-win-168gr']));
 
-    await mod.init();
+    mod.init();
 
     const { selectedIds } = mod._getState();
     expect(selectedIds.has('308-win-168gr')).toBe(true);
     expect(selectedIds.has('223-rem-55gr')).toBe(false);
   });
 
-  test('selects only bullets[0] on first visit (null savedIds)', async () => {
-    // localStorage is empty → first visit behavior → only first bullet selected
-    global.fetch.mockRejectedValue(new Error('offline'));
-
-    await mod.init();
+  test('selects only bullets[0] on first visit (null savedIds)', () => {
+    mod.init();
 
     const { selectedIds, bullets } = mod._getState();
     expect(selectedIds.size).toBe(1);
     expect(selectedIds.has(bullets[0].id)).toBe(true);
   });
 
-  test('filters out stale IDs no longer in catalog', async () => {
-    const bullets = mod.getBuiltInBullets();
-    localStorage.setItem(mod.PREF_KEYS.selectedIds,
+  test('filters out stale IDs no longer in catalog', () => {
+    localStorage.setItem(PREF_KEYS.selectedIds,
       JSON.stringify(['308-win-168gr', 'deleted-bullet-id']));
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
 
-    await mod.init();
+    mod.init();
 
     const { selectedIds } = mod._getState();
     expect(selectedIds.has('308-win-168gr')).toBe(true);
     expect(selectedIds.has('deleted-bullet-id')).toBe(false);
   });
 
-  test('parameter input events trigger savePrefs', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('parameter input events trigger savePrefs', () => {
+    mod.init();
 
-    // Dispatch input event and advance debounce timer to verify localStorage update
     const input = document.getElementById('zeroRange');
     input.value = '150';
     input.dispatchEvent(new Event('input'));
     jest.advanceTimersByTime(200);
-    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('150');
+    expect(localStorage.getItem(PREF_KEYS.zero)).toBe('150');
   });
 
   test('handles absent input elements gracefully in setVal (if(el) false branch)', () => {
-    // Remove one param input before init to exercise the if(el) false branch of setVal
     document.getElementById('shootingAngle').remove();
     expect(() => mod.init()).not.toThrow();
-    // Other inputs still get their values; no crash
     expect(document.getElementById('zeroRange').value).toBe('100');
   });
 
-  test('wires all 9 input listeners — sightHeight input triggers savePrefs', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('wires all 9 input listeners — sightHeight input triggers savePrefs', () => {
+    mod.init();
 
     const el = document.getElementById('sightHeight');
     el.value = '55';
     el.dispatchEvent(new Event('input'));
     jest.advanceTimersByTime(200);
-    expect(localStorage.getItem(mod.PREF_KEYS.sightHeight)).toBe('55');
+    expect(localStorage.getItem(PREF_KEYS.sightHeight)).toBe('55');
   });
 
-  test('windDir input event triggers savePrefs', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('windDir input event triggers savePrefs', () => {
+    mod.init();
 
     const el = document.getElementById('windDir');
     el.value = '180';
     el.dispatchEvent(new Event('input'));
     jest.advanceTimersByTime(200);
-    expect(localStorage.getItem(mod.PREF_KEYS.windDir)).toBe('180');
+    expect(localStorage.getItem(PREF_KEYS.windDir)).toBe('180');
   });
 
   test('handles missing param input elements gracefully in input listener wiring', () => {
-    // Remove shootingAngle so ?. in paramInputIds.forEach does not crash
     document.getElementById('shootingAngle').remove();
     expect(() => mod.init()).not.toThrow();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-describe('windChartSubtitle', () => {
-  test('returns "no wind" when windSpeedKph is 0', () => {
-    expect(mod.windChartSubtitle({ windSpeedKph: 0 })).toBe('no wind');
-  });
-
-  test('shows "from E" for default 90° direction', () => {
-    const s = mod.windChartSubtitle({ windSpeedKph: 16, windDirectionDeg: 90 });
-    expect(s).toContain('16 km/h');
-    expect(s).toContain('E');
-  });
-
-  test('shows "from N" for 0° (headwind)', () => {
-    const s = mod.windChartSubtitle({ windSpeedKph: 10, windDirectionDeg: 0 });
-    expect(s).toContain('N');
-  });
-
-  test('shows "from W" for 270° (left crosswind)', () => {
-    const s = mod.windChartSubtitle({ windSpeedKph: 5, windDirectionDeg: 270 });
-    expect(s).toContain('W');
-  });
-
-  test('defaults to 90° when windDirectionDeg is omitted', () => {
-    const s = mod.windChartSubtitle({ windSpeedKph: 8 });
-    expect(s).toContain('E');
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // G7 drag model toggle — preferences and UI (Task 10)
 // ─────────────────────────────────────────────────────────────────────────────
-describe('G7 drag model — preferences', () => {
-  test('PREF_KEYS has a dragModel key', () => {
-    expect(mod.PREF_KEYS.dragModel).toBeDefined();
-    expect(typeof mod.PREF_KEYS.dragModel).toBe('string');
-  });
-
-  test('PREF_DEFAULTS.dragModel is "G1"', () => {
-    expect(mod.PREF_DEFAULTS.dragModel).toBe('G1');
-  });
-
-  test('savePrefs stores dragModel from the DOM select', () => {
-    document.getElementById('dragModel').value = 'G7';
-    mod.savePrefs();
-    expect(localStorage.getItem(mod.PREF_KEYS.dragModel)).toBe('G7');
-  });
-
-  test('loadPrefs returns stored dragModel', () => {
-    localStorage.setItem(mod.PREF_KEYS.dragModel, 'G7');
-    const prefs = mod.loadPrefs();
-    expect(prefs.dragModel).toBe('G7');
-  });
-
-  test('loadPrefs returns "G1" default when dragModel not in storage', () => {
-    const prefs = mod.loadPrefs();
-    expect(prefs.dragModel).toBe('G1');
-  });
-
-  test('init restores dragModel from storage', async () => {
-    localStorage.setItem(mod.PREF_KEYS.dragModel, 'G7');
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+describe('G7 drag model — init & persistence', () => {
+  test('init restores dragModel from storage', () => {
+    localStorage.setItem(PREF_KEYS.dragModel, 'G7');
+    mod.init();
     expect(document.getElementById('dragModel').value).toBe('G7');
   });
 
-  test('dragModel input event triggers savePrefs', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('dragModel input event triggers savePrefs', () => {
+    mod.init();
     const el = document.getElementById('dragModel');
     el.value = 'G7';
     el.dispatchEvent(new Event('input'));
     jest.advanceTimersByTime(200);
-    expect(localStorage.getItem(mod.PREF_KEYS.dragModel)).toBe('G7');
+    expect(localStorage.getItem(PREF_KEYS.dragModel)).toBe('G7');
   });
 });
 
 describe('G7 drag model — runSimulation and renderResults', () => {
-  const mockApiResults = [{
-    bullet: {
-      id: '308-win-168gr', name: '.308 Win 168gr BTHP',
-      muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
-      ballisticCoefficient: 0.475, bulletWeightGrams: 10.89
-    },
-    request: {},
-    points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
-    maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
-  }];
-
-  test('runSimulation includes dragModel from DOM select in request body', async () => {
+  test('runSimulation includes dragModel from DOM select in request', async () => {
     document.getElementById('dragModel').value = 'G7';
     mod._setBullets(mod.getBuiltInBullets());
     mod._setSelectedIds(new Set(['308-win-168gr']));
 
-    let capturedBody;
-    global.fetch.mockImplementation(async (url, opts) => {
-      if (url.includes('stream')) { capturedBody = JSON.parse(opts.body); throw new Error('no stream'); }
-      if (url.includes('compare')) { capturedBody = JSON.parse(opts.body); throw new Error('no batch'); }
-      throw new Error('offline');
-    });
-
     await mod.runSimulation();
     jest.runAllTimers();
-    const dragModel = capturedBody?.dragModel ?? mod._getState().lastResults[0]?.request?.dragModel;
-    expect(dragModel).toBe('G7');
+    expect(mod._getState().lastResults[0]?.request?.dragModel).toBe('G7');
   });
 
   test('runCustom includes dragModel from DOM select', async () => {
@@ -3748,7 +2333,6 @@ describe('G7 drag model — runSimulation and renderResults', () => {
     document.getElementById('customMV').value     = '850';
     document.getElementById('customBC').value     = '0.45';
     document.getElementById('customDia').value    = '7.82';
-    global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runCustom();
     const result = mod._getState().lastResults[0];
     expect(result?.request?.dragModel).toBe('G7');
@@ -3761,7 +2345,6 @@ describe('G7 drag model — runSimulation and renderResults', () => {
     document.getElementById('customDia').value    = '7.82';
     document.getElementById('latitudeDeg').value  = '45';
     document.getElementById('azimuthDeg').value   = '180';
-    global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runCustom();
     const result = mod._getState().lastResults[0];
     expect(result?.request?.latitudeDeg).toBe(45);
@@ -3829,25 +2412,10 @@ describe('G7 drag model — runSimulation and renderResults', () => {
       points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
       maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823
     }];
-    // absent
     await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G7' });
     expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G7');
-    // empty array
     await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1', customDragTable: [] });
     expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G1');
-  });
-
-  test('client-side fallback uses G7 table when dragModel is G7 (offline mode)', async () => {
-    document.getElementById('dragModel').value = 'G7';
-    mod._setBullets(mod.getBuiltInBullets());
-    mod._setSelectedIds(new Set(['308-win-168gr']));
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.runSimulation();
-    jest.runAllTimers();
-    const result = mod._getState().lastResults[0];
-    // G7 uses a different drag table — result should still be valid
-    expect(result).toBeDefined();
-    expect(result.points.length).toBeGreaterThan(0);
   });
 });
 
@@ -3869,93 +2437,36 @@ describe('openSidebar / closeSidebar', () => {
     expect(document.getElementById('sidebarBackdrop').classList.contains('open')).toBe(false);
   });
 
-  test('init wires paramsToggle click to openSidebar', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('init wires paramsToggle click to openSidebar', () => {
+    mod.init();
     mod.closeSidebar();
     document.getElementById('paramsToggle').click();
     expect(document.getElementById('sidebar').classList.contains('open')).toBe(true);
   });
 
-  test('init wires sidebarBackdrop click to closeSidebar', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('init wires sidebarBackdrop click to closeSidebar', () => {
+    mod.init();
     mod.openSidebar();
     document.getElementById('sidebarBackdrop').click();
     expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
   });
 
-  test('runBtn click closes sidebar before running simulation', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('runBtn click closes sidebar before running simulation', () => {
+    mod.init();
     mod.openSidebar();
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
     document.getElementById('runBtn').click();
     expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
   });
 
-  test('runCustomBtn click closes sidebar before running custom', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('runCustomBtn click closes sidebar before running custom', () => {
+    mod.init();
     mod.openSidebar();
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({
-      bullet: { id: 'c', name: 'Custom', weightGrams: 9, muzzleVelocityMps: 850, ballisticCoefficient: 0.45, diameterMm: 7.82 },
-      points: [],
-    }) });
     document.getElementById('runCustomBtn').click();
     expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mobile: chart touch forwarding (item 4)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('chart canvas touchmove → mousemove forwarding', () => {
-  const mockResults = [{
-    bullet: { id: '308-win-168gr', name: '.308 Win 168gr' },
-    points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 820, energyJoules: 3500, windDriftCm: 0, timeOfFlightSec: 0 }],
-    supersonicLimitMeters: 800, maxOrdinateCm: 5, maxOrdinateRangeMeters: 100,
-  }];
-
-  test('touchmove on chart canvas dispatches a mousemove event', async () => {
-    mod._setLastResults(mockResults);
-    await mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
-
-    const canvas = document.getElementById('dropChart');
-    expect(canvas).toBeTruthy();
-
-    const dispatched = [];
-    canvas.addEventListener('mousemove', e => dispatched.push(e));
-
-    // jsdom lacks the Touch constructor — use a plain Event with a touches array
-    const touchEvent = new Event('touchmove', { bubbles: true, cancelable: true });
-    touchEvent.touches = [{ clientX: 120, clientY: 80 }];
-    canvas.dispatchEvent(touchEvent);
-
-    expect(dispatched).toHaveLength(1);
-    expect(dispatched[0].clientX).toBe(120);
-    expect(dispatched[0].clientY).toBe(80);
-  });
-
-  test('touchmove handler does NOT call preventDefault (passive: CSS touch-action instead)', async () => {
-    await mod.renderResults(mockResults, { zeroRangeMeters: 100, windSpeedKph: 0, dragModel: 'G1' });
-
-    const canvas = document.getElementById('dropChart');
-    const touchEvent = new Event('touchmove', { bubbles: true, cancelable: true });
-    touchEvent.touches = [{ clientX: 50, clientY: 50 }];
-
-    const preventDefaultSpy = jest.spyOn(touchEvent, 'preventDefault');
-    canvas.dispatchEvent(touchEvent);
-    expect(preventDefaultSpy).not.toHaveBeenCalled();
-  });
-
-  test('buildChartConfig includes touch events in the events array', () => {
-    const def = { id: 'test', title: 'T', subtitle: 's', yLabel: 'y', key: 'dropCm' };
-    const cfg = mod.buildChartConfig(def, [], []);
-    expect(cfg.options.events).toEqual(expect.arrayContaining(['touchstart', 'touchmove']));
-  });
-});
-
 // ─────────────────────────────────────────────────────────────────────────────
 describe('auto-init guard', () => {
   test('calls init() when #bulletList is in the DOM at module load time', () => {
@@ -3991,7 +2502,7 @@ describe('currentState', () => {
   test('falls back to PREF_DEFAULTS when inputs are absent', () => {
     document.getElementById('zeroRange').remove();
     const state = mod.currentState();
-    expect(state.zero).toBe(mod.PREF_DEFAULTS.zero);
+    expect(state.zero).toBe(PREF_DEFAULTS.zero);
   });
 
   test('includes latitudeDeg and azimuthDeg when DOM inputs are filled', () => {
@@ -4061,43 +2572,37 @@ describe('copyLink', () => {
 });
 
 describe('init() with URL params (FE-1)', () => {
-  test('URL bullet IDs override saved prefs when they match the catalog', async () => {
-    const bullets = mod.getBuiltInBullets();
-    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
+  test('URL bullet IDs override saved prefs when they match the catalog', () => {
+    localStorage.setItem(PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
     history.replaceState(null, '', '/?b=308-win-168gr');
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
-    await mod.init();
+    mod.init();
     const { selectedIds } = mod._getState();
     expect(selectedIds.has('308-win-168gr')).toBe(true);
     expect(selectedIds.has('223-rem-55gr')).toBe(false);
     history.replaceState(null, '', '/');
   });
 
-  test('URL bullet IDs fall back to prefs when none match the catalog', async () => {
-    const bullets = mod.getBuiltInBullets();
-    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
+  test('URL bullet IDs fall back to prefs when none match the catalog', () => {
+    localStorage.setItem(PREF_KEYS.selectedIds, JSON.stringify(['223-rem-55gr']));
     history.replaceState(null, '', '/?b=not-a-real-id');
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: bullets, id: 1 }) });
-    await mod.init();
+    mod.init();
     const { selectedIds } = mod._getState();
     expect(selectedIds.has('223-rem-55gr')).toBe(true);
     history.replaceState(null, '', '/');
   });
 
-  test('fromUrl.recognized → syncUrl called at end of init', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
+  test('fromUrl.recognized → syncUrl called at end of init', () => {
     history.replaceState(null, '', '/?zero=200');
     const spy = jest.spyOn(history, 'replaceState');
-    await mod.init();
+    mod.init();
     // replaceState called at least once (the syncUrl at end of init)
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
     history.replaceState(null, '', '/');
   });
 
-  test('param input triggers syncUrl after savePrefs', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('param input triggers syncUrl after savePrefs', () => {
+    mod.init();
     const spy = jest.spyOn(history, 'replaceState');
     const input = document.getElementById('zeroRange');
     input.value = '300';
@@ -4112,8 +2617,7 @@ describe('init() with URL params (FE-1)', () => {
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText }, configurable: true, writable: true
     });
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+    mod.init();
     document.getElementById('copyLinkBtn').click();
     await Promise.resolve(); // flush microtasks
     expect(writeText).toHaveBeenCalled();
@@ -4130,18 +2634,16 @@ describe('init() with URL params (FE-1)', () => {
     spy.mockRestore();
   });
 
-  test('init() restores latitudeDeg and azimuthDeg from URL params', async () => {
+  test('init() restores latitudeDeg and azimuthDeg from URL params', () => {
     history.replaceState(null, '', '/?latitudeDeg=45&azimuthDeg=90');
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+    mod.init();
     expect(document.getElementById('latitudeDeg').value).toBe('45');
     expect(document.getElementById('azimuthDeg').value).toBe('90');
     history.replaceState(null, '', '/');
   });
 
-  test('init() wires latitudeDeg and azimuthDeg inputs to syncUrl', async () => {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  test('init() wires latitudeDeg and azimuthDeg inputs to syncUrl', () => {
+    mod.init();
     const spy = jest.spyOn(history, 'replaceState');
     document.getElementById('latitudeDeg').value = '55';
     document.getElementById('latitudeDeg').dispatchEvent(new Event('input'));
@@ -4169,9 +2671,8 @@ describe('init() FE-2: preset library glue', () => {
     });
   }
 
-  async function runInit() {
-    global.fetch.mockRejectedValue(new Error('offline'));
-    await mod.init();
+  function runInit() {
+    mod.init();
   }
 
   test('init() calls renderPresetList with stored presets on startup', async () => {
@@ -4280,36 +2781,8 @@ describe('init() FE-2: preset library glue', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FE-3: Data table column sort
+// FE-3: Data table column sort integration in ballistics.js
 // ─────────────────────────────────────────────────────────────────────────────
-describe('FE-3: SORTABLE_COLUMNS', () => {
-  const pt = { rangeMeters: 100, dropCm: -5.2, velocityMps: 750, energyJoules: 3000, windDriftCm: 2.1, timeOfFlightSec: 0.14 };
-  const adj = { moa: -1.9, mrad: -0.55 };
-
-  test('range accessor', () => { expect(mod.SORTABLE_COLUMNS.range(pt, adj)).toBe(100); });
-  test('drop accessor',  () => { expect(mod.SORTABLE_COLUMNS.drop(pt, adj)).toBe(-5.2); });
-  test('velocity accessor', () => { expect(mod.SORTABLE_COLUMNS.velocity(pt, adj)).toBe(750); });
-  test('energy accessor',   () => { expect(mod.SORTABLE_COLUMNS.energy(pt, adj)).toBe(3000); });
-  test('windDrift accessor', () => { expect(mod.SORTABLE_COLUMNS.windDrift(pt, adj)).toBe(2.1); });
-  test('time accessor',  () => { expect(mod.SORTABLE_COLUMNS.time(pt, adj)).toBe(0.14); });
-  test('moa accessor',   () => { expect(mod.SORTABLE_COLUMNS.moa(pt, adj)).toBe(-1.9); });
-  test('mrad accessor',  () => { expect(mod.SORTABLE_COLUMNS.mrad(pt, adj)).toBe(-0.55); });
-});
-
-describe('FE-3: _getSortState', () => {
-  test('returns default state before any sort', () => {
-    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
-  });
-
-  test('returns updated state after onSortHeaderClick', async () => {
-    const results = makeTableResults();
-    mod._setLastResults(results);
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
-  });
-});
-
 // Helper: minimal results fixture for table tests (2 rows, different rangeMeters)
 function makeTableResults() {
   return [{
@@ -4324,215 +2797,42 @@ function makeTableResults() {
   }];
 }
 
-describe('FE-3: onSortHeaderClick', () => {
-  test('no-op when tableResults is null', () => {
-    mod.onSortHeaderClick('range');
-    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
-  });
-
-  test('no-op when key is not in SORTABLE_COLUMNS', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('bogus');
-    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
-  });
-
-  test('first click sets column and asc direction', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
-  });
-
-  test('second click on same column toggles to desc', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    mod.onSortHeaderClick('range');
-    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'desc' });
-  });
-
-  test('third click on same column toggles back to asc', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    mod.onSortHeaderClick('range'); // desc
-    mod.onSortHeaderClick('range'); // back to asc
-    expect(mod._getSortState()).toEqual({ column: 'range', direction: 'asc' });
-  });
-
-  test('click on different column resets to asc', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    mod.onSortHeaderClick('drop');
-    expect(mod._getSortState()).toEqual({ column: 'drop', direction: 'asc' });
-  });
-
-  test('re-renders table on valid sort', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    const rows = document.querySelectorAll('#tableBody tr');
-    expect(rows.length).toBe(2);
-  });
-});
-
-describe('FE-3: renderTable sort logic', () => {
-  test('sorts asc by range — row with lower range comes first', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range'); // asc
-    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
-    expect(Number(cells[0].textContent)).toBe(100);
-    expect(Number(cells[1].textContent)).toBe(200);
-  });
-
-  test('sorts desc by range — row with higher range comes first', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range'); // asc
-    mod.onSortHeaderClick('range'); // desc
-    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
-    expect(Number(cells[0].textContent)).toBe(200);
-    expect(Number(cells[1].textContent)).toBe(100);
-  });
-
-  test('NaN values sort last', async () => {
-    const resultsWithNaN = [{
-      bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
-                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-      request: {},
-      points: [
-        { rangeMeters: NaN,  dropCm: 0, velocityMps: 700, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0 },
-        { rangeMeters: 100,  dropCm: 0, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0 },
-      ],
-      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
-    }];
-    await mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
-    // first row should be the finite one (100)
-    expect(Number(cells[0].textContent)).toBe(100);
-  });
-
-  test('both NaN values remain stable (return 0)', async () => {
-    const resultsWithNaN = [{
-      bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
-                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-      request: {},
-      points: [
-        { rangeMeters: NaN, dropCm: 0, velocityMps: 700, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0 },
-        { rangeMeters: NaN, dropCm: 0, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0 },
-      ],
-      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
-    }];
-    await mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    expect(() => mod.onSortHeaderClick('range')).not.toThrow();
-    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(2);
-  });
-
-  test('finite value beats NaN (bFin false branch)', async () => {
-    const resultsWithNaN = [{
-      bullet: { id: '308-win-168gr', name: 'Test', muzzleVelocityMps: 807,
-                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-      request: {},
-      points: [
-        { rangeMeters: 100, dropCm: 0, velocityMps: 700, energyJoules: 2800, windDriftCm: 0, timeOfFlightSec: 0 },
-        { rangeMeters: NaN, dropCm: 0, velocityMps: 760, energyJoules: 3100, windDriftCm: 0, timeOfFlightSec: 0 },
-      ],
-      maxOrdinateCm: 0, maxOrdinateRangeMeters: 0, supersonicLimitMeters: 0,
-    }];
-    await mod.renderResults(resultsWithNaN, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    const cells = [...document.querySelectorAll('#tableBody tr td:nth-child(2)')];
-    expect(Number(cells[0].textContent)).toBe(100);
-  });
-
-  test('renderResults resets sort state before rendering', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range'); // set a sort
-    expect(mod._getSortState().column).toBe('range');
-    // renderResults should reset it
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
-  });
-});
-
-describe('FE-3: updateSortIndicators', () => {
-  test('sets aria-sort and ▲ on active column asc', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
-    expect(th.getAttribute('aria-sort')).toBe('ascending');
-    expect(th.querySelector('.sort-indicator').textContent).toBe('▲');
-  });
-
-  test('sets aria-sort descending and ▼ on active column desc', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    mod.onSortHeaderClick('range');
-    const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
-    expect(th.getAttribute('aria-sort')).toBe('descending');
-    expect(th.querySelector('.sort-indicator').textContent).toBe('▼');
-  });
-
-  test('inactive columns have no aria-sort and empty indicator', async () => {
-    const results = makeTableResults();
-    await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('range');
-    const th = document.querySelector('#dataTable thead th[data-sort-key="drop"]');
-    expect(th.hasAttribute('aria-sort')).toBe(false);
-    expect(th.querySelector('.sort-indicator').textContent).toBe('');
-  });
-
-  test('all indicators cleared when no sort active', () => {
-    mod.updateSortIndicators();
-    document.querySelectorAll('#dataTable thead th[data-sort-key]').forEach(th => {
-      expect(th.hasAttribute('aria-sort')).toBe(false);
-      expect(th.querySelector('.sort-indicator').textContent).toBe('');
-    });
-  });
-});
-
 describe('FE-3: _resetState resets sort variables', () => {
   test('resets sortColumn, sortDirection, tableResults', async () => {
     const results = makeTableResults();
+    mod._setLastResults(results);
     await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    mod.onSortHeaderClick('drop');
+    await mod.switchTab('data', document.getElementById('tab-data'));
+    onSortHeaderClick('drop');
     mod._resetState();
-    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+    expect(_getSortState()).toEqual({ column: null, direction: 'asc' });
     // After reset, onSortHeaderClick should be a no-op (tableResults is null)
-    mod.onSortHeaderClick('range');
-    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+    onSortHeaderClick('range');
+    expect(_getSortState()).toEqual({ column: null, direction: 'asc' });
   });
 });
 
 describe('FE-3: init() thead click listener', () => {
-  async function runInit() {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: [], id: 1 }) });
-    await mod.init();
-  }
-
   test('click on sort-key th calls onSortHeaderClick', async () => {
     const results = makeTableResults();
+    mod._setLastResults(results);
     await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    await runInit();
+    await mod.switchTab('data', document.getElementById('tab-data'));
+    mod.init();
     const th = document.querySelector('#dataTable thead th[data-sort-key="range"]');
     th.click();
-    expect(mod._getSortState().column).toBe('range');
+    expect(_getSortState().column).toBe('range');
   });
 
   test('click on Round th (no data-sort-key) is a no-op', async () => {
     const results = makeTableResults();
+    mod._setLastResults(results);
     await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    await runInit();
+    await mod.switchTab('data', document.getElementById('tab-data'));
+    mod.init();
     const roundTh = document.querySelector('#dataTable thead th:not([data-sort-key])');
     roundTh.click();
-    expect(mod._getSortState()).toEqual({ column: null, direction: 'asc' });
+    expect(_getSortState()).toEqual({ column: null, direction: 'asc' });
   });
 });
 
@@ -4591,46 +2891,6 @@ describe('MH-1: renderResults creates adjustment chart as 5th panel', () => {
     mradDs.forEach(ds => {
       expect(Array.isArray(ds.borderDash)).toBe(true);
     });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SH-3 FE: density altitude stat tile
-// ─────────────────────────────────────────────────────────────────────────────
-describe('SH-3 FE: renderStatCards shows density altitude', () => {
-  function makeStatResult(densityAlt) {
-    return {
-      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
-                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-      request: {},
-      points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552,
-                 windDriftCm: 0, timeOfFlightSec: 0 }],
-      maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823,
-      ...(densityAlt !== undefined ? { densityAltitudeMeters: densityAlt } : {}),
-    };
-  }
-
-  test('renders density altitude tile when field is present', () => {
-    const container = document.getElementById('resultsContainer');
-    container.innerHTML = '';
-    mod.renderStatCards([makeStatResult(1500)], container);
-    expect(container.innerHTML).toContain('density alt');
-    expect(container.innerHTML).toContain('1500');
-  });
-
-  test('omits density altitude tile when field is absent', () => {
-    const container = document.getElementById('resultsContainer');
-    container.innerHTML = '';
-    mod.renderStatCards([makeStatResult(undefined)], container);
-    expect(container.innerHTML).not.toContain('density alt');
-  });
-
-  test('renders zero density altitude', () => {
-    const container = document.getElementById('resultsContainer');
-    container.innerHTML = '';
-    mod.renderStatCards([makeStatResult(0)], container);
-    expect(container.innerHTML).toContain('density alt');
-    expect(container.innerHTML).toContain('0');
   });
 });
 
@@ -4779,26 +3039,10 @@ describe('MH-4: updateSweepButtonVisibility', () => {
 // MH-4: runSweep (delegates to lazy-loaded app/sweep.js)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('MH-4: runSweep', () => {
-  function makeSweepApiResult() {
-    return {
-      jsonrpc: '2.0', id: 1,
-      result: [0, 1, 2, 3, 4].map(i => ({
-        bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
-                  ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-        request: {},
-        points: [
-          { rangeMeters: 0,   dropCm: 0,          velocityMps: 807, energyJoules: 3552, windDriftCm: i, timeOfFlightSec: 0 },
-          { rangeMeters: 100, dropCm: -(5 + i),   velocityMps: 760, energyJoules: 3150, windDriftCm: i + 2, timeOfFlightSec: 0.13 },
-        ],
-        supersonicLimitMeters: 820, maxOrdinateCm: 3, maxOrdinateRangeMeters: 50,
-      })),
-    };
-  }
-
   test('no-op when no bullets selected', async () => {
     mod._setSelectedIds(new Set());
     await mod.runSweep();
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(document.getElementById('clearSweepBtn').style.display).not.toBe('block');
   });
 
   test('runs sweep locally and shows results', async () => {
@@ -4807,38 +3051,13 @@ describe('MH-4: runSweep', () => {
 
     await mod.runSweep();
 
-    expect(global.fetch).not.toHaveBeenCalled();
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
     expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
   });
 
-  test('falls back to client-side simulation when fetch fails', async () => {
-    mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getBuiltInBullets());
-    global.fetch.mockRejectedValue(new Error('offline'));
-
-    await mod.runSweep();
-
-    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
-  });
-
-  test('falls back to client-side when RPC returns error', async () => {
-    mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getBuiltInBullets());
-    global.fetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'Internal error' } }),
-    });
-
-    await mod.runSweep();
-
-    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
-  });
-
-  test('no-op when bullet not found in fallback path', async () => {
+  test('no-op when bullet not found', async () => {
     mod._setSelectedIds(new Set(['nonexistent-bullet']));
     mod._setBullets([]);
-    global.fetch.mockRejectedValue(new Error('offline'));
 
     await mod.runSweep();
     // button text should be reset
@@ -4846,24 +3065,10 @@ describe('MH-4: runSweep', () => {
     expect(btn.querySelector('span').textContent).toBe('SWEEP');
   });
 
-  test('falls back when HTTP response is not ok', async () => {
-    mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod._setBullets(mod.getBuiltInBullets());
-    global.fetch.mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) });
-
-    await mod.runSweep();
-
-    expect(document.getElementById('resultsContainer').style.display).toBe('flex');
-  });
-
   test('sweepParam defaults to wind when element absent (line 1256 ?? wind)', async () => {
     document.getElementById('sweepParam').remove();
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getBuiltInBullets());
-    global.fetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(makeSweepApiResult()),
-    });
     await mod.runSweep();
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
   });
@@ -4872,10 +3077,6 @@ describe('MH-4: runSweep', () => {
     document.getElementById('sweepBtn').remove();
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getBuiltInBullets());
-    global.fetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(makeSweepApiResult()),
-    });
     await mod.runSweep();
     expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
   });
@@ -4884,10 +3085,6 @@ describe('MH-4: runSweep', () => {
     document.getElementById('clearSweepBtn').remove();
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getBuiltInBullets());
-    global.fetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(makeSweepApiResult()),
-    });
     await mod.runSweep();
     expect(document.getElementById('resultsContainer').style.display).toBe('flex');
   });
@@ -4896,20 +3093,15 @@ describe('MH-4: runSweep', () => {
     document.getElementById('sweepBtn').remove();
     mod._setSelectedIds(new Set(['nonexistent-bullet']));
     mod._setBullets([]);
-    global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSweep();
     expect(document.getElementById('clearSweepBtn').style.display).not.toBe('block');
   });
 
   test('destroys existing charts before sweep renders (line 1322 forEach callback)', async () => {
     const mockChart = { destroy: jest.fn() };
-    mod._setCharts({ trajectory: mockChart });
+    _setCharts({ trajectory: mockChart });
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getBuiltInBullets());
-    global.fetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(makeSweepApiResult()),
-    });
     await mod.runSweep();
     expect(mockChart.destroy).toHaveBeenCalled();
   });
@@ -4946,7 +3138,6 @@ describe('MH-4: clearSweep', () => {
   test('hides clearSweepBtn', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getBuiltInBullets());
-    global.fetch.mockRejectedValue(new Error('offline'));
     await mod.runSweep();
     expect(document.getElementById('clearSweepBtn').style.display).toBe('block');
 
@@ -5097,99 +3288,6 @@ describe('MH-4: runSimulation uses twistRate input', () => {
     expect(mod._getState().lastReq.twistRateInchesPerTurn).toBeUndefined();
   });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MH-1: adjustment chart interaction callbacks (lines 1095-1110)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('MH-1: adjustment chart callbacks', () => {
-  const singleResult = [{
-    bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
-              muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-    request: {},
-    points: [
-      { rangeMeters: 0,   dropCm: 0,   velocityMps: 807, energyJoules: 3552, windDriftCm: 0,  timeOfFlightSec: 0 },
-      { rangeMeters: 100, dropCm: -5,  velocityMps: 760, energyJoules: 3150, windDriftCm: 2,  timeOfFlightSec: 0.13 },
-    ],
-    maxOrdinateCm: 8.5, maxOrdinateRangeMeters: 55, supersonicLimitMeters: 820,
-  }];
-
-  async function renderAndGetAdjCallbacks() {
-    MockChart.mockClear();
-    await mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    // 5th chart is adjustChart
-    return MockChart.mock.calls[4][1].options;
-  }
-
-  test('onHover with no elements hides readout (adjustChart)', async () => {
-    const opts = await renderAndGetAdjCallbacks();
-    // First set a crosshairIndex
-    opts.onHover({}, [{ index: 0 }]);
-    // Then clear it
-    opts.onHover({}, []);
-    expect(mod._getState().crosshairIndex).toBeNull();
-    expect(document.getElementById('rangeReadout').style.display).toBe('none');
-  });
-
-  test('onClick with elements pins readout (adjustChart)', async () => {
-    const opts = await renderAndGetAdjCallbacks();
-    opts.onClick({}, [{ index: 1 }]);
-    expect(mod._getState().crosshairPinned).toBe(true);
-    expect(mod._getState().crosshairIndex).toBe(1);
-  });
-
-  test('onClick with no elements is no-op (adjustChart)', async () => {
-    const opts = await renderAndGetAdjCallbacks();
-    opts.onClick({}, []);
-    expect(mod._getState().crosshairPinned).toBe(false);
-  });
-
-  test('onClick unpins and hides readout on second click (adjustChart)', async () => {
-    const opts = await renderAndGetAdjCallbacks();
-    opts.onClick({}, [{ index: 0 }]);
-    opts.onClick({}, [{ index: 0 }]);
-    expect(mod._getState().crosshairPinned).toBe(false);
-  });
-
-  test('onHover when crosshairPinned returns early without changing index (adjustChart)', async () => {
-    const opts = await renderAndGetAdjCallbacks();
-    opts.onHover({}, [{ index: 0 }]);           // set crosshairIndex = 0
-    opts.onClick({}, [{ index: 0 }]);            // pin crosshairPinned = true
-    expect(mod._getState().crosshairPinned).toBe(true);
-    opts.onHover({}, [{ index: 1 }]);            // if (crosshairPinned) return; fires
-    expect(mod._getState().crosshairIndex).toBe(0); // unchanged
-  });
-
-  test('export button on adjustChart calls exportPNG', async () => {
-    HTMLCanvasElement.prototype.toDataURL = jest.fn(() => 'data:image/png;base64,abc');
-    try {
-      await mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
-      const btn = document.querySelector('[data-chart-id="adjustChart"]');
-      expect(btn).not.toBeNull();
-      btn.click();
-      await flushMicrotasks();
-      expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledWith('image/png');
-    } finally {
-      delete HTMLCanvasElement.prototype.toDataURL;
-    }
-  });
-
-  test('touchmove on adjustChart canvas fires mousemove', async () => {
-    await mod.renderResults(singleResult, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    const canvas = document.getElementById('adjustChart');
-    expect(canvas).not.toBeNull();
-    const listener = jest.fn();
-    canvas.addEventListener('mousemove', listener);
-    const touch = { clientX: 100, clientY: 50 };
-    const te = new Event('touchmove', { cancelable: true, bubbles: true });
-    te.touches = [touch];
-    canvas.dispatchEvent(te);
-    expect(listener).toHaveBeenCalled();
-  });
-});
-
-
-
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MH-4: export button on sweep chart (line 1344)
@@ -5400,7 +3498,7 @@ describe('exportCsvBtn click listener via init', () => {
       points: [{ rangeMeters: 0, velocityMps: 807, energyJoules: 3552, dropCm: 0 }],
     };
     mod._setLastResults([result]);
-    await mod.init();
+    mod.init();
 
     document.getElementById('exportCsvBtn').dispatchEvent(new MouseEvent('click'));
     await flushMicrotasks();
@@ -5714,71 +3812,11 @@ describe('UX-9: theme toggle', () => {
     expect(localStorage.getItem('bv_theme')).toBe('dark');
   });
 
-  test('updateToggleLabel sets correct aria-label for dark theme', () => {
-    mod.updateToggleLabel('dark');
-    expect(document.getElementById('themeToggle').getAttribute('aria-label')).toBe('Switch to light mode');
-  });
-
-  test('updateToggleLabel sets correct aria-label for light theme', () => {
-    mod.updateToggleLabel('light');
-    expect(document.getElementById('themeToggle').getAttribute('aria-label')).toBe('Switch to dark mode');
-  });
-
-  test('updateToggleLabel sets moon icon for dark theme', () => {
-    mod.updateToggleLabel('dark');
-    expect(document.getElementById('themeToggle').textContent).toBe('\u{1F319}');
-  });
-
-  test('updateToggleLabel sets sun icon for light theme', () => {
-    mod.updateToggleLabel('light');
-    expect(document.getElementById('themeToggle').textContent).toBe('☀️');
-  });
-
-  test('updateToggleLabel does nothing when button is absent', () => {
-    document.getElementById('themeToggle').remove();
-    // Should not throw
-    expect(() => mod.updateToggleLabel('dark')).not.toThrow();
-  });
-
   test('initThemeToggle does nothing when button is absent', () => {
     document.getElementById('themeToggle').remove();
     expect(() => mod.initThemeToggle()).not.toThrow();
     // docElement should still have data-theme set
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-  });
-
-  test('_applyChartTheme updates chart tooltip colours', () => {
-    const fakeChart = {
-      options: { plugins: { tooltip: { backgroundColor: '#000', borderColor: '#000', titleColor: '#000', bodyColor: '#000' } } },
-      update: jest.fn(),
-    };
-    mod._setCharts({ main: fakeChart });
-    mod._applyChartTheme('light');
-    expect(fakeChart.options.plugins.tooltip.backgroundColor).toBe('#ffffff');
-    expect(fakeChart.options.plugins.tooltip.borderColor).toBe('#b0c4d8');
-    expect(fakeChart.options.plugins.tooltip.titleColor).toBe('#0077aa');
-    expect(fakeChart.options.plugins.tooltip.bodyColor).toBe('#1a2a38');
-    expect(fakeChart.update).toHaveBeenCalledWith('none');
-  });
-
-  test('_applyChartTheme dark mode restores dark tooltip colours', () => {
-    const fakeChart = {
-      options: { plugins: { tooltip: { backgroundColor: '#fff', borderColor: '#fff', titleColor: '#fff', bodyColor: '#fff' } } },
-      update: jest.fn(),
-    };
-    mod._setCharts({ main: fakeChart });
-    mod._applyChartTheme('dark');
-    expect(fakeChart.options.plugins.tooltip.backgroundColor).toBe('#141d26');
-    expect(fakeChart.options.plugins.tooltip.borderColor).toBe('#1e3040');
-    expect(fakeChart.options.plugins.tooltip.titleColor).toBe('#00d4ff');
-    expect(fakeChart.options.plugins.tooltip.bodyColor).toBe('#c8dde8');
-  });
-
-  test('_applyChartTheme skips charts without tooltip plugin', () => {
-    const fakeChart = { options: { plugins: {} }, update: jest.fn() };
-    mod._setCharts({ main: fakeChart });
-    expect(() => mod._applyChartTheme('dark')).not.toThrow();
-    expect(fakeChart.update).not.toHaveBeenCalled();
   });
 
   test('localStorage failure during toggle is silently swallowed', () => {
@@ -5819,87 +3857,8 @@ describe('UX-9: theme toggle', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sprint 12 — Track C (PERF-20, PERF-21, PERF-22, PERF-23)
+// Sprint 12 — Track C (PERF-21, PERF-22, PERF-23)
 // ─────────────────────────────────────────────────────────────────────────────
-describe('PERF-20: Crosshair hover rAF coalescing & index-change guard', () => {
-  const sampleResults = [{
-    bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
-              muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-    request: {},
-    points: [
-      { rangeMeters: 0,   dropCm: 0,   velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
-      { rangeMeters: 100, dropCm: -5,  velocityMps: 760, energyJoules: 3150, windDriftCm: 2, timeOfFlightSec: 0.13 },
-      { rangeMeters: 200, dropCm: -20, velocityMps: 710, energyJoules: 2750, windDriftCm: 6, timeOfFlightSec: 0.27 },
-    ],
-    maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
-  }];
-
-  test('consecutive onHover events at the same index are no-ops (0 rAF / 0 chart.draw)', async () => {
-    await mod.renderResults(sampleResults, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    const opts = MockChart.mock.calls[0][1].options;
-    opts.onHover({}, [{ index: 1 }]);
-    jest.runOnlyPendingTimers();
-    mockChartUpdate.mockClear();
-    mockChartDraw.mockClear();
-
-    const rafSpy = jest.spyOn(global, 'requestAnimationFrame');
-    opts.onHover({}, [{ index: 1 }]);
-    opts.onHover({}, [{ index: 1 }]);
-    expect(rafSpy).not.toHaveBeenCalled();
-    expect(mockChartDraw).not.toHaveBeenCalled();
-    expect(mockChartUpdate).not.toHaveBeenCalled();
-    rafSpy.mockRestore();
-  });
-
-  test('rapid onHover events with different indices coalesce into 1 rAF with latest index', async () => {
-    await mod.renderResults(sampleResults, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    const opts = MockChart.mock.calls[0][1].options;
-    mockChartUpdate.mockClear();
-    mockChartDraw.mockClear();
-    const rafSpy = jest.spyOn(global, 'requestAnimationFrame');
-
-    opts.onHover({}, [{ index: 0 }]);
-    opts.onHover({}, [{ index: 1 }]);
-    opts.onHover({}, [{ index: 2 }]);
-    expect(rafSpy).toHaveBeenCalledTimes(1);
-    expect(mockChartDraw).not.toHaveBeenCalled();
-
-    jest.runOnlyPendingTimers();
-    expect(document.getElementById('readoutRange').textContent).toBe('200 m');
-    // 4 sibling charts drawn once each via lightweight chart.draw() (source chart excluded)
-    expect(mockChartDraw).toHaveBeenCalledTimes(4);
-    expect(mockChartUpdate).not.toHaveBeenCalled();
-    rafSpy.mockRestore();
-  });
-
-  test('resetCrosshairState cancels a pending hover rAF', async () => {
-    await mod.renderResults(sampleResults, { zeroRangeMeters: 100, windSpeedKph: 0 });
-    const opts = MockChart.mock.calls[0][1].options;
-    const cancelSpy = jest.spyOn(global, 'cancelAnimationFrame');
-    mockChartUpdate.mockClear();
-    mockChartDraw.mockClear();
-
-    opts.onHover({}, [{ index: 1 }]);
-    mod.resetCrosshairState();
-    expect(cancelSpy).toHaveBeenCalled();
-    jest.runOnlyPendingTimers();
-    expect(mockChartDraw).not.toHaveBeenCalled();
-    expect(mockChartUpdate).not.toHaveBeenCalled();
-    cancelSpy.mockRestore();
-  });
-
-  test('buildChartConfig callbacks fall back to passed results when not in _chartMeta', () => {
-    const cfg = mod.buildChartConfig(
-      { id: 'standaloneChart', yLabel: 'Drop (cm)' },
-      [{ label: '.308', data: [{ x: 0, y: 0 }] }],
-      sampleResults,
-    );
-    cfg.options.onHover({}, [{ index: 1 }]);
-    jest.runOnlyPendingTimers();
-    expect(document.getElementById('readoutRange').textContent).toBe('100 m');
-  });
-});
-
 describe('PERF-21: Chart.js fast path, decimation, instance reuse & single-pass MOA/MRAD', () => {
   function makePoints(count) {
     return Array.from({ length: count }, (_, i) => ({
@@ -5925,7 +3884,7 @@ describe('PERF-21: Chart.js fast path, decimation, instance reuse & single-pass 
   test('registers Decimation and does NOT register unused CategoryScale', async () => {
     const chartMock = require('chart.js');
     chartMock.Chart.register.mockClear();
-    await mod._loadChart();
+    await mod.renderResults(makeResult(2), { zeroRangeMeters: 100, windSpeedKph: 0 });
     expect(chartMock.Chart.register).toHaveBeenCalledTimes(1);
     const registered = chartMock.Chart.register.mock.calls[0];
     expect(registered).toContain(chartMock.Decimation);
@@ -6051,50 +4010,6 @@ describe('PERF-22: Lazy hidden-tab table/DOPE rendering, cached sort rows & chun
     await mod.renderResults(makeResults(4), { zeroRangeMeters: 100, windSpeedKph: 0 });
     expect(document.querySelectorAll('#tableBody tr')).toHaveLength(4);
   });
-
-  test('onSortHeaderClick reuses cached row records without rebuilding', () => {
-    const res = makeResults(5);
-    mod.renderTable(res);
-    // Second sort call uses _cachedTableRows directly
-    mod.onSortHeaderClick('range');
-    mod.onSortHeaderClick('range');
-    const firstRange = document.querySelector('#tableBody tr td:nth-child(2)').textContent;
-    expect(firstRange).toBe('40');
-  });
-
-  test('large tables (>TABLE_CHUNK_THRESHOLD) stream chunks via rAF and cancel on re-sort', () => {
-    const count = mod.TABLE_CHUNK_THRESHOLD + 300; // 800 rows → initial 250 + 3 rAF chunks
-    const res = makeResults(count);
-    mod.renderTable(res);
-    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(mod.TABLE_CHUNK_SIZE);
-
-    // Re-sorting mid-stream cancels the pending chunk rAF and restarts cleanly
-    const cancelSpy = jest.spyOn(global, 'cancelAnimationFrame');
-    mod.onSortHeaderClick('range');
-    expect(cancelSpy).toHaveBeenCalled();
-    cancelSpy.mockRestore();
-
-    // Drain all rAF chunks
-    jest.runAllTimers();
-    expect(document.querySelectorAll('#tableBody tr')).toHaveLength(count);
-  });
-
-  test('renderTable formats absent spinDriftCm and coriolisDeflectionCm as 0.0 when columns are shown', () => {
-    const res = [{
-      bullet: { id: '308-win-168gr', name: '.308 Win', muzzleVelocityMps: 807,
-                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-      request: {},
-      points: [
-        { rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 },
-        { rangeMeters: 500, dropCm: -80, velocityMps: 550, energyJoules: 1650, windDriftCm: 10, timeOfFlightSec: 0.72,
-          spinDriftCm: 4.2, coriolisDeflectionCm: -1.5 },
-      ],
-    }];
-    mod.renderTable(res);
-    const firstRowText = document.querySelector('#tableBody tr').textContent;
-    expect(firstRowText).toContain('0.0 cm');
-    expect(firstRowText).toContain('+0.0 cm');
-  });
 });
 
 describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js warm-up/recovery', () => {
@@ -6115,27 +4030,33 @@ describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js wa
 
     jest.advanceTimersByTime(1);
     expect(urlSpy).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('150');
+    expect(localStorage.getItem(PREF_KEYS.zero)).toBe('150');
 
     setSpy.mockRestore();
     urlSpy.mockRestore();
   });
 
   test('savePrefs skips localStorage.setItem for unchanged keys on repeat calls', () => {
+    mod.init();
     const setSpy = jest.spyOn(Storage.prototype, 'setItem');
-    mod.savePrefs();
+    const input = document.getElementById('zeroRange');
+    input.value = '200';
+    input.dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(200);
     const firstCount = setSpy.mock.calls.length;
     expect(firstCount).toBeGreaterThan(0);
 
     setSpy.mockClear();
-    mod.savePrefs();
+    input.dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(200);
     expect(setSpy).not.toHaveBeenCalled();
 
     // Changing one input writes only that key
-    document.getElementById('zeroRange').value = '250';
-    mod.savePrefs();
+    input.value = '250';
+    input.dispatchEvent(new Event('input'));
+    jest.advanceTimersByTime(200);
     expect(setSpy).toHaveBeenCalledTimes(1);
-    expect(setSpy).toHaveBeenCalledWith(mod.PREF_KEYS.zero, '250');
+    expect(setSpy).toHaveBeenCalledWith(PREF_KEYS.zero, '250');
     setSpy.mockRestore();
   });
 
@@ -6144,10 +4065,10 @@ describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js wa
     const input = document.getElementById('zeroRange');
     input.value = '275';
     input.dispatchEvent(new Event('input'));
-    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBeNull();
+    expect(localStorage.getItem(PREF_KEYS.zero)).toBeNull();
 
     window.dispatchEvent(new Event('pagehide'));
-    expect(localStorage.getItem(mod.PREF_KEYS.zero)).toBe('275');
+    expect(localStorage.getItem(PREF_KEYS.zero)).toBe('275');
   });
 
   test('debounce utility cancel() suppresses pending invocation and flush() is a no-op when idle', () => {
@@ -6159,17 +4080,6 @@ describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js wa
     d.cancel();
     jest.advanceTimersByTime(200);
     expect(fn).not.toHaveBeenCalled();
-  });
-
-  test('_loadChart resets cached promise on rejection so retry succeeds', async () => {
-    const chartMock = require('chart.js');
-    chartMock.Chart.register.mockClear();
-    chartMock.Chart.register.mockImplementationOnce(() => { throw new Error('chunk error'); });
-
-    await expect(mod._loadChart()).rejects.toThrow('chunk error');
-    const loaded = await mod._loadChart();
-    expect(loaded.Chart).toBe(MockChart);
-    expect(chartMock.Chart.register).toHaveBeenCalledTimes(2);
   });
 
   test('runSimulation warms Chart.js before worker promise settles', async () => {
@@ -6195,14 +4105,6 @@ describe('PERF-23: Debounced input persistence, unchanged-key skip & Chart.js wa
     });
     await simPromise;
     jest.runAllTimers();
-  });
-
-  test('_warmChart swallows rejection without unhandled promise error', async () => {
-    const chartMock = require('chart.js');
-    chartMock.Chart.register.mockImplementationOnce(() => { throw new Error('offline'); });
-    await mod._warmChart();
-    // Retry still works because _loadChart cleared _chartModPromise
-    await expect(mod._loadChart()).resolves.toBeDefined();
   });
 
   test('renderResults shows error banner and still renders active Data Table when Chart.js fails to load', async () => {
@@ -6326,8 +4228,7 @@ describe('PERF-18: Stale-run cancellation in runSimulation, runCustom, and runSw
 // ─────────────────────────────────────────────────────────────────────────────
 describe('PERF-28: lazy loading & retry on failed chunk import', () => {
   test('init() defers Tools initialization until tools tab activates, then initializes once', async () => {
-    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', result: mod.getBuiltInBullets(), id: 1 }) });
-    await mod.init();
+    mod.init();
     expect(document.getElementById('dopeDistanceRow').innerHTML).toBe('');
 
     await mod.switchTab('tools', document.getElementById('tab-tools'));
@@ -6443,11 +4344,7 @@ describe('PERF-28: lazy loading & retry on failed chunk import', () => {
     });
     buildDOM();
     isoMod._resetState();
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ jsonrpc: '2.0', result: isoMod.getBuiltInBullets(), id: 1 }),
-    });
-    await isoMod.init();
+    isoMod.init();
 
     const fileInput = document.getElementById('dragTableFile');
     Object.defineProperty(fileInput, 'files', {
@@ -6645,7 +4542,7 @@ describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boo
   });
 
   test('init() renders initial .active cards in a single DOM pass without post-render card scans', () => {
-    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(['308-win-168gr', '65-creedmoor-140gr']));
+    localStorage.setItem(PREF_KEYS.selectedIds, JSON.stringify(['308-win-168gr', '65-creedmoor-140gr']));
     const list = document.getElementById('bulletList');
     const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
     let firstHtml = null;
@@ -6725,284 +4622,6 @@ describe('PERF-31: sidebar delegation, O(1) bullet Map, single-card toggle & boo
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PERF-32: Viewport-aware crosshair draw, cached readout cells & sweep reuse
-// ─────────────────────────────────────────────────────────────────────────────
-describe('PERF-32: viewport-aware crosshair draw, cached readout cells & sweep chart reuse', () => {
-  function makePoints(count, offset = 0) {
-    return Array.from({ length: count }, (_, i) => ({
-      rangeMeters: i * 100,
-      dropCm: -(i * 2 + offset),
-      velocityMps: 800 - i * 20 - offset,
-      energyJoules: 3500 - i * 100,
-      windDriftCm: i * 1.5 + offset,
-      timeOfFlightSec: i * 0.12,
-    }));
-  }
-
-  function makeResult(count = 3, offset = 0, name = '.308 Win') {
-    return [{
-      bullet: { id: '308-win-168gr', name, muzzleVelocityMps: 807,
-                muzzleEnergyJoules: 3552, ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
-      request: {},
-      points: makePoints(count, offset),
-      maxOrdinateCm: 5, maxOrdinateRangeMeters: 50, supersonicLimitMeters: 800,
-    }];
-  }
-
-  function installMockObserver() {
-    const instances = [];
-    class MockIntersectionObserver {
-      constructor(cb) {
-        this.cb = cb;
-        this.observe = jest.fn();
-        this.disconnect = jest.fn();
-        instances.push(this);
-      }
-      trigger(entries) { this.cb(entries, this); }
-    }
-    const orig = global.IntersectionObserver;
-    global.IntersectionObserver = MockIntersectionObserver;
-    return {
-      instances,
-      restore() {
-        if (orig === undefined) delete global.IntersectionObserver;
-        else global.IntersectionObserver = orig;
-      },
-    };
-  }
-
-  test('IntersectionObserver skips offscreen crosshair draws and flushes on scroll-into-view', async () => {
-    const mockIO = installMockObserver();
-    try {
-      const results = makeResult(3);
-      await mod.renderResults(results, { zeroRangeMeters: 100, windSpeedKph: 0 });
-      expect(mockIO.instances).toHaveLength(1);
-      const observer = mockIO.instances[0];
-      expect(observer.observe).toHaveBeenCalledTimes(5);
-
-      const dropEl   = document.getElementById('dropChart');
-      const velEl    = document.getElementById('velocityChart');
-      const energyEl = document.getElementById('energyChart');
-      const windEl   = document.getElementById('windChart');
-      const adjEl    = document.getElementById('adjustChart');
-
-      // Only dropChart is visible; 4 siblings are offscreen
-      observer.trigger([
-        { target: dropEl,   isIntersecting: true  },
-        { target: velEl,    isIntersecting: false },
-        { target: energyEl, isIntersecting: false },
-        { target: windEl,   isIntersecting: false },
-        { target: adjEl,    isIntersecting: false },
-      ]);
-
-      mockChartDraw.mockClear();
-      const opts = MockChart.mock.calls[0][1].options;
-      opts.onHover({}, [{ index: 1 }]);
-      jest.runOnlyPendingTimers();
-
-      // All 4 siblings were offscreen -> 0 draws, 4 queued dirty
-      expect(mockChartDraw).not.toHaveBeenCalled();
-      expect(mod._getState()._dirtyCrosshairCharts.size).toBe(4);
-
-      // Scroll velocityChart into view -> flushes its dirty crosshair draw once
-      observer.trigger([{ target: velEl, isIntersecting: true }]);
-      expect(mockChartDraw).toHaveBeenCalledTimes(1);
-      expect(mod._getState()._dirtyCrosshairCharts.has('velocityChart')).toBe(false);
-
-      // Re-firing isIntersecting: true when NOT dirty does not trigger extra draw
-      observer.trigger([{ target: velEl, isIntersecting: true }]);
-      expect(mockChartDraw).toHaveBeenCalledTimes(1);
-
-      // If a dirty chart was cleared before observer flushes, guard avoids error
-      mod._setCharts({});
-      observer.trigger([{ target: energyEl, isIntersecting: true }]);
-      expect(mockChartDraw).toHaveBeenCalledTimes(1);
-
-      // Reset tears down observer cleanly
-      mod._resetState();
-      expect(observer.disconnect).toHaveBeenCalledTimes(1);
-    } finally {
-      mockIO.restore();
-    }
-  });
-
-  test('IntersectionObserver works with sweep charts and pin/unpin redraws', async () => {
-    const mockIO = installMockObserver();
-    try {
-      const sweepData = [makeResult(3, 0)[0], makeResult(3, 5)[0]];
-      await mod.renderSweepCharts(sweepData, 'wind');
-      const observer = mockIO.instances[0];
-      expect(observer.observe).toHaveBeenCalledTimes(3);
-
-      const sDrop = document.getElementById('sweepDropChart');
-      const sWind = document.getElementById('sweepWindChart');
-      const sVel  = document.getElementById('sweepVelChart');
-
-      observer.trigger([
-        { target: sDrop, isIntersecting: true  },
-        { target: sWind, isIntersecting: false },
-        { target: sVel,  isIntersecting: false },
-      ]);
-
-      mockChartDraw.mockClear();
-      const opts = MockChart.mock.calls[0][1].options;
-      // Pin via click -> _redrawSiblingCharts(null) draws visible sweepDropChart only
-      opts.onClick({}, [{ index: 1 }]);
-      expect(mockChartDraw).toHaveBeenCalledTimes(1);
-      expect(mod._getState()._dirtyCrosshairCharts.size).toBe(2);
-
-      // Scroll sweepWindChart into view -> flushes 1 draw
-      observer.trigger([{ target: sWind, isIntersecting: true }]);
-      expect(mockChartDraw).toHaveBeenCalledTimes(2);
-
-      // Transitioning to trajectory mode disconnects previous observer and creates new one
-      await mod.renderResults(makeResult(2), { zeroRangeMeters: 100, windSpeedKph: 0 });
-      expect(observer.disconnect).toHaveBeenCalledTimes(1);
-      expect(mockIO.instances).toHaveLength(2);
-    } finally {
-      mockIO.restore();
-    }
-  });
-
-  test('falls back to drawing all sibling charts when IntersectionObserver is undefined, and falls back to update("none") if chart.draw is absent', () => {
-    expect(typeof global.IntersectionObserver).toBe('undefined');
-    const c1 = { update: jest.fn() };
-    const c2 = { update: jest.fn() };
-    mod._setCharts({ dropChart: c1, velocityChart: c2 });
-
-    mod.scheduleCrosshairSync(0, 'dropChart', makeResult(2));
-    jest.runOnlyPendingTimers();
-    expect(c1.update).not.toHaveBeenCalled();
-    expect(c2.update).toHaveBeenCalledWith('none');
-  });
-
-  test('updateReadout caches DOM rows and cells across repeated hovers with zero innerHTML reparses', () => {
-    const results = [
-      {
-        bullet: { id: '308-win-168gr', name: '.308 Win 168gr' },
-        points: [
-          { rangeMeters: 0,   dropCm: 0,    velocityMps: 807, energyJoules: 3552, windDriftCm: 0,   spinDriftCm: 0,   coriolisDeflectionCm: 1.5  },
-          { rangeMeters: 100, dropCm: -2.5, velocityMps: 760, energyJoules: 3150, windDriftCm: 3.1, spinDriftCm: 1.2, coriolisDeflectionCm: null },
-          { rangeMeters: 200, dropCm: -11,  velocityMps: 710, energyJoules: 2750, windDriftCm: 7.4, spinDriftCm: 2.4, coriolisDeflectionCm: -0.8 },
-          { rangeMeters: 300, dropCm: -25,  velocityMps: 660, energyJoules: 2400, windDriftCm: 12,  spinDriftCm: 0,   coriolisDeflectionCm: null },
-        ],
-      },
-      {
-        bullet: { id: '223-rem-55gr', name: '.223 Rem 55gr' },
-        points: [
-          { rangeMeters: 0,   dropCm: 0,    velocityMps: 988, energyJoules: 1740, windDriftCm: 0 },
-          // Sparse: lacks points[1] and points[2], present again at points[3]
-          undefined,
-          undefined,
-          { rangeMeters: 300, dropCm: -18,  velocityMps: 700, energyJoules: 880,  windDriftCm: 9 },
-        ],
-      },
-    ];
-
-    const tbody = document.getElementById('readoutBody');
-    const innerHtmlSetter = jest.fn();
-    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
-    Object.defineProperty(tbody, 'innerHTML', {
-      configurable: true,
-      get() { return innerHtmlDescriptor.get.call(this); },
-      set(v) { innerHtmlSetter(v); innerHtmlDescriptor.set.call(this, v); },
-    });
-
-    try {
-      // First hover (index 0): spinDriftCm=0 (absent), coriolis=1.5 (present)
-      mod.updateReadout(results, 0);
-      expect(innerHtmlSetter).not.toHaveBeenCalled();
-
-      const rows = [...tbody.querySelectorAll('tr')];
-      expect(rows).toHaveLength(2);
-      const firstRow = rows[0];
-      const dropCell0 = firstRow.cells[1];
-      expect(firstRow.textContent).not.toContain('Spin Drift');
-      expect(firstRow.textContent).toContain('Coriolis: +1.5 cm');
-
-      // Spy on createElement for subsequent hovers with same results reference
-      const createSpy = jest.spyOn(document, 'createElement');
-
-      // Hover index 1: spin appears (inserted before corCell while corCell was attached, then corCell removed!), sparse row hidden
-      mod.updateReadout(results, 1);
-      expect(createSpy).not.toHaveBeenCalled();
-      expect(innerHtmlSetter).not.toHaveBeenCalled();
-      expect(tbody.querySelectorAll('tr')[0]).toBe(firstRow);
-      expect(firstRow.cells[1]).toBe(dropCell0);
-      expect(dropCell0.textContent).toBe('-2.5 cm');
-      expect(firstRow.textContent).toContain('Spin Drift: 1.2 cm');
-      expect(firstRow.textContent).not.toContain('Coriolis');
-      expect(rows[1].style.display).toBe('none');
-
-      // Hover index 2: spin already attached, coriolis re-attaches; sparse row still hidden
-      mod.updateReadout(results, 2);
-      expect(createSpy).not.toHaveBeenCalled();
-      expect(firstRow.textContent).toContain('Spin Drift: 2.4 cm');
-      expect(firstRow.textContent).toContain('Coriolis: -0.8 cm');
-
-      // Hover index 3: spin removed (0), coriolis already absent at index 1/removed now; sparse row becomes visible again
-      mod.updateReadout(results, 3);
-      expect(createSpy).not.toHaveBeenCalled();
-      expect(firstRow.textContent).not.toContain('Spin Drift');
-      expect(firstRow.textContent).not.toContain('Coriolis');
-      expect(rows[1].style.display).toBe('');
-      expect(rows[1].cells[1].textContent).toBe('-18 cm');
-
-      // Hover index 0 again, then index 2 when spin & coriolis are both present in order
-      mod.updateReadout(results, 0);
-      mod.updateReadout(results, 2);
-      const cellsAt2 = [...firstRow.cells].map(c => c.textContent);
-      expect(cellsAt2[5]).toContain('Spin Drift');
-      expect(cellsAt2[6]).toContain('Coriolis');
-
-      createSpy.mockRestore();
-
-      // Replacing #readoutBody invalidates cache even with same results reference
-      const freshTbody = document.createElement('tbody');
-      freshTbody.id = 'readoutBody';
-      tbody.replaceWith(freshTbody);
-      mod.updateReadout(results, 0);
-      expect(freshTbody.querySelectorAll('tr')).toHaveLength(2);
-    } finally {
-      delete tbody.innerHTML;
-    }
-  });
-
-  test('renderSweepCharts reuses existing Chart instances in place without destroy()', async () => {
-    const sweep1 = [makeResult(3, 0)[0], makeResult(3, 5)[0]];
-    await mod.renderSweepCharts(sweep1, 'wind');
-    expect(MockChart).toHaveBeenCalledTimes(3);
-    const canvasRefs = ['sweepDropChart', 'sweepWindChart', 'sweepVelChart'].map(id => document.getElementById(id));
-
-    MockChart.mockClear();
-    mockChartDestroy.mockClear();
-    mockChartUpdate.mockClear();
-
-    const sweep2 = [makeResult(3, 10)[0], makeResult(3, 20)[0]];
-    await mod.renderSweepCharts(sweep2, 'altitude');
-    expect(MockChart).not.toHaveBeenCalled();
-    expect(mockChartDestroy).not.toHaveBeenCalled();
-    expect(mockChartUpdate).toHaveBeenCalledTimes(3);
-    expect(document.getElementById('sweepDropChart')).toBe(canvasRefs[0]);
-    expect(document.getElementById('sweepWindChart')).toBe(canvasRefs[1]);
-    expect(document.getElementById('sweepVelChart')).toBe(canvasRefs[2]);
-    expect(canvasRefs[0].closest('.chart-panel').querySelector('.chart-subtitle').textContent).toContain('altitude sweep');
-
-    // Reused chart callbacks read the updated sweep2 results via _chartMeta
-    const firstCfg = mod._getState().charts.sweepDropChart;
-    expect(firstCfg.data.datasets[0].data[0].y).toBe(-10);
-
-    // Reuse with >1000 points exercises animation=false -> update('none') branch
-    mockChartUpdate.mockClear();
-    const sweepLarge = [makeResult(1005, 1)[0]];
-    await mod.renderSweepCharts(sweepLarge, 'temperature');
-    expect(MockChart).not.toHaveBeenCalled();
-    expect(mockChartDestroy).not.toHaveBeenCalled();
-    expect(mockChartUpdate).toHaveBeenCalledWith('none');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // ENH-6: Bullet search, 5-round cap, roving keyboard nav, and auto-compute
 // ─────────────────────────────────────────────────────────────────────────────
 describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute', () => {
@@ -7057,7 +4676,7 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
 
     mod._resetState();
     history.replaceState(null, '', '/');
-    localStorage.setItem(mod.PREF_KEYS.selectedIds, JSON.stringify(ids));
+    localStorage.setItem(PREF_KEYS.selectedIds, JSON.stringify(ids));
     mod.init();
     expect(mod._getState().selectedIds.size).toBe(5);
   });
@@ -7080,7 +4699,7 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
     expect(document.getElementById('resultsContainer').style.display).toBe('none');
     expect(document.getElementById('emptyState').style.display).toBe('');
     expect(document.getElementById('simStatus').textContent).toBe('Selection cleared.');
-    expect(JSON.parse(localStorage.getItem(mod.PREF_KEYS.selectedIds))).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(PREF_KEYS.selectedIds))).toEqual([]);
   });
 
   test('clearSelection handles missing optional DOM elements cleanly and preserves results when autoCompute off', () => {
@@ -7237,7 +4856,7 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
 
   test('debounced auto-compute runs after 250ms on param/selection changes and respects toggle & runBtn cancel', async () => {
     // Saved preference 'false' disables auto-compute
-    localStorage.setItem(mod.AUTO_COMPUTE_KEY, 'false');
+    localStorage.setItem(AUTO_COMPUTE_KEY, 'false');
     mod.init();
     const autoToggle = document.getElementById('autoComputeToggle');
     expect(autoToggle.checked).toBe(false);
@@ -7252,7 +4871,7 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
     // Toggling autoCompute ON persists to localStorage and enables auto-compute
     autoToggle.checked = true;
     autoToggle.dispatchEvent(new Event('change'));
-    expect(localStorage.getItem(mod.AUTO_COMPUTE_KEY)).toBe('true');
+    expect(localStorage.getItem(AUTO_COMPUTE_KEY)).toBe('true');
 
     // Rapid param changes coalesce into one simulation after 250ms
     const windInput = document.getElementById('windSpeed');
@@ -7292,7 +4911,7 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
     document.getElementById('zeroRange').dispatchEvent(new Event('input'));
     autoToggle.checked = false;
     autoToggle.dispatchEvent(new Event('change'));
-    expect(localStorage.getItem(mod.AUTO_COMPUTE_KEY)).toBe('false');
+    expect(localStorage.getItem(AUTO_COMPUTE_KEY)).toBe('false');
     jest.advanceTimersByTime(300);
     expect(simulateAsync).not.toHaveBeenCalled();
 
@@ -7359,7 +4978,7 @@ describe('ENH-3: global Metric/Imperial unit system', () => {
     document.getElementById('unitToggle').click();
     await flushMicrotasks();
 
-    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(getUnitSystem()).toBe('imperial');
     expect(localStorage.getItem('ballistics_units')).toBe('imperial');
     expect(document.getElementById('unitToggle').textContent).toBe('IMPERIAL');
     expect(document.getElementById('unitToggle').getAttribute('aria-pressed')).toBe('true');
@@ -7373,7 +4992,7 @@ describe('ENH-3: global Metric/Imperial unit system', () => {
 
     // Toggle back via toggleUnitSystem() -> restores exact metric 100 without drift
     await mod.toggleUnitSystem();
-    expect(mod.getUnitSystem()).toBe('metric');
+    expect(getUnitSystem()).toBe('metric');
     expect(document.getElementById('unitToggle').textContent).toBe('METRIC');
     expect(document.getElementById('unitToggle').getAttribute('aria-pressed')).toBe('false');
     expect(document.getElementById('zeroRange').value).toBe('100');
@@ -7401,7 +5020,7 @@ describe('ENH-3: global Metric/Imperial unit system', () => {
     mod._resetState();
     mod._setLastResults(savedRes);
     await mod.setUnitSystem('imperial');
-    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(getUnitSystem()).toBe('imperial');
 
     // Re-init and re-run for sweep coverage below
     buildDOM();
@@ -7416,12 +5035,12 @@ describe('ENH-3: global Metric/Imperial unit system', () => {
     jest.runAllTimers();
     await flushMicrotasks();
     await mod.setUnitSystem('metric');
-    expect(mod.getUnitSystem()).toBe('metric');
+    expect(getUnitSystem()).toBe('metric');
 
     // Fallback when #sweepParam is missing during sweep re-render
     document.getElementById('sweepParam').remove();
     await mod.setUnitSystem('imperial');
-    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(getUnitSystem()).toBe('imperial');
   });
 
   test('setUnitSystem handles missing DOM elements and empty bullets cleanly', async () => {
@@ -7432,7 +5051,7 @@ describe('ENH-3: global Metric/Imperial unit system', () => {
     document.getElementById('readoutRange').textContent = '100 m';
 
     await mod.setUnitSystem('imperial');
-    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(getUnitSystem()).toBe('imperial');
     expect(document.getElementById('readoutRange').textContent).toBe('100 m');
   });
 
@@ -7441,7 +5060,7 @@ describe('ENH-3: global Metric/Imperial unit system', () => {
     history.replaceState(null, '', '/?units=imperial');
     document.getElementById('zeroRange').remove(); // covers missing pref element guard in init()
     mod.init();
-    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(getUnitSystem()).toBe('imperial');
     expect(document.getElementById('customWeight').value).toBe('138.9');
     expect(document.getElementById('customWeight').dataset.unitApplied).toBe('imperial');
 
@@ -7455,7 +5074,7 @@ describe('ENH-3: global Metric/Imperial unit system', () => {
     mod._resetState();
     localStorage.setItem('ballistics_units', 'imperial');
     mod.init();
-    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(getUnitSystem()).toBe('imperial');
     expect(document.getElementById('unitToggle').textContent).toBe('IMPERIAL');
   });
 });
@@ -7566,7 +5185,7 @@ describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CS
     select.value = 'Long Range 308';
     select.dispatchEvent(new Event('change'));
     await flushMicrotasks();
-    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(getUnitSystem()).toBe('imperial');
     expect(document.getElementById('twistRate').value).toBe('10');
     expect(document.getElementById('latitudeDeg').value).toBe('44.5');
     expect(document.getElementById('includeEotvos').checked).toBe(true);
@@ -7581,7 +5200,7 @@ describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CS
     select.value = 'Plain Metric';
     select.dispatchEvent(new Event('change'));
     await flushMicrotasks();
-    expect(mod.getUnitSystem()).toBe('metric');
+    expect(getUnitSystem()).toBe('metric');
     expect(document.getElementById('twistRate').value).toBe('');
     expect(document.getElementById('includeEotvos').checked).toBe(false);
 

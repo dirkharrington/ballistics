@@ -176,32 +176,44 @@ describe('plugins (annotationPlugin, crosshairPlugin) & touch forwarder', () => 
 describe('updateReadout, crosshair sync, IntersectionObserver, and toggleReadoutPin', () => {
   test('updateReadout handles missing panel, invalid index, sparse points, spin drift, coriolis, and cache rebuild', () => {
     const res = makeResult(3);
+    res.points[0].coriolisDeflectionCm = 0.5;
     res.points[1].spinDriftCm = 1.5;
     res.points[1].coriolisDeflectionCm = -0.8;
     res.points[2].coriolisDeflectionCm = 1.2;
     const sparse = makeResult(1, { bullet: { id: '223-rem-55gr', name: '.223' } });
+    const pair = [res, sparse];
 
-    updateReadout([res, sparse], 99);
+    updateReadout(pair, 99);
     expect(document.getElementById('rangeReadout').style.display).toBe('none');
 
-    updateReadout([res, sparse], 1);
+    // Repeated hovers with identical array reference exercise _readoutCache reuse and cell attach/detach
+    updateReadout(pair, 0);
+    expect(document.getElementById('readoutBody').textContent).toContain('Coriolis: +0.5 cm');
+    expect(document.getElementById('readoutBody').textContent).not.toContain('Spin Drift');
+
+    // Index 1: spinCell inserts before attached corCell; sparse row hidden
+    updateReadout(pair, 1);
     expect(document.getElementById('rangeReadout').style.display).toBe('block');
     expect(document.getElementById('readoutBody').textContent).toContain('Spin Drift: 1.5 cm');
     expect(document.getElementById('readoutBody').textContent).toContain('Coriolis: -0.8 cm');
     expect(document.querySelectorAll('#readoutBody tr')[1].style.display).toBe('none');
 
-    // Update at index 2 (spin removed, coriolis positive) then index 0 (both removed)
-    updateReadout([res, sparse], 2);
+    // Index 2: spinCell removed (absent on point 2), corCell stays attached
+    updateReadout(pair, 2);
     expect(document.getElementById('readoutBody').textContent).not.toContain('Spin Drift');
     expect(document.getElementById('readoutBody').textContent).toContain('Coriolis: +1.2 cm');
 
-    updateReadout([res, sparse], 0);
+    // Also test spinDrift insertion when corCell is absent & corCell removal when coriolis becomes null
+    res.points[2].spinDriftCm = 2.0;
+    res.points[2].coriolisDeflectionCm = null;
+    updateReadout(pair, 2);
+    expect(document.getElementById('readoutBody').textContent).toContain('Spin Drift: 2.0 cm');
     expect(document.getElementById('readoutBody').textContent).not.toContain('Coriolis');
 
-    // Also test spinDrift insertion before existing corCell
-    res.points[2].spinDriftCm = 2.0;
-    updateReadout([res, sparse], 2);
-    expect(document.getElementById('readoutBody').textContent).toContain('Spin Drift: 2.0 cm');
+    // Re-entering index 2 when spinCell is already attached covers parentNode === row true branch
+    res.points[2].spinDriftCm = 2.5;
+    updateReadout(pair, 2);
+    expect(document.getElementById('readoutBody').textContent).toContain('Spin Drift: 2.5 cm');
 
     // Cache invalidation when tbody changes
     const freshTbody = document.createElement('tbody');
@@ -235,7 +247,7 @@ describe('updateReadout, crosshair sync, IntersectionObserver, and toggleReadout
     });
     _observeChartCanvases(['dropChart', 'velocityChart', 'energyChart']);
     const ioInstance = global.IntersectionObserver.mock.results[0].value;
-    // Mark velocityChart offscreen
+    // Mark velocityChart offscreen (energyChart stays visible and uses update('none'))
     ioInstance.trigger([{ target: c2, isIntersecting: false }]);
 
     const res = [makeResult(3)];
@@ -253,6 +265,14 @@ describe('updateReadout, crosshair sync, IntersectionObserver, and toggleReadout
     ioInstance.trigger([{ target: c2, isIntersecting: true }]);
     expect(drawFn).toHaveBeenCalledTimes(1);
     expect(_getChartState()._dirtyCrosshairCharts.has('velocityChart')).toBe(false);
+
+    // Dirty chart cleared before scrolling into view skips safely
+    ioInstance.trigger([{ target: c3, isIntersecting: false }]);
+    scheduleCrosshairSync(1, 'dropChart', res);
+    jest.runOnlyPendingTimers();
+    _setCharts({});
+    ioInstance.trigger([{ target: c3, isIntersecting: true }]);
+    expect(updateOnlyChart.update).toHaveBeenCalledTimes(1);
 
     // Null index hides panel
     scheduleCrosshairSync(null, 'dropChart', res);
