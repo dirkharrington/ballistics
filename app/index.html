@@ -418,6 +418,7 @@
             <table id="dopeTable"></table>
           </div>
           <button class="tool-calc-btn" id="dopeCopyBtn" style="margin-top:8px;">COPY TEXT</button>
+          <button class="tool-calc-btn" id="dopePrintBtn" type="button" style="margin-top:8px;">PRINT DOPE</button>
         </div>
 
         <!-- BC Back-Calculator -->
@@ -449,6 +450,16 @@
           </div>
           <button class="tool-calc-btn" id="bcCalcBtn">CALCULATE</button>
           <div class="tool-results" id="bcCalcResult"></div>
+        </div>
+
+        <!-- MPBR Calculator -->
+        <div class="tool-card" id="mpbrCard">
+          <h3 class="tool-title">MPBR CALCULATOR</h3>
+          <div class="tool-row">
+            <label for="mpbrVitalCm">Vital Zone (cm)</label>
+            <input type="number" id="mpbrVitalCm" value="20" min="2" max="100" step="1">
+          </div>
+          <div class="tool-results" id="mpbrResults"></div>
         </div>
 
         <!-- MOA / MRAD calculator -->

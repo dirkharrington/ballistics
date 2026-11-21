@@ -99,20 +99,35 @@ function _buildDopeTable(results) {
   if (!table || !results || results.length === 0) return;
 
   const dists = [..._dopeDistances].sort((a, b) => a - b);
+  const hasWind = results.some(r => r.points.some(p => p.windDriftCm != null && p.windDriftCm !== 0));
   const hasCoriolis = results.some(r => r.points.some(p => p.coriolisDeflectionCm !== undefined && p.coriolisDeflectionCm !== 0));
-  const colSpan = hasCoriolis ? 3 : 2;
+  const colSpan = 2 + (hasWind ? 2 : 0) + (hasCoriolis ? 1 : 0);
 
   const thCols = results.map(r => `<th colspan="${colSpan}">${_esc(r.bullet.name)}</th>`).join('');
-  const thSub  = results.map(() => `<th>MOA↑</th><th>MRAD↑</th>${hasCoriolis ? '<th>Cor. (cm)</th>' : ''}`).join('');
+  const thSub  = results.map(() =>
+    `<th>MOA↑</th><th>MRAD↑</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th>' : ''}${hasCoriolis ? '<th>Cor. (cm)</th>' : ''}`
+  ).join('');
 
   const bodyRows = dists.map(dist => {
     const tds = results.map(r => {
       const drop = interpolateAt(r.points, dist, 'dropCm');
-      if (drop == null) return `<td>–</td><td>–</td>${hasCoriolis ? '<td>–</td>' : ''}`;
+      if (drop == null) return '<td>–</td>'.repeat(colSpan);
       const angleRad = Math.atan2(Math.abs(drop) / 100, dist);
       const sign     = drop < 0 ? 1 : (drop > 0 ? -1 : 0);
       const moa      = Math.round(sign * angleRad * (180 / Math.PI) * 60 * 10) / 10;
       const mrad     = Math.round(sign * angleRad * 1000 * 10) / 10;
+      let windCells = '';
+      if (hasWind) {
+        const wind = interpolateAt(r.points, dist, 'windDriftCm');
+        if (wind == null) {
+          windCells = '<td>–</td><td>–</td>';
+        } else {
+          const wRad  = Math.atan2(wind / 100, dist);
+          const wMoa  = Math.round(wRad * (180 / Math.PI) * 60 * 10) / 10 + 0;
+          const wMrad = Math.round(wRad * 1000 * 10) / 10 + 0;
+          windCells = `<td>${wMoa > 0 ? '+' : ''}${wMoa}</td><td>${wMrad > 0 ? '+' : ''}${wMrad}</td>`;
+        }
+      }
       let corCell = '';
       if (hasCoriolis) {
         const cor = interpolateAt(r.points, dist, 'coriolisDeflectionCm');
@@ -120,7 +135,7 @@ function _buildDopeTable(results) {
           ? `<td>${cor >= 0 ? '+' : ''}${cor.toFixed(1)}</td>`
           : '<td>–</td>';
       }
-      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td>${corCell}`;
+      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td>${windCells}${corCell}`;
     }).join('');
     return `<tr><td><strong>${dist}</strong></td>${tds}</tr>`;
   }).join('');
@@ -192,6 +207,7 @@ function initDopeCard(simulateBulletFn) {
   });
 
   document.getElementById('dopeCopyBtn')?.addEventListener('click', _copyDopeText);
+  document.getElementById('dopePrintBtn')?.addEventListener('click', () => window.print());
 }
 
 /**
@@ -341,4 +357,112 @@ function initTools() {
   });
 }
 
-export { calcMoaMrad, convertUnit, initTools, CONVERSIONS, interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC };
+// ── MPBR Calculator (ENH-4) ───────────────────────────────────────────────────
+let _lastMpbrResults = null;
+
+/**
+ * Compute Maximum Point-Blank Range (MPBR) for a trajectory within a vital zone diameter.
+ * Scans after peak rise so negative near-muzzle sight height does not terminate MPBR at range 0.
+ *
+ * @param {object[]} points         - trajectory points with rangeMeters and dropCm
+ * @param {number}   [vitalZoneCm]  - vital zone diameter in cm (default 20)
+ * @returns {object|null}
+ */
+function calcMpbr(points, vitalZoneCm = 20) {
+  if (!Array.isArray(points) || points.length === 0 || !(vitalZoneCm > 0) || !Number.isFinite(vitalZoneCm)) {
+    return null;
+  }
+  const radius = vitalZoneCm / 2;
+
+  let peakIdx = 0;
+  let maxRiseCm = points[0].dropCm;
+  let maxRiseRangeM = points[0].rangeMeters;
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].dropCm > maxRiseCm) {
+      maxRiseCm = points[i].dropCm;
+      maxRiseRangeM = points[i].rangeMeters;
+      peakIdx = i;
+    }
+  }
+  const exceedsVitalZone = maxRiseCm > radius;
+
+  let mpbrMeters;
+  let truncatedAtMaxRange;
+  if (maxRiseCm < -radius) {
+    mpbrMeters = Math.round(maxRiseRangeM * 10) / 10;
+    truncatedAtMaxRange = false;
+  } else {
+    let found = false;
+    for (let i = peakIdx + 1; i < points.length; i++) {
+      if (points[i].dropCm < -radius) {
+        const p0 = points[i - 1];
+        const p1 = points[i];
+        const t = (-radius - p0.dropCm) / (p1.dropCm - p0.dropCm);
+        mpbrMeters = Math.round((p0.rangeMeters + t * (p1.rangeMeters - p0.rangeMeters)) * 10) / 10;
+        truncatedAtMaxRange = false;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      mpbrMeters = Math.round(points[points.length - 1].rangeMeters * 10) / 10;
+      truncatedAtMaxRange = true;
+    }
+  }
+
+  return {
+    vitalZoneCm,
+    radiusCm: Math.round(radius * 10) / 10,
+    mpbrMeters,
+    maxRiseCm: Math.round(maxRiseCm * 10) / 10,
+    maxRiseRangeM,
+    exceedsVitalZone,
+    truncatedAtMaxRange,
+  };
+}
+
+/**
+ * Render MPBR results into #mpbrResults for the current simulation results.
+ * @param {object[]|null} results
+ */
+function renderMpbrTool(results) {
+  _lastMpbrResults = results;
+  const container = document.getElementById('mpbrResults');
+  if (!container) return;
+  if (!results || results.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const vitalInput = document.getElementById('mpbrVitalCm');
+  const rawVital = vitalInput ? parseFloat(vitalInput.value) : 20;
+  const vitalCm = Number.isFinite(rawVital) && rawVital > 0 ? rawVital : 20;
+
+  container.innerHTML = results.map(r => {
+    const mpbr = calcMpbr(r.points, vitalCm);
+    if (!mpbr) return '';
+    const trunc = mpbr.truncatedAtMaxRange ? ' (max range)' : '';
+    const warn = mpbr.exceedsVitalZone
+      ? `<span class="mpbr-warning" style="display:inline-block;margin-top:4px;padding:1px 6px;border:1px solid var(--accent2,#ff6b00);color:var(--accent2,#ff6b00);font-size:10px;border-radius:2px;">Exceeds ±${mpbr.radiusCm} cm vital zone</span>`
+      : '';
+    return `<div class="mpbr-entry" style="width:100%;font-family:'Share Tech Mono',monospace;font-size:11px;">` +
+      `<div class="tool-label">${_esc(r.bullet.name)}</div>` +
+      `<div class="tool-value">MPBR: ${mpbr.mpbrMeters} m${trunc} · Max Rise: ${mpbr.maxRiseCm} cm @ ${mpbr.maxRiseRangeM} m</div>` +
+      `${warn}</div>`;
+  }).join('');
+}
+
+/**
+ * Initialise the MPBR calculator DOM and wire #mpbrVitalCm listeners.
+ */
+function initMpbrTool() {
+  const inp = document.getElementById('mpbrVitalCm');
+  if (!inp) return;
+  const onUpdate = () => {
+    if (_lastMpbrResults) renderMpbrTool(_lastMpbrResults);
+  };
+  inp.addEventListener('input', onUpdate);
+  inp.addEventListener('change', onUpdate);
+}
+
+export { calcMoaMrad, convertUnit, initTools, CONVERSIONS, interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC, calcMpbr, initMpbrTool, renderMpbrTool };

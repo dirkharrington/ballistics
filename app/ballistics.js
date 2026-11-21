@@ -136,6 +136,7 @@ async function _ensureToolsLoaded() {
     toolsMod.initTools();
     toolsMod.initDopeCard(simulateAsync);
     toolsMod.initBcSolver(simulateAsync, solveBCAsync);
+    toolsMod.initMpbrTool();
   }
   return toolsMod;
 }
@@ -692,6 +693,7 @@ async function renderResults(rawResults, req) {
       const toolsMod = await _ensureToolsLoaded();
       _dopeDirty = false;
       toolsMod.renderDopeCard(results, req);
+      toolsMod.renderMpbrTool(results);
     } catch (_) {
       _setSimulationError(TOOLS_LOAD_ERROR_MSG);
     }
@@ -713,6 +715,7 @@ async function switchTab(name, el) {
       if (_dopeDirty && pendingResults) {
         _dopeDirty = false;
         toolsMod.renderDopeCard(pendingResults, _pendingDopeReq);
+        toolsMod.renderMpbrTool(pendingResults);
       }
     } catch (_) {
       _setSimulationError(TOOLS_LOAD_ERROR_MSG);
