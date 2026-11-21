@@ -190,7 +190,6 @@ jobs:
           config: |
             paths-ignore:
               - '**/node_modules/**'
-              - 'target/**'
 
       # JavaScript: CodeQL analyses source files directly — no build needed.
 

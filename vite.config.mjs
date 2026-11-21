@@ -222,7 +222,7 @@ export default defineConfig({
     },
   },
   worker: {
-    plugins: () => [bulletCatalogPlugin(), physicsTablesPlugin()],
+    plugins: () => [physicsTablesPlugin()],
   },
   plugins: [htmlMinifyPlugin(), serviceWorkerPlugin(), bulletCatalogPlugin(), physicsTablesPlugin()],
 })
