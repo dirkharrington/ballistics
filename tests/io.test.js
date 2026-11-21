@@ -155,6 +155,30 @@ describe('CSV / JSON / Markdown / PNG exports', () => {
     expect(md).not.toContain('<script>');
   });
 
+  test('ENH-3: CSV and Markdown exports convert to Imperial while JSON stays canonical Metric', () => {
+    io.exportTrajectoryCSV(sampleResults, 'imperial');
+    const trajCsv = global.Blob.mock.calls[0][0][0];
+    expect(trajCsv).toContain('Distance (yd),Velocity (fps),Energy (ft·lb),Drop (in),Bullet');
+    expect(trajCsv).toContain('109,2493,2286,-1.4,".308 Win 168gr BTHP"');
+
+    global.Blob.mockClear();
+    io.exportCSV(sampleResults, computeAdjustments, 'imperial');
+    const fullCsv = global.Blob.mock.calls[0][0][0];
+    expect(fullCsv).toContain('Round,Range (yd),Drop (in),Velocity (fps),Energy (ft·lb),Wind Drift (in),Time (s),MOA,MRAD');
+    expect(fullCsv).toContain('".308 Win 168gr BTHP",109,-1.4,2493,2286,0.8,0.13,1.2,0.3');
+
+    global.Blob.mockClear();
+    io.exportMarkdown(sampleResults, { computeAdjustments, escapeHtml, unitSystem: 'imperial' });
+    const md = global.Blob.mock.calls[0][0][0];
+    expect(md).toContain('| Range (yd) | Drop (in) | Velocity (fps) | Energy (ft·lb) | Wind Drift (in) | MOA | MRAD |');
+    expect(md).toContain('| 109 | -1.4 | 2493 | 2286 | 0.8 | 1.2 | 0.3 |');
+
+    global.Blob.mockClear();
+    io.exportJSON(sampleResults);
+    const parsed = JSON.parse(global.Blob.mock.calls[0][0][0]);
+    expect(parsed[0].points[1].rangeMeters).toBe(100);
+  });
+
   test('exportPNG skips missing canvas and downloads dataURL when canvas exists', () => {
     const toDataURL = jest.fn(() => 'data:image/png;base64,abc');
     HTMLCanvasElement.prototype.toDataURL = toDataURL;

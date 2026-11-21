@@ -1,5 +1,6 @@
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { escapeHtml, formatNumber, computeAdjustments, _setSimulationError } from './prefs.js';
+import { normalizeUnitSystem, toDisplay, unitLabel } from './units.js';
 
 // ── Constants & colour helpers ────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ const _visibleChartIds = new Set();
 const _dirtyCrosshairCharts = new Set();
 let _readoutCache = null;
 let _chartModPromise = null;
+let _activeUnitSystem = 'metric';
 
 // ── Lazy Chart.js loader (PERF-3 / PERF-23) ───────────────────────────────────
 
@@ -176,16 +178,23 @@ function _buildReadoutRow(r) {
 }
 
 /** Populate the range readout panel below the charts for a given data point index. */
-export function updateReadout(results, dataIndex) {
+export function updateReadout(results, dataIndex, unitSystem = _activeUnitSystem) {
   const panel = document.getElementById('rangeReadout');
   if (!panel) return;
   const first = results[0];
   if (!first?.points[dataIndex]) return;
 
-  const range = first.points[dataIndex].rangeMeters;
+  const sys    = normalizeUnitSystem(unitSystem);
+  const rUnit  = unitLabel('range', sys);
+  const dUnit  = unitLabel('drop', sys);
+  const vUnit  = unitLabel('velocity', sys);
+  const eUnit  = unitLabel('energy', sys);
+  const drUnit = unitLabel('drift', sys);
+
+  const range = toDisplay('range', first.points[dataIndex].rangeMeters, sys);
   const rangeEl = document.getElementById('readoutRange');
   /* istanbul ignore else -- #readoutRange is always present in the app shell */
-  if (rangeEl) rangeEl.textContent = `${range} m`;
+  if (rangeEl) rangeEl.textContent = `${range} ${rUnit}`;
 
   const tbody = document.getElementById('readoutBody');
   /* istanbul ignore else -- #readoutBody is always present in the app shell */
@@ -211,13 +220,18 @@ export function updateReadout(results, dataIndex) {
         continue;
       }
       entry.row.style.display = '';
-      entry.dropCell.textContent   = `${sign(p.dropCm)}${p.dropCm} cm`;
-      entry.velCell.textContent    = `${p.velocityMps} m/s`;
-      entry.energyCell.textContent = `${p.energyJoules} J`;
-      entry.windCell.textContent   = `${sign(p.windDriftCm)}${p.windDriftCm} cm`;
+      const dropVal   = toDisplay('drop', p.dropCm, sys);
+      const velVal    = toDisplay('velocity', p.velocityMps, sys);
+      const energyVal = toDisplay('energy', p.energyJoules, sys);
+      const windVal   = toDisplay('drift', p.windDriftCm, sys);
+      entry.dropCell.textContent   = `${sign(dropVal)}${dropVal} ${dUnit}`;
+      entry.velCell.textContent    = `${velVal} ${vUnit}`;
+      entry.energyCell.textContent = `${energyVal} ${eUnit}`;
+      entry.windCell.textContent   = `${sign(windVal)}${windVal} ${drUnit}`;
 
       if (p.spinDriftCm > 0) {
-        entry.spinCell.textContent = `Spin Drift: ${p.spinDriftCm.toFixed(1)} cm`;
+        const spinVal = toDisplay('drift', p.spinDriftCm, sys);
+        entry.spinCell.textContent = `Spin Drift: ${spinVal.toFixed(1)} ${drUnit}`;
         if (entry.spinCell.parentNode !== entry.row) {
           entry.row.insertBefore(entry.spinCell, entry.corCell.parentNode === entry.row ? entry.corCell : null);
         }
@@ -226,7 +240,8 @@ export function updateReadout(results, dataIndex) {
       }
 
       if (p.coriolisDeflectionCm != null) {
-        entry.corCell.textContent = `Coriolis: ${p.coriolisDeflectionCm >= 0 ? '+' : ''}${p.coriolisDeflectionCm.toFixed(1)} cm`;
+        const corVal = toDisplay('drift', p.coriolisDeflectionCm, sys);
+        entry.corCell.textContent = `Coriolis: ${corVal >= 0 ? '+' : ''}${corVal.toFixed(1)} ${drUnit}`;
         if (entry.corCell.parentNode !== entry.row) {
           entry.row.appendChild(entry.corCell);
         }
@@ -302,17 +317,17 @@ function _cancelCrosshairRaf() {
 }
 
 /** Coalesce crosshair hover updates via requestAnimationFrame and redraw visible siblings. */
-export function scheduleCrosshairSync(nextIndex, sourceChartId, results) {
+export function scheduleCrosshairSync(nextIndex, sourceChartId, results, unitSystem = _activeUnitSystem) {
   if (nextIndex === crosshairIndex) return;
   crosshairIndex = nextIndex;
-  _pendingCrosshair = { index: nextIndex, sourceChartId, results };
+  _pendingCrosshair = { index: nextIndex, sourceChartId, results, unitSystem };
   if (_crosshairRafId === null) {
     _crosshairRafId = requestAnimationFrame(() => {
       _crosshairRafId = null;
-      const { index, sourceChartId: srcId, results: res } = _pendingCrosshair;
+      const { index, sourceChartId: srcId, results: res, unitSystem: sys } = _pendingCrosshair;
       _pendingCrosshair = null;
       if (index !== null) {
-        updateReadout(res, index);
+        updateReadout(res, index, sys);
       } else {
         const panel = document.getElementById('rangeReadout');
         /* istanbul ignore else -- #rangeReadout is always present in the app shell */
@@ -323,7 +338,7 @@ export function scheduleCrosshairSync(nextIndex, sourceChartId, results) {
   }
 }
 
-function _handleChartClick(elements, results) {
+function _handleChartClick(elements, results, unitSystem) {
   if (elements.length === 0) return;
   _cancelCrosshairRaf();
   crosshairPinned = !crosshairPinned;
@@ -335,7 +350,7 @@ function _handleChartClick(elements, results) {
   }
   if (crosshairPinned) {
     crosshairIndex = elements[0].index;
-    updateReadout(results, crosshairIndex);
+    updateReadout(results, crosshairIndex, unitSystem);
   } else {
     crosshairIndex = null;
     const panel = document.getElementById('rangeReadout');
@@ -397,23 +412,36 @@ export function _lineTension(points) {
 
 // ── Stat cards ────────────────────────────────────────────────────────────────
 
-function _statCardsHtml(results) {
+function _statCardsHtml(results, unitSystem) {
+  const sys    = normalizeUnitSystem(unitSystem);
+  const vUnit  = unitLabel('velocity', sys);
+  const wUnit  = unitLabel('weight', sys);
+  const eUnit  = unitLabel('energy', sys);
+  const rUnit  = unitLabel('range', sys);
+  const dUnit  = unitLabel('drop', sys);
+  const aUnit  = unitLabel('altitude', sys);
   return `
     <div class="stats-grid">
       ${results.map(r => {
         const color = colorFor(r.bullet);
         const daLine = r.densityAltitudeMeters !== undefined
-          ? `<br><span style="color:var(--text)">${Number(r.densityAltitudeMeters)}</span> m density alt`
+          ? `<br><span style="color:var(--text)">${toDisplay('altitude', Number(r.densityAltitudeMeters), sys)}</span> ${aUnit} density alt`
           : '';
+        const mvDisp = toDisplay('velocity', Number(r.bullet.muzzleVelocityMps), sys);
+        const wtDisp = toDisplay('weight', Number(r.bullet.bulletWeightGrams), sys);
+        const meDisp = toDisplay('energy', Number(r.bullet.muzzleEnergyJoules), sys);
+        const supDisp = toDisplay('range', Number(r.supersonicLimitMeters), sys);
+        const maxOrdDisp = toDisplay('drop', Number(r.maxOrdinateCm), sys);
+        const maxOrdRangeDisp = toDisplay('range', Number(r.maxOrdinateRangeMeters), sys);
         return `
         <div class="stat-card" style="--bullet-color:${color}">
           <div class="stat-label" style="color:${color}">${escapeHtml(r.bullet.name)}</div>
-          <div class="stat-value">${formatNumber(Number(r.bullet.muzzleVelocityMps))}</div>
-          <div class="stat-unit">MV m/s &nbsp;·&nbsp; BC ${Number(r.bullet.ballisticCoefficient)} &nbsp;·&nbsp; ${Number(r.bullet.bulletWeightGrams)}g</div>
+          <div class="stat-value">${formatNumber(mvDisp)}</div>
+          <div class="stat-unit">MV ${vUnit} &nbsp;·&nbsp; BC ${Number(r.bullet.ballisticCoefficient)} &nbsp;·&nbsp; ${wtDisp}${wUnit}</div>
           <div style="margin-top:8px; font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--text-dim); letter-spacing:1px; line-height:1.8">
-            <span style="color:var(--text)">⚡ ${formatNumber(Number(r.bullet.muzzleEnergyJoules))}</span> J muzzle energy<br>
-            <span style="color:var(--text)">${Number(r.supersonicLimitMeters)}</span> m supersonic${daLine}<br>
-            <span style="color:var(--text)">${Number(r.maxOrdinateCm)}</span> cm max ordinate @ ${Number(r.maxOrdinateRangeMeters)} m
+            <span style="color:var(--text)">⚡ ${formatNumber(meDisp)}</span> ${eUnit} muzzle energy<br>
+            <span style="color:var(--text)">${supDisp}</span> ${rUnit} supersonic${daLine}<br>
+            <span style="color:var(--text)">${maxOrdDisp}</span> ${dUnit} max ordinate @ ${maxOrdRangeDisp} ${rUnit}
           </div>
         </div>`;
       }).join('')}
@@ -421,36 +449,41 @@ function _statCardsHtml(results) {
 }
 
 /** Render per-bullet summary stat cards into container. */
-export function renderStatCards(results, container) {
-  container.insertAdjacentHTML('beforeend', _statCardsHtml(results));
+export function renderStatCards(results, container, unitSystem = 'metric') {
+  container.insertAdjacentHTML('beforeend', _statCardsHtml(results, unitSystem));
 }
 
 // ── Chart config & dataset builders ───────────────────────────────────────────
 
 /** Human-readable wind subtitle showing speed and compass direction. */
-export function windChartSubtitle(req) {
+export function windChartSubtitle(req, unitSystem = 'metric') {
   if (!req.windSpeedKph) return 'no wind';
-  const dir = req.windDirectionDeg ?? 90;
-  const dirs = ['N','NE','E','SE','S','SW','W','NW','N'];
+  const sys   = normalizeUnitSystem(unitSystem);
+  const dir   = req.windDirectionDeg ?? 90;
+  const dirs  = ['N','NE','E','SE','S','SW','W','NW','N'];
   const label = dirs[Math.round(dir / 45) % 8];
-  return `${req.windSpeedKph} km/h from ${label}`;
+  const speed = toDisplay('windSpeed', req.windSpeedKph, sys);
+  return `${speed} ${unitLabel('windSpeed', sys)} from ${label}`;
 }
 
 /**
  * Build a Chart.js config for one trajectory or sweep chart panel.
  *
- * @param {{ id: string, title?: string, subtitle?: string, yLabel?: string,
+ * @param {{ id: string, title?: string, subtitle?: string, yLabel?: string, xLabel?: string,
  *           key?: string, annotations?: Array<object>, scales?: object }} def
  * @param {object[]} datasets  Pre-built Chart.js dataset array.
  * @param {object[]} results   Simulation results used by hover/click callbacks.
+ * @param {{ unitSystem?: 'metric'|'imperial' }} [opts]
  * @returns {object} Chart.js config ready for `new Chart(ctx, config)`.
  */
-export function buildChartConfig(def, datasets, results) {
-  const getResults = () => _chartMeta[def.id]?.results ?? results;
+export function buildChartConfig(def, datasets, results, { unitSystem = 'metric' } = {}) {
+  const sys = normalizeUnitSystem(unitSystem);
+  const getResults    = () => _chartMeta[def.id]?.results ?? results;
+  const getUnitSystem = () => _chartMeta[def.id]?.unitSystem ?? sys;
   const scales = def.scales ?? {
     x: {
       type: 'linear',
-      title: { display: true, text: 'Range (m)', color: '#3a5060',
+      title: { display: true, text: `Range (${unitLabel('range', sys)})`, color: '#3a5060',
                font: { family: 'Share Tech Mono', size: 9 } },
       grid: { color: 'rgba(30,48,64,0.6)' },
       ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } },
@@ -475,10 +508,10 @@ export function buildChartConfig(def, datasets, results) {
       onHover: (event, elements) => {
         if (crosshairPinned) return;
         const nextIndex = elements.length > 0 ? elements[0].index : null;
-        scheduleCrosshairSync(nextIndex, def.id, getResults());
+        scheduleCrosshairSync(nextIndex, def.id, getResults(), getUnitSystem());
       },
       onClick: (event, elements) => {
-        _handleChartClick(elements, getResults());
+        _handleChartClick(elements, getResults(), getUnitSystem());
       },
       scales,
       plugins: {
@@ -501,10 +534,14 @@ export function buildChartConfig(def, datasets, results) {
   };
 }
 
-function _buildTrajectoryDatasets(def, results) {
+function _buildTrajectoryDatasets(def, results, unitSystem) {
+  const sys = normalizeUnitSystem(unitSystem);
   const datasets = results.map(r => ({
     label:            r.bullet.name,
-    data:             r.points.map(p => ({ x: p.rangeMeters, y: p[def.key] })),
+    data:             r.points.map(p => ({
+      x: toDisplay('range', p.rangeMeters, sys),
+      y: toDisplay(def.unitKind, p[def.key], sys),
+    })),
     borderColor:      colorFor(r.bullet),
     backgroundColor:  'transparent',
     borderWidth:      2,
@@ -519,7 +556,10 @@ function _buildTrajectoryDatasets(def, results) {
       results.forEach(r => {
         datasets.push({
           label:            r.bullet.name + ' (spin drift)',
-          data:             r.points.map(p => ({ x: p.rangeMeters, y: p.spinDriftCm ?? 0 })),
+          data:             r.points.map(p => ({
+            x: toDisplay('range', p.rangeMeters, sys),
+            y: toDisplay('drift', p.spinDriftCm ?? 0, sys),
+          })),
           borderColor:      colorFor(r.bullet),
           backgroundColor:  'transparent',
           borderWidth:      1.5,
@@ -535,7 +575,10 @@ function _buildTrajectoryDatasets(def, results) {
       results.forEach(r => {
         datasets.push({
           label:            r.bullet.name + ' (coriolis)',
-          data:             r.points.map(p => ({ x: p.rangeMeters, y: p.coriolisDeflectionCm ?? 0 })),
+          data:             r.points.map(p => ({
+            x: toDisplay('range', p.rangeMeters, sys),
+            y: toDisplay('drift', p.coriolisDeflectionCm ?? 0, sys),
+          })),
           borderColor:      colorFor(r.bullet),
           backgroundColor:  'transparent',
           borderWidth:      1.5,
@@ -550,7 +593,8 @@ function _buildTrajectoryDatasets(def, results) {
   return datasets;
 }
 
-function _buildAdjustmentDatasets(results) {
+function _buildAdjustmentDatasets(results, unitSystem) {
+  const sys          = normalizeUnitSystem(unitSystem);
   const moaDatasets  = [];
   const mradDatasets = [];
   results.forEach(r => {
@@ -562,8 +606,9 @@ function _buildAdjustmentDatasets(results) {
     for (let i = 0; i < len; i++) {
       const p = r.points[i];
       const a = computeAdjustments(p.dropCm, p.rangeMeters);
-      moaData[i]  = { x: p.rangeMeters, y: a.moa };
-      mradData[i] = { x: p.rangeMeters, y: a.mrad };
+      const x = toDisplay('range', p.rangeMeters, sys);
+      moaData[i]  = { x, y: a.moa };
+      mradData[i] = { x, y: a.mrad };
     }
     moaDatasets.push({
       label:            r.bullet.name + ' MOA',
@@ -624,7 +669,15 @@ export function _applyChartTheme(theme) {
  * Render stat cards and the 5 trajectory charts (reusing existing Chart instances in place).
  * Returns the filtered valid results array.
  */
-export async function renderCharts(rawResults, req = {}, { onExportPNG } = {}) {
+export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSystem = 'metric' } = {}) {
+  const sys     = normalizeUnitSystem(unitSystem);
+  _activeUnitSystem = sys;
+  const rUnit   = unitLabel('range', sys);
+  const dUnit   = unitLabel('drop', sys);
+  const vUnit   = unitLabel('velocity', sys);
+  const eUnit   = unitLabel('energy', sys);
+  const drUnit  = unitLabel('drift', sys);
+
   const results = rawResults.filter(r => r?.bullet);
   document.getElementById('emptyState').style.display = 'none';
   const rc = document.getElementById('resultsContainer');
@@ -641,21 +694,22 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG } = {}) {
   const SONIC_COLOR = 'rgba(255,160,0,0.6)';
   const ORD_COLOR   = 'rgba(0,212,255,0.4)';
   const sonicAnn = first
-    ? [{ type: 'vertical',   value: first.supersonicLimitMeters,  label: 'SUPERSONIC ←', color: SONIC_COLOR }]
+    ? [{ type: 'vertical',   value: toDisplay('range', first.supersonicLimitMeters, sys),  label: 'SUPERSONIC ←', color: SONIC_COLOR }]
     : [];
   const dropAnns = first
     ? [
         ...sonicAnn,
-        { type: 'horizontal', value: first.maxOrdinateCm,          label: 'MAX ORD', color: ORD_COLOR },
-        { type: 'vertical',   value: first.maxOrdinateRangeMeters, label: 'PEAK',    color: ORD_COLOR },
+        { type: 'horizontal', value: toDisplay('drop', first.maxOrdinateCm, sys),          label: 'MAX ORD', color: ORD_COLOR },
+        { type: 'vertical',   value: toDisplay('range', first.maxOrdinateRangeMeters, sys), label: 'PEAK',    color: ORD_COLOR },
       ]
     : [];
 
+  const zeroDisp = toDisplay('range', req.zeroRangeMeters, sys);
   const chartDefs = [
-    { id: 'dropChart',     title: 'BULLET DROP',         subtitle: `zeroed at ${req.zeroRangeMeters} m`, yLabel: 'Drop (cm)',       key: 'dropCm',       annotations: [...dropAnns] },
-    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: 'm/s downrange',                      yLabel: 'Velocity (m/s)', key: 'velocityMps',  annotations: [...sonicAnn] },
-    { id: 'energyChart',   title: 'KINETIC ENERGY',      subtitle: 'joules downrange',                   yLabel: 'Energy (J)',      key: 'energyJoules', annotations: [...sonicAnn] },
-    { id: 'windChart',     title: 'WIND DRIFT',          subtitle: windChartSubtitle(req),               yLabel: 'Drift (cm)',     key: 'windDriftCm',  annotations: [...sonicAnn] },
+    { id: 'dropChart',     title: 'BULLET DROP',         subtitle: `zeroed at ${zeroDisp} ${rUnit}`,     yLabel: `Drop (${dUnit})`,      key: 'dropCm',       unitKind: 'drop',     annotations: [...dropAnns] },
+    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: `${vUnit} downrange`,                 yLabel: `Velocity (${vUnit})`,  key: 'velocityMps',  unitKind: 'velocity', annotations: [...sonicAnn] },
+    { id: 'energyChart',   title: 'KINETIC ENERGY',      subtitle: `${sys === 'imperial' ? 'ft·lb' : 'joules'} downrange`, yLabel: `Energy (${eUnit})`, key: 'energyJoules', unitKind: 'energy', annotations: [...sonicAnn] },
+    { id: 'windChart',     title: 'WIND DRIFT',          subtitle: windChartSubtitle(req, sys),          yLabel: `Drift (${drUnit})`,    key: 'windDriftCm',  unitKind: 'drift',    annotations: [...sonicAnn] },
   ];
 
   let ChartCtor = null;
@@ -671,34 +725,39 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG } = {}) {
     if (canReuse) {
       const existingStats = cc.querySelector('.stats-grid');
       /* istanbul ignore else -- .stats-grid is always created on initial renderCharts */
-      if (existingStats) existingStats.outerHTML = _statCardsHtml(results);
+      if (existingStats) existingStats.outerHTML = _statCardsHtml(results, sys);
 
       chartDefs.forEach(def => {
         const subEl = document.getElementById(def.id)?.closest('.chart-panel')?.querySelector('.chart-subtitle');
         /* istanbul ignore else -- .chart-subtitle is always present inside .chart-panel */
         if (subEl) subEl.textContent = def.subtitle;
-        const datasets = _buildTrajectoryDatasets(def, results);
+        const datasets = _buildTrajectoryDatasets(def, results, sys);
         const meta = _chartMeta[def.id];
         meta.results = results;
+        meta.unitSystem = sys;
         meta.annotations.splice(0, meta.annotations.length, ...def.annotations);
         const anim = _chartAnimation(datasets);
         charts[def.id].data.datasets = datasets;
+        charts[def.id].options.scales.x.title.text = `Range (${rUnit})`;
+        charts[def.id].options.scales.y.title.text = def.yLabel;
         charts[def.id].options.animation = anim;
         charts[def.id].update(anim ? undefined : 'none');
       });
 
-      const adjDatasets = _buildAdjustmentDatasets(results);
+      const adjDatasets = _buildAdjustmentDatasets(results, sys);
       const adjMeta = _chartMeta.adjustChart;
       adjMeta.results = results;
+      adjMeta.unitSystem = sys;
       adjMeta.annotations.splice(0, adjMeta.annotations.length, ...sonicAnn);
       const adjAnim = _chartAnimation(adjDatasets);
       charts.adjustChart.data.datasets = adjDatasets;
+      charts.adjustChart.options.scales.x.title.text = `Range (${rUnit})`;
       charts.adjustChart.options.animation = adjAnim;
       charts.adjustChart.update(adjAnim ? undefined : 'none');
     } else {
       cc.innerHTML = '';
       destroyCharts();
-      renderStatCards(results, cc);
+      renderStatCards(results, cc, sys);
 
       chartDefs.forEach(def => {
         cc.insertAdjacentHTML('beforeend', `
@@ -715,10 +774,10 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG } = {}) {
         cc.querySelector('.chart-panel:last-child .export-btn')
           ?.addEventListener('click', () => onExportPNG?.(def.id));
 
-        const datasets = _buildTrajectoryDatasets(def, results);
-        _chartMeta[def.id] = { results, annotations: def.annotations };
+        const datasets = _buildTrajectoryDatasets(def, results, sys);
+        _chartMeta[def.id] = { results, annotations: def.annotations, unitSystem: sys };
         const canvas = document.getElementById(def.id);
-        charts[def.id] = new ChartCtor(canvas.getContext('2d'), buildChartConfig(def, datasets, results));
+        charts[def.id] = new ChartCtor(canvas.getContext('2d'), buildChartConfig(def, datasets, results, { unitSystem: sys }));
         _attachTouchForwarder(canvas);
       });
 
@@ -737,20 +796,20 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG } = {}) {
       cc.querySelector('.chart-panel:last-child .export-btn')
         ?.addEventListener('click', () => onExportPNG?.('adjustChart'));
 
-      const adjDatasets = _buildAdjustmentDatasets(results);
+      const adjDatasets = _buildAdjustmentDatasets(results, sys);
       const adjAnns = [...sonicAnn];
-      _chartMeta.adjustChart = { results, annotations: adjAnns };
+      _chartMeta.adjustChart = { results, annotations: adjAnns, unitSystem: sys };
       const adjCanvas = document.getElementById('adjustChart');
       const adjDef = {
         id: 'adjustChart',
         annotations: adjAnns,
         scales: {
-          x:     { type: 'linear', title: { display: true, text: 'Range (m)', color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { color: 'rgba(30,48,64,0.6)' }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
+          x:     { type: 'linear', title: { display: true, text: `Range (${rUnit})`, color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { color: 'rgba(30,48,64,0.6)' }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
           yMoa:  { type: 'linear', position: 'left',  title: { display: true, text: 'MOA',  color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { color: 'rgba(30,48,64,0.6)' }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
           yMrad: { type: 'linear', position: 'right', title: { display: true, text: 'MRAD', color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } }, grid: { drawOnChartArea: false }, ticks: { color: '#3a5060', font: { family: 'Share Tech Mono', size: 9 } } },
         },
       };
-      charts.adjustChart = new ChartCtor(adjCanvas.getContext('2d'), buildChartConfig(adjDef, adjDatasets, results));
+      charts.adjustChart = new ChartCtor(adjCanvas.getContext('2d'), buildChartConfig(adjDef, adjDatasets, results, { unitSystem: sys }));
       _attachTouchForwarder(adjCanvas);
 
       _observeChartCanvases(TRAJECTORY_CHART_IDS);
@@ -794,6 +853,7 @@ export function _resetChartState() {
   _cancelCrosshairRaf();
   _teardownChartObserver();
   _readoutCache = null;
+  _activeUnitSystem = 'metric';
   charts = {};
   _chartMeta = {};
   crosshairIndex = null;

@@ -1,5 +1,6 @@
 import { escapeHtml, formatNumber, computeAdjustments } from './prefs.js';
 import { colorFor } from './charts.js';
+import { normalizeUnitSystem, toDisplay, unitLabel } from './units.js';
 
 export { computeAdjustments };
 
@@ -25,6 +26,7 @@ let tableResults     = null;
 let _tableDirty      = false;
 let _cachedTableRows = null;
 let _tableChunkRafId = null;
+let _tableUnitSystem = 'metric';
 
 /** Cancel any pending chunked table append animation frame. */
 export function _cancelTableChunkRaf() {
@@ -34,26 +36,44 @@ export function _cancelTableChunkRaf() {
   }
 }
 
-function _formatTableRow({ p, adj, color, escapedName }, showSpinDrift, showCoriolis) {
+function _updateTableHeaders(unitSystem) {
+  document.querySelectorAll('#dataTable thead [data-unit-kind]').forEach(el => {
+    el.textContent = unitLabel(el.dataset.unitKind, unitSystem);
+  });
+}
+
+function _formatTableRow({ p, adj, color, escapedName }, showSpinDrift, showCoriolis, unitSystem) {
+  const dUnit  = unitLabel('drop', unitSystem);
+  const drUnit = unitLabel('drift', unitSystem);
+  const rangeVal = toDisplay('range', p.rangeMeters, unitSystem);
+  const dropVal  = toDisplay('drop', p.dropCm, unitSystem);
+  const velVal   = toDisplay('velocity', p.velocityMps, unitSystem);
+  const enVal    = toDisplay('energy', p.energyJoules, unitSystem);
+  const windVal  = toDisplay('drift', p.windDriftCm, unitSystem);
+  const spinVal  = toDisplay('drift', p.spinDriftCm ?? 0, unitSystem);
+  const corVal   = toDisplay('drift', p.coriolisDeflectionCm ?? 0, unitSystem);
   return `
         <tr>
           <td><span class="bullet-tag" style="background:${color}"></span>${escapedName}</td>
-          <td>${p.rangeMeters}</td>
-          <td>${p.dropCm > 0 ? '+' : ''}${p.dropCm} cm</td>
-          <td>${formatNumber(p.velocityMps)}</td>
-          <td>${formatNumber(p.energyJoules)}</td>
-          <td>${p.windDriftCm > 0 ? '+' : ''}${p.windDriftCm} cm</td>
+          <td>${rangeVal}</td>
+          <td>${dropVal > 0 ? '+' : ''}${dropVal} ${dUnit}</td>
+          <td>${formatNumber(velVal)}</td>
+          <td>${formatNumber(enVal)}</td>
+          <td>${windVal > 0 ? '+' : ''}${windVal} ${drUnit}</td>
           <td>${p.timeOfFlightSec}s</td>
           <td>${adj.moa > 0 ? '+' : ''}${adj.moa}</td>
           <td>${adj.mrad > 0 ? '+' : ''}${adj.mrad}</td>
-          ${showSpinDrift ? `<td>${(p.spinDriftCm ?? 0).toFixed(1)} cm</td>` : ''}
-          ${showCoriolis ? `<td>${(p.coriolisDeflectionCm ?? 0) >= 0 ? '+' : ''}${(p.coriolisDeflectionCm ?? 0).toFixed(1)} cm</td>` : ''}
+          ${showSpinDrift ? `<td>${spinVal.toFixed(1)} ${drUnit}</td>` : ''}
+          ${showCoriolis ? `<td>${corVal >= 0 ? '+' : ''}${corVal.toFixed(1)} ${drUnit}</td>` : ''}
         </tr>`;
 }
 
 /** Render the trajectory data table (chunked via rAF when rows exceed TABLE_CHUNK_THRESHOLD). */
-export function renderTable(results) {
+export function renderTable(results, unitSystem = _tableUnitSystem) {
   _cancelTableChunkRaf();
+  const sys = normalizeUnitSystem(unitSystem);
+  _tableUnitSystem = sys;
+  _updateTableHeaders(sys);
   const tbody = document.getElementById('tableBody');
 
   const showSpinDrift = results.some(r => r.points.some(p => p.spinDriftCm > 0));
@@ -98,17 +118,17 @@ export function renderTable(results) {
   }
 
   if (rows.length <= TABLE_CHUNK_THRESHOLD) {
-    tbody.innerHTML = rows.map(row => _formatTableRow(row, showSpinDrift, showCoriolis)).join('');
+    tbody.innerHTML = rows.map(row => _formatTableRow(row, showSpinDrift, showCoriolis, sys)).join('');
   } else {
     // PERF-22: render first chunk synchronously and stream remaining rows via rAF
     let offset = TABLE_CHUNK_SIZE;
-    tbody.innerHTML = rows.slice(0, offset).map(row => _formatTableRow(row, showSpinDrift, showCoriolis)).join('');
+    tbody.innerHTML = rows.slice(0, offset).map(row => _formatTableRow(row, showSpinDrift, showCoriolis, sys)).join('');
     const appendChunk = () => {
       _tableChunkRafId = null;
       const end = Math.min(offset + TABLE_CHUNK_SIZE, rows.length);
       let chunk = '';
       for (let i = offset; i < end; i++) {
-        chunk += _formatTableRow(rows[i], showSpinDrift, showCoriolis);
+        chunk += _formatTableRow(rows[i], showSpinDrift, showCoriolis, sys);
       }
       tbody.insertAdjacentHTML('beforeend', chunk);
       offset = end;
@@ -130,7 +150,7 @@ export function onSortHeaderClick(key) {
     sortColumn = key;
     sortDirection = 'asc';
   }
-  renderTable(tableResults);
+  renderTable(tableResults, _tableUnitSystem);
 }
 
 /** Sync aria-sort attributes and ▲/▼ sort indicators across table header cells. */
@@ -156,11 +176,12 @@ export function _getSortState() {
 }
 
 /** Record new pending results after renderCharts and mark table dirty until Data tab activates. */
-export function setTablePendingResults(results) {
+export function setTablePendingResults(results, unitSystem = _tableUnitSystem) {
   sortColumn = null;
   sortDirection = 'asc';
   tableResults = results;
   _cachedTableRows = null;
+  _tableUnitSystem = normalizeUnitSystem(unitSystem);
   _tableDirty = true;
 }
 
@@ -168,7 +189,7 @@ export function setTablePendingResults(results) {
 export function flushTableIfDirty() {
   if (_tableDirty && tableResults) {
     _tableDirty = false;
-    renderTable(tableResults);
+    renderTable(tableResults, _tableUnitSystem);
     return true;
   }
   return false;
@@ -192,4 +213,5 @@ export function _resetTableState() {
   tableResults = null;
   _tableDirty = false;
   _cachedTableRows = null;
+  _tableUnitSystem = 'metric';
 }

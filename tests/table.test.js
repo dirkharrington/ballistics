@@ -11,16 +11,16 @@ function buildTableDOM() {
       <thead>
         <tr>
           <th>Round</th>
-          <th data-sort-key="range"><button class="sort-btn" type="button">Range<span class="sort-indicator"></span></button></th>
-          <th data-sort-key="drop"><button class="sort-btn" type="button">Drop<span class="sort-indicator"></span></button></th>
-          <th data-sort-key="velocity"><button class="sort-btn" type="button">Vel<span class="sort-indicator"></span></button></th>
-          <th data-sort-key="energy"><button class="sort-btn" type="button">Energy<span class="sort-indicator"></span></button></th>
-          <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind<span class="sort-indicator"></span></button></th>
+          <th data-sort-key="range"><button class="sort-btn" type="button">Range (<span data-unit-kind="range">m</span>)<span class="sort-indicator"></span></button></th>
+          <th data-sort-key="drop"><button class="sort-btn" type="button">Drop (<span data-unit-kind="drop">cm</span>)<span class="sort-indicator"></span></button></th>
+          <th data-sort-key="velocity"><button class="sort-btn" type="button">Vel (<span data-unit-kind="velocity">m/s</span>)<span class="sort-indicator"></span></button></th>
+          <th data-sort-key="energy"><button class="sort-btn" type="button">Energy (<span data-unit-kind="energy">J</span>)<span class="sort-indicator"></span></button></th>
+          <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind (<span data-unit-kind="drift">cm</span>)<span class="sort-indicator"></span></button></th>
           <th data-sort-key="time"><button class="sort-btn" type="button">Time<span class="sort-indicator"></span></button></th>
           <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator"></span></button></th>
           <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator"></span></button></th>
-          <th id="spinDriftColHeader" style="display:none">Spin Drift</th>
-          <th id="coriolisColHeader" style="display:none">Coriolis</th>
+          <th id="spinDriftColHeader" style="display:none">Spin Drift (<span data-unit-kind="drift">cm</span>)</th>
+          <th id="coriolisColHeader" style="display:none">Coriolis (<span data-unit-kind="drift">cm</span>)</th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
@@ -178,5 +178,20 @@ describe('chunked rendering and deferred tab state helpers', () => {
     expect(flushTableIfDirty()).toBe(false);
 
     updateSortIndicators();
+  });
+
+  test('ENH-3: renderTable in imperial updates headers and formats yd/in/fps/ft·lb cells', () => {
+    const res = makeResults();
+    renderTable(res, 'imperial');
+    expect(document.querySelector('[data-sort-key="range"] [data-unit-kind]').textContent).toBe('yd');
+    expect(document.querySelector('[data-sort-key="drop"] [data-unit-kind]').textContent).toBe('in');
+    expect(document.querySelector('[data-sort-key="velocity"] [data-unit-kind]').textContent).toBe('fps');
+    expect(document.querySelector('[data-sort-key="energy"] [data-unit-kind]').textContent).toBe('ft·lb');
+    const html = document.getElementById('tableBody').innerHTML;
+    expect(html).toContain('219');
+    expect(html).toContain('-7.9 in');
+    expect(html).toContain('+2.2 in');
+    onSortHeaderClick('range');
+    expect(document.querySelector('[data-sort-key="range"] [data-unit-kind]').textContent).toBe('yd');
   });
 });

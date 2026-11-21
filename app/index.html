@@ -42,6 +42,7 @@
     <p>External trajectory modeling // G1 drag model // RK4 integration</p>
   </div>
   <div class="header-status">
+    <button type="button" id="unitToggle" class="unit-toggle" aria-pressed="false" title="Switch between Metric and Imperial units">METRIC</button>
     <button id="themeToggle" aria-label="Switch to light mode" title="Toggle theme">&#x1F319;</button>
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
   </div>
@@ -151,17 +152,17 @@
     <div class="params">
       <div class="param-row">
         <div class="param-group">
-          <label>Zero (m)</label>
+          <label for="zeroRange">Zero (<span data-unit-kind="range">m</span>)</label>
           <input type="number" id="zeroRange" value="100" min="25" max="500" step="25">
         </div>
         <div class="param-group">
-          <label>Max Range (m)</label>
+          <label for="maxRange">Max Range (<span data-unit-kind="range">m</span>)</label>
           <input type="number" id="maxRange" value="1000" min="100" max="2000" step="100">
         </div>
       </div>
       <div class="param-row">
         <div class="param-group">
-          <label>Wind (km/h)</label>
+          <label for="windSpeed">Wind (<span data-unit-kind="windSpeed">km/h</span>)</label>
           <input type="number" id="windSpeed" value="16" min="0" max="80" step="1">
         </div>
         <div class="param-group">
@@ -180,23 +181,23 @@
       </div>
       <div class="param-row">
         <div class="param-group">
-          <label>Altitude (m)</label>
+          <label for="altitude">Altitude (<span data-unit-kind="altitude">m</span>)</label>
           <input type="number" id="altitude" value="0" min="0" max="3000" step="100">
         </div>
       </div>
       <div class="param-row">
         <div class="param-group">
-          <label>Temp (°C)</label>
+          <label for="temperature">Temp (<span data-unit-kind="temp">°C</span>)</label>
           <input type="number" id="temperature" value="15" min="-30" max="50" step="1">
         </div>
         <div class="param-group">
-          <label>Step (m)</label>
+          <label for="step">Step (<span data-unit-kind="step">m</span>)</label>
           <input type="number" id="step" value="25" min="10" max="100" step="10">
         </div>
       </div>
       <div class="param-row">
         <div class="param-group">
-          <label>Sight Height (mm)</label>
+          <label for="sightHeight">Sight Height (<span data-unit-kind="sightHeight">mm</span>)</label>
           <input type="number" id="sightHeight" value="38.1" min="10" max="100" step="0.1">
         </div>
         <div class="param-group">
@@ -245,9 +246,9 @@
         <div class="param-group" style="flex:1">
           <label>Sweep param</label>
           <select id="sweepParam">
-            <option value="wind">Wind (km/h)</option>
-            <option value="altitude">Altitude (m)</option>
-            <option value="temperature">Temperature (°C)</option>
+            <option value="wind" data-unit-label="windSpeed" data-label-prefix="Wind">Wind (km/h)</option>
+            <option value="altitude" data-unit-label="altitude" data-label-prefix="Altitude">Altitude (m)</option>
+            <option value="temperature" data-unit-label="temp" data-label-prefix="Temperature">Temperature (°C)</option>
           </select>
         </div>
       </div>
@@ -280,21 +281,21 @@
       </div>
       <div class="param-row">
         <div class="param-group">
-          <label>Weight (g)</label>
+          <label for="customWeight">Weight (<span data-unit-kind="weight">g</span>)</label>
           <input type="number" id="customWeight" value="9.0" min="1" max="30" step="0.1">
         </div>
         <div class="param-group">
-          <label>MV (m/s)</label>
+          <label for="customMV">MV (<span data-unit-kind="velocity">m/s</span>)</label>
           <input type="number" id="customMV" value="850" min="200" max="1800" step="10">
         </div>
       </div>
       <div class="param-row">
         <div class="param-group">
-          <label>BC (G1)</label>
+          <label for="customBC">BC (G1)</label>
           <input type="number" id="customBC" value="0.450" min="0.1" max="1.2" step="0.001">
         </div>
         <div class="param-group">
-          <label>Dia (mm)</label>
+          <label for="customDia">Dia (<span data-unit-kind="diameter">mm</span>)</label>
           <input type="number" id="customDia" value="7.82" min="4" max="20" step="0.01">
         </div>
       </div>
@@ -387,16 +388,16 @@
           <thead>
             <tr>
               <th>Round</th>
-              <th data-sort-key="range"><button class="sort-btn" type="button">Range (m)<span class="sort-indicator" aria-hidden="true"></span></button></th>
-              <th data-sort-key="drop"><button class="sort-btn" type="button">Drop (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
-              <th data-sort-key="velocity"><button class="sort-btn" type="button">Velocity (m/s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
-              <th data-sort-key="energy"><button class="sort-btn" type="button">Energy (J)<span class="sort-indicator" aria-hidden="true"></span></button></th>
-              <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind Drift (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="range"><button class="sort-btn" type="button">Range (<span data-unit-kind="range">m</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="drop"><button class="sort-btn" type="button">Drop (<span data-unit-kind="drop">cm</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="velocity"><button class="sort-btn" type="button">Velocity (<span data-unit-kind="velocity">m/s</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="energy"><button class="sort-btn" type="button">Energy (<span data-unit-kind="energy">J</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind Drift (<span data-unit-kind="drift">cm</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
-              <th id="spinDriftColHeader" style="display:none">Spin Drift (cm)</th>
-              <th id="coriolisColHeader" style="display:none">Coriolis (cm)</th>
+              <th id="spinDriftColHeader" style="display:none">Spin Drift (<span data-unit-kind="drift">cm</span>)</th>
+              <th id="coriolisColHeader" style="display:none">Coriolis (<span data-unit-kind="drift">cm</span>)</th>
             </tr>
           </thead>
           <tbody id="tableBody">
@@ -425,27 +426,27 @@
         <div class="tool-card" id="bcCalcCard">
           <h3 class="tool-title">BC BACK-CALCULATOR</h3>
           <div class="tool-row">
-            <label>Weight (g)</label>
+            <label for="bcCalcWeightG">Weight (<span data-unit-kind="weight">g</span>)</label>
             <input type="number" id="bcCalcWeightG" step="0.01" placeholder="10.89">
           </div>
           <div class="tool-row">
-            <label>MV (m/s)</label>
+            <label for="bcCalcMvMps">MV (<span data-unit-kind="velocity">m/s</span>)</label>
             <input type="number" id="bcCalcMvMps" step="1" placeholder="807">
           </div>
           <div class="tool-row">
-            <label>Drop (cm)</label>
+            <label for="bcCalcDropCm">Drop (<span data-unit-kind="drop">cm</span>)</label>
             <input type="number" id="bcCalcDropCm" step="0.1" placeholder="-45.0">
           </div>
           <div class="tool-row">
-            <label>Range (m)</label>
+            <label for="bcCalcRangeM">Range (<span data-unit-kind="range">m</span>)</label>
             <input type="number" id="bcCalcRangeM" step="1" placeholder="500">
           </div>
           <div class="tool-row">
-            <label>Altitude (m)</label>
+            <label for="bcCalcAltM">Altitude (<span data-unit-kind="altitude">m</span>)</label>
             <input type="number" id="bcCalcAltM" step="10" value="0">
           </div>
           <div class="tool-row">
-            <label>Temp (°C)</label>
+            <label for="bcCalcTempC">Temp (<span data-unit-kind="temp">°C</span>)</label>
             <input type="number" id="bcCalcTempC" step="1" value="15">
           </div>
           <button class="tool-calc-btn" id="bcCalcBtn">CALCULATE</button>
@@ -456,7 +457,7 @@
         <div class="tool-card" id="mpbrCard">
           <h3 class="tool-title">MPBR CALCULATOR</h3>
           <div class="tool-row">
-            <label for="mpbrVitalCm">Vital Zone (cm)</label>
+            <label for="mpbrVitalCm">Vital Zone (<span data-unit-kind="vitalZone">cm</span>)</label>
             <input type="number" id="mpbrVitalCm" value="20" min="2" max="100" step="1">
           </div>
           <div class="tool-results" id="mpbrResults"></div>
@@ -466,11 +467,11 @@
         <div class="tool-card">
           <h3 class="tool-title">MOA / MRAD Calculator</h3>
           <div class="tool-row">
-            <label>Drop (cm)</label>
+            <label for="toolDrop">Drop (<span data-unit-kind="drop">cm</span>)</label>
             <input type="number" id="toolDrop" value="0" step="0.1">
           </div>
           <div class="tool-row">
-            <label>Range (m)</label>
+            <label for="toolRange">Range (<span data-unit-kind="range">m</span>)</label>
             <input type="number" id="toolRange" value="100" step="1" min="1">
           </div>
           <button class="tool-calc-btn" id="toolCalcBtn">Calculate</button>

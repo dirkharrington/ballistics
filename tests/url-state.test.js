@@ -27,13 +27,13 @@ const STATE_20 = { ...BASE_STATE, bulletIds: make20Bullets() };
 
 // ── URL_PARAM_KEYS ─────────────────────────────────────────────────────────────
 describe('URL_PARAM_KEYS', () => {
-  test('contains exactly 15 keys', () => {
-    expect(URL_PARAM_KEYS).toHaveLength(15);
+  test('contains exactly 16 keys', () => {
+    expect(URL_PARAM_KEYS).toHaveLength(16);
   });
   test('is frozen', () => {
     expect(Object.isFrozen(URL_PARAM_KEYS)).toBe(true);
   });
-  test('contains all expected keys including WA-13 and ENH-2 optional keys', () => {
+  test('contains all expected keys including WA-13, ENH-2, and ENH-3 optional keys', () => {
     expect(URL_PARAM_KEYS).toContain('zero');
     expect(URL_PARAM_KEYS).toContain('dragModel');
     expect(URL_PARAM_KEYS).toContain('latitudeDeg');
@@ -41,6 +41,7 @@ describe('URL_PARAM_KEYS', () => {
     expect(URL_PARAM_KEYS).toContain('pressureHpa');
     expect(URL_PARAM_KEYS).toContain('humidityPercent');
     expect(URL_PARAM_KEYS).toContain('includeEotvos');
+    expect(URL_PARAM_KEYS).toContain('units');
   });
 });
 
@@ -63,7 +64,7 @@ describe('encodeState', () => {
   test('always emits all required keys; optional keys absent when null', () => {
     const qs = encodeState(BASE_STATE);
     const params = new URLSearchParams(qs);
-    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos']);
+    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos', 'units']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);
@@ -388,7 +389,7 @@ describe('mergeIntoSearch', () => {
   test('all required owned keys are always emitted; optional keys absent when null', () => {
     const result = mergeIntoSearch('', BASE_STATE);
     const params = new URLSearchParams(result);
-    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos']);
+    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos', 'units']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);
@@ -504,5 +505,30 @@ describe('ENH-2: pressureHpa, humidityPercent, and includeEotvos URL state', () 
     expect(mp.get('pressureHpa')).toBe('985.5');
     expect(mp.get('humidityPercent')).toBe('72');
     expect(mp.get('includeEotvos')).toBe('1');
+  });
+});
+
+// ── ENH-3 optional key: units ────────────────────────────────────────────────
+describe('ENH-3: units URL state', () => {
+  test('omits units when null, undefined, or metric; emits imperial when imperial', () => {
+    expect(new URLSearchParams(encodeState(BASE_STATE)).has('units')).toBe(false);
+    expect(new URLSearchParams(encodeState({ ...BASE_STATE, units: null })).has('units')).toBe(false);
+    expect(new URLSearchParams(encodeState({ ...BASE_STATE, units: 'metric' })).has('units')).toBe(false);
+    expect(new URLSearchParams(encodeState({ ...BASE_STATE, units: 'imperial' })).get('units')).toBe('imperial');
+  });
+
+  test('decodes metric and imperial, ignores invalid values', () => {
+    expect(decodeState('?units=metric').params.units).toBe('metric');
+    expect(decodeState('?units=imperial').params.units).toBe('imperial');
+    expect(decodeState('?units=IMPERIAL').params.units).toBeUndefined();
+    expect(decodeState('?units=other').params.units).toBeUndefined();
+  });
+
+  test('round-trips units=imperial through encodeState and mergeIntoSearch', () => {
+    const qs = encodeState({ ...BASE_STATE, units: 'imperial' });
+    expect(decodeState('?' + qs).params.units).toBe('imperial');
+
+    const merged = mergeIntoSearch('?utm_source=x&units=imperial', BASE_STATE);
+    expect(new URLSearchParams(merged).has('units')).toBe(false);
   });
 });

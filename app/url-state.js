@@ -1,7 +1,7 @@
 /** URL key for each state field. Order = canonical serialization order. */
 export const URL_PARAM_KEYS = Object.freeze([
   'zero', 'maxRange', 'wind', 'windDir', 'altitude', 'temp', 'step', 'sightHeight', 'angle', 'dragModel',
-  'latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos',
+  'latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos', 'units',
 ]);
 export const URL_BULLET_KEY = 'b';
 export const MAX_URL_BULLETS = 20;
@@ -18,7 +18,7 @@ function parseNum(raw) {
 }
 
 const OPTIONAL_URL_KEYS = new Set([
-  'latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos',
+  'latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos', 'units',
 ]);
 
 const VALIDATORS = {
@@ -36,6 +36,7 @@ const VALIDATORS = {
   azimuthDeg:      v => v >= 0 && v <= 360,
   pressureHpa:     v => v >= 500 && v <= 1100,
   humidityPercent: v => v >= 0 && v <= 100,
+  units:           v => v === 'metric' || v === 'imperial',
 };
 
 /**
@@ -51,6 +52,10 @@ export function encodeState(state) {
     const val = state[key];
     if (key === 'includeEotvos') {
       if (val === true) params.set(key, '1');
+      continue;
+    }
+    if (key === 'units') {
+      if (val === 'imperial') params.set(key, 'imperial');
       continue;
     }
     if (OPTIONAL_URL_KEYS.has(key) && val == null) continue;
@@ -95,6 +100,8 @@ export function decodeState(search) {
     const raw = params.get(key);
     if (key === 'dragModel') {
       if (VALIDATORS.dragModel(raw)) result.params[key] = raw;
+    } else if (key === 'units') {
+      if (VALIDATORS.units(raw)) result.params[key] = raw;
     } else if (key === 'includeEotvos') {
       if (raw === '1' || raw === 'true') result.params[key] = true;
       else if (raw === '0' || raw === 'false') result.params[key] = false;

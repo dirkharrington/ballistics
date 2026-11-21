@@ -1,4 +1,5 @@
 // ── Preferences, theme, storage, and DOM feedback helpers ─────────────────────
+import { normalizeUnitSystem, readMetricInputValue } from './units.js';
 
 /** Keys used in localStorage (all prefixed `bv_`). */
 export const PREF_KEYS = {
@@ -43,6 +44,17 @@ export const DOM_ID_FOR_PREF = {
   angle:       'shootingAngle',
   dragModel:   'dragModel',
 };
+
+/** Maps unit-dependent preference keys to their unit kinds in app/units.js. */
+export const UNIT_KIND_FOR_PREF = Object.freeze({
+  zero:        'range',
+  maxRange:    'range',
+  wind:        'windSpeed',
+  altitude:    'altitude',
+  temp:        'temp',
+  step:        'step',
+  sightHeight: 'sightHeight',
+});
 
 export const AUTO_COMPUTE_KEY = 'ballistics_auto_compute';
 export const THEME_KEY = 'bv_theme';
@@ -168,8 +180,9 @@ export function _setSimulationError(message) {
  * Persist current parameter inputs and selected bullet IDs to localStorage.
  * Wrapped in try/catch: silently degrades in private-browsing or when quota is full.
  */
-export function savePrefs(selectedIds = new Set(), cache = null) {
+export function savePrefs(selectedIds = new Set(), cache = null, unitSystem = 'metric') {
   try {
+    const sys = normalizeUnitSystem(unitSystem);
     const selJson = JSON.stringify([...selectedIds]);
     if (!cache || cache.get(PREF_KEYS.selectedIds) !== selJson) {
       localStorage.setItem(PREF_KEYS.selectedIds, selJson);
@@ -178,8 +191,11 @@ export function savePrefs(selectedIds = new Set(), cache = null) {
     for (const k of Object.keys(PREF_DEFAULTS).filter(k => k !== 'selectedIds')) {
       const domId = DOM_ID_FOR_PREF[k];
       /* istanbul ignore next -- null branch only reached when a pref has no DOM element */
-      const value = (domId ? document.getElementById(domId)?.value : null)
-                    ?? String(PREF_DEFAULTS[k]);
+      const el = domId ? document.getElementById(domId) : null;
+      const kind = UNIT_KIND_FOR_PREF[k];
+      const value = (el && kind && sys === 'imperial')
+        ? String(readMetricInputValue(el, kind, sys, PREF_DEFAULTS[k]))
+        : (el?.value ?? String(PREF_DEFAULTS[k]));
       const storageKey = PREF_KEYS[k];
       if (!cache || cache.get(storageKey) !== value) {
         localStorage.setItem(storageKey, value);

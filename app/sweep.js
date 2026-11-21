@@ -2,6 +2,7 @@ import { bulletForDragModel } from './custom-bullets.js';
 import { simulateAsync } from './physics/engine-async.ts';
 import { TrajectoryInputError } from './physics/errors.ts';
 import { _setSimulationError } from './prefs.js';
+import { normalizeUnitSystem, toDisplay, unitLabel, readMetricInputValue } from './units.js';
 import {
   _loadChart, _warmChart, _chartAnimation, _lineTension, buildChartConfig,
   resetCrosshairState, _resetReadoutCache, destroyCharts,
@@ -40,11 +41,22 @@ export function buildSweepRequests(baseReq, sweepParam, bulletId) {
 }
 
 /** Render the 3 parameter sweep comparison charts (reusing instances in place). */
-export async function renderSweepCharts(sweepResultsList, sweepParam, { onExportPNG } = {}) {
-  const values   = SWEEP_RANGES[sweepParam] ?? SWEEP_RANGES.wind;
-  const labels   = { wind: 'km/h', altitude: 'm alt', temperature: '°C' };
-  const unit     = labels[sweepParam] ?? '';
-  const subtitle = `${sweepParam} sweep (${values.join(', ')} ${unit})`;
+export async function renderSweepCharts(sweepResultsList, sweepParam, { onExportPNG, unitSystem = 'metric' } = {}) {
+  const sys         = normalizeUnitSystem(unitSystem);
+  const rUnit       = unitLabel('range', sys);
+  const dUnit       = unitLabel('drop', sys);
+  const drUnit      = unitLabel('drift', sys);
+  const vUnit       = unitLabel('velocity', sys);
+  const values      = SWEEP_RANGES[sweepParam] ?? SWEEP_RANGES.wind;
+  const paramKind   = { wind: 'windSpeed', altitude: 'altitude', temperature: 'temp' }[sweepParam];
+  const dispValues  = paramKind ? values.map(v => toDisplay(paramKind, v, sys)) : values;
+  const labels      = {
+    wind:        unitLabel('windSpeed', sys),
+    altitude:    `${unitLabel('altitude', sys)} alt`,
+    temperature: unitLabel('temp', sys),
+  };
+  const unit        = labels[sweepParam] ?? '';
+  const subtitle    = `${sweepParam} sweep (${dispValues.join(', ')} ${unit})`;
 
   document.getElementById('emptyState').style.display = 'none';
   const rc = document.getElementById('resultsContainer');
@@ -55,9 +67,9 @@ export async function renderSweepCharts(sweepResultsList, sweepParam, { onExport
   _resetReadoutCache();
 
   const sweepDefs = [
-    { id: 'sweepDropChart', title: 'SWEEP — BULLET DROP', yLabel: 'Drop (cm)',      key: 'dropCm'      },
-    { id: 'sweepWindChart', title: 'SWEEP — WIND DRIFT',  yLabel: 'Drift (cm)',     key: 'windDriftCm' },
-    { id: 'sweepVelChart',  title: 'SWEEP — VELOCITY',    yLabel: 'Velocity (m/s)', key: 'velocityMps' },
+    { id: 'sweepDropChart', title: 'SWEEP — BULLET DROP', yLabel: `Drop (${dUnit})`,      key: 'dropCm',      unitKind: 'drop'     },
+    { id: 'sweepWindChart', title: 'SWEEP — WIND DRIFT',  yLabel: `Drift (${drUnit})`,    key: 'windDriftCm', unitKind: 'drift'    },
+    { id: 'sweepVelChart',  title: 'SWEEP — VELOCITY',    yLabel: `Velocity (${vUnit})`,  key: 'velocityMps', unitKind: 'velocity' },
   ];
 
   let ChartCtor;
@@ -69,8 +81,11 @@ export async function renderSweepCharts(sweepResultsList, sweepParam, { onExport
   }
 
   const buildSweepDatasets = def => sweepResultsList.map((r, i) => ({
-    label:            `${values[i]} ${unit}`,
-    data:             r.points.map(p => ({ x: p.rangeMeters, y: p[def.key] })),
+    label:            `${dispValues[i]} ${unit}`,
+    data:             r.points.map(p => ({
+      x: toDisplay('range', p.rangeMeters, sys),
+      y: toDisplay(def.unitKind, p[def.key], sys),
+    })),
     borderColor:      SWEEP_COLORS[i % SWEEP_COLORS.length],
     backgroundColor:  'transparent',
     borderWidth:      2,
@@ -88,9 +103,13 @@ export async function renderSweepCharts(sweepResultsList, sweepParam, { onExport
       /* istanbul ignore else -- .chart-subtitle is always present inside .chart-panel */
       if (subEl) subEl.textContent = subtitle;
       const datasets = buildSweepDatasets(def);
-      _getChartMeta(def.id).results = sweepResultsList;
+      const meta = _getChartMeta(def.id);
+      meta.results = sweepResultsList;
+      meta.unitSystem = sys;
       const anim = _chartAnimation(datasets);
       charts[def.id].data.datasets = datasets;
+      charts[def.id].options.scales.x.title.text = `Range (${rUnit})`;
+      charts[def.id].options.scales.y.title.text = def.yLabel;
       charts[def.id].options.animation = anim;
       charts[def.id].update(anim ? undefined : 'none');
     });
@@ -119,9 +138,9 @@ export async function renderSweepCharts(sweepResultsList, sweepParam, { onExport
       ?.addEventListener('click', () => onExportPNG?.(def.id));
 
     const datasets = buildSweepDatasets(def);
-    const meta = { results: sweepResultsList };
+    const meta = { results: sweepResultsList, unitSystem: sys };
     const canvas = document.getElementById(def.id);
-    const chart = new ChartCtor(canvas.getContext('2d'), buildChartConfig(def, datasets, sweepResultsList));
+    const chart = new ChartCtor(canvas.getContext('2d'), buildChartConfig(def, datasets, sweepResultsList, { unitSystem: sys }));
     _setChartEntry(def.id, chart, meta);
     _attachTouchForwarder(canvas);
   });
@@ -137,9 +156,11 @@ export async function runSweep({
   nextSignal = null,
   onExportPNG = null,
   onSweepStateChange = null,
+  unitSystem = 'metric',
 }) {
   if (!selectedIds || selectedIds.size === 0) return;
   _setSimulationError(null);
+  const sys        = normalizeUnitSystem(unitSystem);
   const bulletId   = [...selectedIds][0];
   const sweepParam = document.getElementById('sweepParam')?.value ?? 'wind';
   const btn        = document.getElementById('sweepBtn');
@@ -147,14 +168,14 @@ export async function runSweep({
 
   const base = lastReq ?? {
     bulletIds:            [bulletId],
-    zeroRangeMeters:      +document.getElementById('zeroRange').value,
-    maxRangeMeters:       +document.getElementById('maxRange').value,
-    stepMeters:           +document.getElementById('step').value,
-    windSpeedKph:         +document.getElementById('windSpeed').value,
+    zeroRangeMeters:      readMetricInputValue(document.getElementById('zeroRange'), 'range', sys),
+    maxRangeMeters:       readMetricInputValue(document.getElementById('maxRange'), 'range', sys),
+    stepMeters:           readMetricInputValue(document.getElementById('step'), 'step', sys),
+    windSpeedKph:         readMetricInputValue(document.getElementById('windSpeed'), 'windSpeed', sys),
     windDirectionDeg:     +document.getElementById('windDir').value,
-    altitudeMeters:       +document.getElementById('altitude').value,
-    temperatureC:         +document.getElementById('temperature').value,
-    sightHeightMm:        +document.getElementById('sightHeight').value,
+    altitudeMeters:       readMetricInputValue(document.getElementById('altitude'), 'altitude', sys),
+    temperatureC:         readMetricInputValue(document.getElementById('temperature'), 'temp', sys),
+    sightHeightMm:        readMetricInputValue(document.getElementById('sightHeight'), 'sightHeight', sys),
     shootingAngleDegrees: +document.getElementById('shootingAngle').value,
     dragModel:            document.getElementById('dragModel').value,
   };
@@ -188,7 +209,7 @@ export async function runSweep({
   if (signal?.aborted) return;
 
   onSweepStateChange?.(true, results);
-  await renderSweepCharts(results, sweepParam, { onExportPNG });
+  await renderSweepCharts(results, sweepParam, { onExportPNG, unitSystem: sys });
 
   if (btn) btn.querySelector('span').textContent = 'SWEEP';
   const clearBtn = document.getElementById('clearSweepBtn');

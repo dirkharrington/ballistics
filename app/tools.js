@@ -1,3 +1,5 @@
+import { normalizeUnitSystem, toDisplay, fromDisplay, unitLabel } from './units.js';
+
 // ── MOA / MRAD ────────────────────────────────────────────────────────────────
 
 /**
@@ -85,6 +87,16 @@ function interpolateAt(points, distMeters, field) {
 let _simulateBulletFn = null;
 let _dopeDistances    = [100, 200, 300, 400, 500, 600, 700, 800, 1000];
 let _lastDopeResults  = null;
+let _dopeUnitSystem   = 'metric';
+let _mpbrUnitSystem   = 'metric';
+let _toolsUnitSystem  = 'metric';
+
+function setToolsUnitSystem(unitSystem = 'metric') {
+  const sys = normalizeUnitSystem(unitSystem);
+  _dopeUnitSystem = sys;
+  _mpbrUnitSystem = sys;
+  _toolsUnitSystem = sys;
+}
 
 function _saveDopeDistances() {
   try {
@@ -94,10 +106,13 @@ function _saveDopeDistances() {
   } catch (_) {}
 }
 
-function _buildDopeTable(results) {
+function _buildDopeTable(results, unitSystem) {
   const table = document.getElementById('dopeTable');
   if (!table || !results || results.length === 0) return;
 
+  const sys   = normalizeUnitSystem(unitSystem);
+  const rUnit = unitLabel('range', sys);
+  const drUnit = unitLabel('drift', sys);
   const dists = [..._dopeDistances].sort((a, b) => a - b);
   const hasWind = results.some(r => r.points.some(p => p.windDriftCm != null && p.windDriftCm !== 0));
   const hasCoriolis = results.some(r => r.points.some(p => p.coriolisDeflectionCm !== undefined && p.coriolisDeflectionCm !== 0));
@@ -105,24 +120,25 @@ function _buildDopeTable(results) {
 
   const thCols = results.map(r => `<th colspan="${colSpan}">${_esc(r.bullet.name)}</th>`).join('');
   const thSub  = results.map(() =>
-    `<th>MOA↑</th><th>MRAD↑</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th>' : ''}${hasCoriolis ? '<th>Cor. (cm)</th>' : ''}`
+    `<th>MOA↑</th><th>MRAD↑</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th>' : ''}${hasCoriolis ? `<th>Cor. (${drUnit})</th>` : ''}`
   ).join('');
 
   const bodyRows = dists.map(dist => {
+    const distMeters = fromDisplay('range', dist, sys);
     const tds = results.map(r => {
-      const drop = interpolateAt(r.points, dist, 'dropCm');
+      const drop = interpolateAt(r.points, distMeters, 'dropCm');
       if (drop == null) return '<td>–</td>'.repeat(colSpan);
-      const angleRad = Math.atan2(Math.abs(drop) / 100, dist);
+      const angleRad = Math.atan2(Math.abs(drop) / 100, distMeters);
       const sign     = drop < 0 ? 1 : (drop > 0 ? -1 : 0);
       const moa      = Math.round(sign * angleRad * (180 / Math.PI) * 60 * 10) / 10;
       const mrad     = Math.round(sign * angleRad * 1000 * 10) / 10;
       let windCells = '';
       if (hasWind) {
-        const wind = interpolateAt(r.points, dist, 'windDriftCm');
+        const wind = interpolateAt(r.points, distMeters, 'windDriftCm');
         if (wind == null) {
           windCells = '<td>–</td><td>–</td>';
         } else {
-          const wRad  = Math.atan2(wind / 100, dist);
+          const wRad  = Math.atan2(wind / 100, distMeters);
           const wMoa  = Math.round(wRad * (180 / Math.PI) * 60 * 10) / 10 + 0;
           const wMrad = Math.round(wRad * 1000 * 10) / 10 + 0;
           windCells = `<td>${wMoa > 0 ? '+' : ''}${wMoa}</td><td>${wMrad > 0 ? '+' : ''}${wMrad}</td>`;
@@ -130,9 +146,10 @@ function _buildDopeTable(results) {
       }
       let corCell = '';
       if (hasCoriolis) {
-        const cor = interpolateAt(r.points, dist, 'coriolisDeflectionCm');
-        corCell = cor != null
-          ? `<td>${cor >= 0 ? '+' : ''}${cor.toFixed(1)}</td>`
+        const cor = interpolateAt(r.points, distMeters, 'coriolisDeflectionCm');
+        const corDisp = cor != null ? toDisplay('drift', cor, sys) : null;
+        corCell = corDisp != null
+          ? `<td>${corDisp >= 0 ? '+' : ''}${corDisp.toFixed(1)}</td>`
           : '<td>–</td>';
       }
       return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td>${windCells}${corCell}`;
@@ -142,7 +159,7 @@ function _buildDopeTable(results) {
 
   table.innerHTML = `
     <thead>
-      <tr><th>Range (m)</th>${thCols}</tr>
+      <tr><th>Range (${rUnit})</th>${thCols}</tr>
       <tr><th></th>${thSub}</tr>
     </thead>
     <tbody>${bodyRows}</tbody>
@@ -164,7 +181,7 @@ function _renderDopeDistanceInputs() {
       if (v > 0) {
         _dopeDistances[idx] = v;
         _saveDopeDistances();
-        if (_lastDopeResults) _buildDopeTable(_lastDopeResults);
+        if (_lastDopeResults) _buildDopeTable(_lastDopeResults, _dopeUnitSystem);
       }
     });
   });
@@ -203,7 +220,7 @@ function initDopeCard(simulateBulletFn) {
     _dopeDistances.push((_dopeDistances[_dopeDistances.length - 1] ?? 500) + 100);
     _renderDopeDistanceInputs();
     _saveDopeDistances();
-    if (_lastDopeResults) _buildDopeTable(_lastDopeResults);
+    if (_lastDopeResults) _buildDopeTable(_lastDopeResults, _dopeUnitSystem);
   });
 
   document.getElementById('dopeCopyBtn')?.addEventListener('click', _copyDopeText);
@@ -215,10 +232,12 @@ function initDopeCard(simulateBulletFn) {
  * Called by renderResults in ballistics.js after each simulation.
  * @param {object[]} results  - trajectory results array
  * @param {object}   _baseReq - base request (unused; reserved for future use)
+ * @param {'metric'|'imperial'} [unitSystem='metric']
  */
-function renderDopeCard(results, _baseReq) {
+function renderDopeCard(results, _baseReq, unitSystem = 'metric') {
+  _dopeUnitSystem = normalizeUnitSystem(unitSystem);
   _lastDopeResults = results;
-  _buildDopeTable(results);
+  _buildDopeTable(results, _dopeUnitSystem);
 }
 
 // ── BC Back-Calculator (SH-2 + PERF-17) ───────────────────────────────────────
@@ -285,12 +304,14 @@ function initBcSolver(simulateBulletFn, solveBCFn = null) {
   _bcSolveFn    = solveBCFn;
 
   document.getElementById('bcCalcBtn')?.addEventListener('click', async () => {
-    const weightG = +document.getElementById('bcCalcWeightG').value;
-    const mvMps   = +document.getElementById('bcCalcMvMps').value;
-    const dropCm  = +document.getElementById('bcCalcDropCm').value;
-    const rangeM  = +document.getElementById('bcCalcRangeM').value;
-    const altM    = +(document.getElementById('bcCalcAltM').value  || 0);
-    const tempC   = +(document.getElementById('bcCalcTempC').value ?? 15);
+    const sys     = _toolsUnitSystem;
+    const weightG = fromDisplay('weight', +document.getElementById('bcCalcWeightG').value, sys);
+    const mvMps   = fromDisplay('velocity', +document.getElementById('bcCalcMvMps').value, sys);
+    const dropCm  = fromDisplay('drop', +document.getElementById('bcCalcDropCm').value, sys);
+    const rangeM  = fromDisplay('range', +document.getElementById('bcCalcRangeM').value, sys);
+    const altM    = fromDisplay('altitude', +(document.getElementById('bcCalcAltM').value || 0), sys);
+    const rawTemp = document.getElementById('bcCalcTempC').value;
+    const tempC   = rawTemp == null ? 15 : fromDisplay('temp', +rawTemp, sys);
     const result  = document.getElementById('bcCalcResult');
     const btn     = document.getElementById('bcCalcBtn');
     if (!result) return;
@@ -327,8 +348,10 @@ function initTools() {
   const unitBtn = document.getElementById('unitCalcBtn');
 
   calcBtn?.addEventListener('click', () => {
-    const drop  = parseFloat(document.getElementById('toolDrop').value)  || 0;
-    const range = parseFloat(document.getElementById('toolRange').value) || 100;
+    const sys      = _toolsUnitSystem;
+    const drop     = fromDisplay('drop', parseFloat(document.getElementById('toolDrop').value) || 0, sys);
+    const rawRange = parseFloat(document.getElementById('toolRange').value);
+    const range    = rawRange ? fromDisplay('range', rawRange, sys) : 100;
     const { moa, mrad } = calcMoaMrad(drop, range);
     const moaLabel  = document.createElement('span'); moaLabel.className  = 'tool-label'; moaLabel.textContent  = 'MOA';
     const moaValue  = document.createElement('span'); moaValue.className  = 'tool-value'; moaValue.textContent  = moa;
@@ -424,9 +447,16 @@ function calcMpbr(points, vitalZoneCm = 20) {
 /**
  * Render MPBR results into #mpbrResults for the current simulation results.
  * @param {object[]|null} results
+ * @param {'metric'|'imperial'} [unitSystem='metric']
  */
-function renderMpbrTool(results) {
+function renderMpbrTool(results, unitSystem = 'metric') {
+  const sys = normalizeUnitSystem(unitSystem);
+  _mpbrUnitSystem = sys;
   _lastMpbrResults = results;
+  const vUnit = unitLabel('vitalZone', sys);
+  const unitEl = document.querySelector('#mpbrCard [data-unit-kind="vitalZone"]');
+  if (unitEl) unitEl.textContent = vUnit;
+
   const container = document.getElementById('mpbrResults');
   if (!container) return;
   if (!results || results.length === 0) {
@@ -434,20 +464,26 @@ function renderMpbrTool(results) {
     return;
   }
 
+  const rUnit = unitLabel('range', sys);
+  const dUnit = unitLabel('drop', sys);
   const vitalInput = document.getElementById('mpbrVitalCm');
-  const rawVital = vitalInput ? parseFloat(vitalInput.value) : 20;
-  const vitalCm = Number.isFinite(rawVital) && rawVital > 0 ? rawVital : 20;
+  const rawVital = vitalInput ? parseFloat(vitalInput.value) : NaN;
+  const vitalCm = Number.isFinite(rawVital) && rawVital > 0 ? fromDisplay('vitalZone', rawVital, sys) : 20;
 
   container.innerHTML = results.map(r => {
     const mpbr = calcMpbr(r.points, vitalCm);
     if (!mpbr) return '';
+    const mpbrDisp         = toDisplay('range', mpbr.mpbrMeters, sys);
+    const maxRiseDisp      = toDisplay('drop', mpbr.maxRiseCm, sys);
+    const maxRiseRangeDisp = toDisplay('range', mpbr.maxRiseRangeM, sys);
+    const radiusDisp       = toDisplay('vitalZone', mpbr.radiusCm, sys);
     const trunc = mpbr.truncatedAtMaxRange ? ' (max range)' : '';
     const warn = mpbr.exceedsVitalZone
-      ? `<span class="mpbr-warning" style="display:inline-block;margin-top:4px;padding:1px 6px;border:1px solid var(--accent2,#ff6b00);color:var(--accent2,#ff6b00);font-size:10px;border-radius:2px;">Exceeds ±${mpbr.radiusCm} cm vital zone</span>`
+      ? `<span class="mpbr-warning" style="display:inline-block;margin-top:4px;padding:1px 6px;border:1px solid var(--accent2,#ff6b00);color:var(--accent2,#ff6b00);font-size:10px;border-radius:2px;">Exceeds ±${radiusDisp} ${vUnit} vital zone</span>`
       : '';
     return `<div class="mpbr-entry" style="width:100%;font-family:'Share Tech Mono',monospace;font-size:11px;">` +
       `<div class="tool-label">${_esc(r.bullet.name)}</div>` +
-      `<div class="tool-value">MPBR: ${mpbr.mpbrMeters} m${trunc} · Max Rise: ${mpbr.maxRiseCm} cm @ ${mpbr.maxRiseRangeM} m</div>` +
+      `<div class="tool-value">MPBR: ${mpbrDisp} ${rUnit}${trunc} · Max Rise: ${maxRiseDisp} ${dUnit} @ ${maxRiseRangeDisp} ${rUnit}</div>` +
       `${warn}</div>`;
   }).join('');
 }
@@ -459,10 +495,10 @@ function initMpbrTool() {
   const inp = document.getElementById('mpbrVitalCm');
   if (!inp) return;
   const onUpdate = () => {
-    if (_lastMpbrResults) renderMpbrTool(_lastMpbrResults);
+    if (_lastMpbrResults) renderMpbrTool(_lastMpbrResults, _mpbrUnitSystem);
   };
   inp.addEventListener('input', onUpdate);
   inp.addEventListener('change', onUpdate);
 }
 
-export { calcMoaMrad, convertUnit, initTools, CONVERSIONS, interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC, calcMpbr, initMpbrTool, renderMpbrTool };
+export { calcMoaMrad, convertUnit, initTools, CONVERSIONS, interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC, calcMpbr, initMpbrTool, renderMpbrTool, setToolsUnitSystem };

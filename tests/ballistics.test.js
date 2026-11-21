@@ -100,16 +100,16 @@ function buildDOM() {
       <thead>
         <tr>
           <th>Round</th>
-          <th data-sort-key="range"><button class="sort-btn" type="button">Range (m)<span class="sort-indicator" aria-hidden="true"></span></button></th>
-          <th data-sort-key="drop"><button class="sort-btn" type="button">Drop (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
-          <th data-sort-key="velocity"><button class="sort-btn" type="button">Velocity (m/s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
-          <th data-sort-key="energy"><button class="sort-btn" type="button">Energy (J)<span class="sort-indicator" aria-hidden="true"></span></button></th>
-          <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind Drift (cm)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="range"><button class="sort-btn" type="button">Range (<span data-unit-kind="range">m</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="drop"><button class="sort-btn" type="button">Drop (<span data-unit-kind="drop">cm</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="velocity"><button class="sort-btn" type="button">Velocity (<span data-unit-kind="velocity">m/s</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="energy"><button class="sort-btn" type="button">Energy (<span data-unit-kind="energy">J</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
+          <th data-sort-key="windDrift"><button class="sort-btn" type="button">Wind Drift (<span data-unit-kind="drift">cm</span>)<span class="sort-indicator" aria-hidden="true"></span></button></th>
           <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
           <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
           <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
-          <th id="spinDriftColHeader" style="display:none">Spin Drift (cm)</th>
-          <th id="coriolisColHeader" style="display:none">Coriolis (cm)</th>
+          <th id="spinDriftColHeader" style="display:none">Spin Drift (<span data-unit-kind="drift">cm</span>)</th>
+          <th id="coriolisColHeader" style="display:none">Coriolis (<span data-unit-kind="drift">cm</span>)</th>
         </tr>
       </thead>
       <tbody id="tableBody"><tr><td colspan="9">NO DATA</td></tr></tbody>
@@ -118,6 +118,7 @@ function buildDOM() {
     <div class="tab"        id="tab-data"></div>
     <div class="tab"        id="tab-tools"></div>
     <div id="toolsPanel" class="tools-panel"></div>
+    <button type="button" id="unitToggle" class="unit-toggle" aria-pressed="false">METRIC</button>
     <button id="themeToggle" aria-label="Switch to light mode">&#x1F319;</button>
     <span class="status-pill" id="modelStatus">MODEL: G1</span>
     <div id="toast"></div>
@@ -145,9 +146,9 @@ function buildDOM() {
     <input id="azimuthDeg"  value="" />
     <div id="sweepControls" style="display:none">
       <select id="sweepParam">
-        <option value="wind" selected>Wind</option>
-        <option value="altitude">Altitude</option>
-        <option value="temperature">Temperature</option>
+        <option value="wind" data-unit-label="windSpeed" data-label-prefix="Wind" selected>Wind (km/h)</option>
+        <option value="altitude" data-unit-label="altitude" data-label-prefix="Altitude">Altitude (m)</option>
+        <option value="temperature" data-unit-label="temp" data-label-prefix="Temperature">Temperature (°C)</option>
       </select>
       <button id="sweepBtn"><span>SWEEP</span></button>
       <button id="clearSweepBtn" style="display:none"><span>CLEAR SWEEP</span></button>
@@ -157,6 +158,12 @@ function buildDOM() {
       <button id="dopeAddDistBtn">+ Add distance</button>
       <table id="dopeTable"></table>
       <button id="dopeCopyBtn">COPY TEXT</button>
+      <button id="dopePrintBtn" type="button">PRINT DOPE</button>
+    </div>
+    <div id="mpbrCard">
+      <label for="mpbrVitalCm">Vital Zone (<span data-unit-kind="vitalZone">cm</span>)</label>
+      <input id="mpbrVitalCm" value="20" />
+      <div id="mpbrResults"></div>
     </div>
     <div id="bcCalcCard">
       <input id="bcCalcWeightG" value="" />
@@ -7319,5 +7326,123 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
     mod.getMockBullets().slice(0, 6).forEach(b => mod.toggleBullet(b.id));
     expect(mod._getState().selectedIds.size).toBe(5);
     mod._resetState();
+  });
+});
+
+// ── ENH-3: Global Metric / Imperial Unit System ───────────────────────────────
+describe('ENH-3: global Metric/Imperial unit system', () => {
+  afterEach(() => {
+    history.replaceState(null, '', '/');
+  });
+
+  test('toggling #unitToggle switches units, converts inputs without drift, updates UI labels, and restores cleanly', async () => {
+    document.getElementById('readoutRange').textContent = '— m';
+    mod.init();
+
+    // No-op when switching to already active system
+    expect(await mod.setUnitSystem('metric')).toBe('metric');
+
+    // Click #unitToggle -> switches to imperial and persists
+    document.getElementById('unitToggle').click();
+    await flushMicrotasks();
+
+    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(localStorage.getItem('ballistics_units')).toBe('imperial');
+    expect(document.getElementById('unitToggle').textContent).toBe('IMPERIAL');
+    expect(document.getElementById('unitToggle').getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-unit-kind="range"]').textContent).toBe('yd');
+    expect(document.querySelector('#sweepParam option[value="wind"]').textContent).toBe('Wind (mph)');
+    expect(document.getElementById('readoutRange').textContent).toBe('— yd');
+    expect(document.getElementById('zeroRange').value).toBe('109');
+    expect(document.getElementById('zeroRange').getAttribute('max')).toBe('550');
+    expect(document.getElementById('bulletList').textContent).toContain('fps');
+    expect(window.location.search).toContain('units=imperial');
+
+    // Toggle back via toggleUnitSystem() -> restores exact metric 100 without drift
+    await mod.toggleUnitSystem();
+    expect(mod.getUnitSystem()).toBe('metric');
+    expect(document.getElementById('unitToggle').textContent).toBe('METRIC');
+    expect(document.getElementById('unitToggle').getAttribute('aria-pressed')).toBe('false');
+    expect(document.getElementById('zeroRange').value).toBe('100');
+    expect(document.getElementById('readoutRange').textContent).toBe('— m');
+    expect(window.location.search).not.toContain('units=imperial');
+  });
+
+  test('setUnitSystem supports persist=false, updates initialized tools, active simulation results, and active sweep', async () => {
+    mod.init();
+    // Load Tools tab so _toolsInitialized === true
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+
+    // Run simulation to populate lastResults and lastReq
+    await mod.runSimulation();
+    jest.runAllTimers();
+    await flushMicrotasks();
+
+    // Switch to imperial with persist: false while lastResults is populated
+    await mod.setUnitSystem('imperial', { persist: false });
+    expect(localStorage.getItem('ballistics_units')).toBeNull();
+    expect(document.querySelector('.stats-grid').textContent).toContain('MV fps');
+
+    // Also test setUnitSystem when lastReq is null (lastResults non-empty via import)
+    const savedRes = mod._getState().lastResults;
+    mod._resetState();
+    mod._setLastResults(savedRes);
+    await mod.setUnitSystem('imperial');
+    expect(mod.getUnitSystem()).toBe('imperial');
+
+    // Re-init and re-run for sweep coverage below
+    buildDOM();
+    mod._resetState();
+    mod.init();
+    await mod.runSimulation();
+    jest.runAllTimers();
+    await flushMicrotasks();
+
+    // Run sweep, then switch units while sweepMode && sweepResults are active
+    await mod.runSweep();
+    jest.runAllTimers();
+    await flushMicrotasks();
+    await mod.setUnitSystem('metric');
+    expect(mod.getUnitSystem()).toBe('metric');
+
+    // Fallback when #sweepParam is missing during sweep re-render
+    document.getElementById('sweepParam').remove();
+    await mod.setUnitSystem('imperial');
+    expect(mod.getUnitSystem()).toBe('imperial');
+  });
+
+  test('setUnitSystem handles missing DOM elements and empty bullets cleanly', async () => {
+    mod._resetState();
+    document.getElementById('unitToggle').remove();
+    document.getElementById('zeroRange').remove();
+    document.getElementById('bulletList').remove();
+    document.getElementById('readoutRange').textContent = '100 m';
+
+    await mod.setUnitSystem('imperial');
+    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(document.getElementById('readoutRange').textContent).toBe('100 m');
+  });
+
+  test('init() restores imperial units from URL or localStorage and converts non-pref inputs cleanly', async () => {
+    // 1. From URL ?units=imperial
+    history.replaceState(null, '', '/?units=imperial');
+    document.getElementById('zeroRange').remove(); // covers missing pref element guard in init()
+    mod.init();
+    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(document.getElementById('customWeight').value).toBe('138.9');
+    expect(document.getElementById('customWeight').dataset.unitApplied).toBe('imperial');
+
+    // Re-running init() on same imperial inputs (when dataset.unitApplied === 'imperial') skips reconversion
+    mod.init();
+    expect(document.getElementById('customWeight').value).toBe('138.9');
+
+    // 2. From localStorage without URL param
+    history.replaceState(null, '', '/');
+    buildDOM();
+    mod._resetState();
+    localStorage.setItem('ballistics_units', 'imperial');
+    mod.init();
+    expect(mod.getUnitSystem()).toBe('imperial');
+    expect(document.getElementById('unitToggle').textContent).toBe('IMPERIAL');
   });
 });
