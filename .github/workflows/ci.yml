@@ -18,6 +18,8 @@ jobs:
   # Downstream jobs gate on these outputs so only affected layers run.
   changes:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     outputs:
       frontend:  ${{ steps.filter.outputs.frontend }}
     steps:
@@ -45,6 +47,8 @@ jobs:
     needs: [changes]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
 

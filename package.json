@@ -1,6 +1,6 @@
 {
   "name": "ballistics-frontend",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "scripts": {
     "build": "vite build",
     "dev": "vite",
