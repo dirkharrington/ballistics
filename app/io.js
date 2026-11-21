@@ -1,4 +1,5 @@
 // ── Export & import helpers (lazy-loaded on demand via ballistics.js) ─────────
+import { normalizeUnitSystem, toDisplay, unitLabel } from './units.js';
 
 /** Bullet-level numeric fields copied from imported JSON. */
 export const BULLET_NUMERIC_FIELDS = [
@@ -50,13 +51,23 @@ export function _downloadBlob(blob, filename) {
 /**
  * Export trajectory data in simplified UX-2 CSV format (Distance, Velocity, Energy, Drop, Bullet).
  * @param {object[]} results
+ * @param {'metric'|'imperial'} [unitSystem='metric']
  */
-export function exportTrajectoryCSV(results) {
+export function exportTrajectoryCSV(results, unitSystem = 'metric') {
   if (!results.length) return;
-  const rows = ['Distance (m),Velocity (m/s),Energy (J),Drop (m),Bullet'];
+  const sys   = normalizeUnitSystem(unitSystem);
+  const rUnit = unitLabel('range', sys);
+  const vUnit = unitLabel('velocity', sys);
+  const eUnit = unitLabel('energy', sys);
+  const dropHeader = sys === 'imperial' ? 'Drop (in)' : 'Drop (m)';
+  const rows = [`Distance (${rUnit}),Velocity (${vUnit}),Energy (${eUnit}),${dropHeader},Bullet`];
   results.forEach(r => {
     r.points.forEach(p => {
-      rows.push(`${p.rangeMeters},${p.velocityMps},${p.energyJoules},${p.dropCm / 100},${csvCell(r.bullet.name)}`);
+      const dist = toDisplay('range', p.rangeMeters, sys);
+      const vel  = toDisplay('velocity', p.velocityMps, sys);
+      const en   = toDisplay('energy', p.energyJoules, sys);
+      const drop = sys === 'imperial' ? toDisplay('drop', p.dropCm, 'imperial') : p.dropCm / 100;
+      rows.push(`${dist},${vel},${en},${drop},${csvCell(r.bullet.name)}`);
     });
   });
   _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), `trajectory-${Date.now()}.csv`);
@@ -66,14 +77,26 @@ export function exportTrajectoryCSV(results) {
  * Export full trajectory table with MOA and MRAD scope adjustments as CSV.
  * @param {object[]} results
  * @param {Function} computeAdjustments
+ * @param {'metric'|'imperial'} [unitSystem='metric']
  */
-export function exportCSV(results, computeAdjustments) {
+export function exportCSV(results, computeAdjustments, unitSystem = 'metric') {
   if (!results.length) return;
-  const rows = ['Round,Range (m),Drop (cm),Velocity (m/s),Energy (J),Wind Drift (cm),Time (s),MOA,MRAD'];
+  const sys    = normalizeUnitSystem(unitSystem);
+  const rUnit  = unitLabel('range', sys);
+  const dUnit  = unitLabel('drop', sys);
+  const vUnit  = unitLabel('velocity', sys);
+  const eUnit  = unitLabel('energy', sys);
+  const drUnit = unitLabel('drift', sys);
+  const rows = [`Round,Range (${rUnit}),Drop (${dUnit}),Velocity (${vUnit}),Energy (${eUnit}),Wind Drift (${drUnit}),Time (s),MOA,MRAD`];
   results.forEach(r => {
     r.points.forEach(p => {
-      const adj = computeAdjustments(p.dropCm, p.rangeMeters);
-      rows.push(`${csvCell(r.bullet.name)},${p.rangeMeters},${p.dropCm},${p.velocityMps},${p.energyJoules},${p.windDriftCm},${p.timeOfFlightSec},${adj.moa},${adj.mrad}`);
+      const adj  = computeAdjustments(p.dropCm, p.rangeMeters);
+      const rng  = toDisplay('range', p.rangeMeters, sys);
+      const drop = toDisplay('drop', p.dropCm, sys);
+      const vel  = toDisplay('velocity', p.velocityMps, sys);
+      const en   = toDisplay('energy', p.energyJoules, sys);
+      const wind = toDisplay('drift', p.windDriftCm, sys);
+      rows.push(`${csvCell(r.bullet.name)},${rng},${drop},${vel},${en},${wind},${p.timeOfFlightSec},${adj.moa},${adj.mrad}`);
     });
   });
   _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), 'trajectory.csv');
@@ -94,18 +117,29 @@ export function exportJSON(results) {
 /**
  * Export trajectory results as Markdown tables.
  * @param {object[]} results
- * @param {{ computeAdjustments: Function, escapeHtml: Function }} deps
+ * @param {{ computeAdjustments: Function, escapeHtml: Function, unitSystem?: 'metric'|'imperial' }} deps
  */
-export function exportMarkdown(results, { computeAdjustments, escapeHtml }) {
+export function exportMarkdown(results, { computeAdjustments, escapeHtml, unitSystem = 'metric' }) {
   if (!results.length) return;
+  const sys    = normalizeUnitSystem(unitSystem);
+  const rUnit  = unitLabel('range', sys);
+  const dUnit  = unitLabel('drop', sys);
+  const vUnit  = unitLabel('velocity', sys);
+  const eUnit  = unitLabel('energy', sys);
+  const drUnit = unitLabel('drift', sys);
   const lines = [];
   results.forEach(r => {
     lines.push(`## ${escapeHtml(r.bullet.name)}\n`);
-    lines.push('| Range (m) | Drop (cm) | Velocity (m/s) | Energy (J) | Wind Drift (cm) | MOA | MRAD |');
+    lines.push(`| Range (${rUnit}) | Drop (${dUnit}) | Velocity (${vUnit}) | Energy (${eUnit}) | Wind Drift (${drUnit}) | MOA | MRAD |`);
     lines.push('|----------:|----------:|---------------:|-----------:|----------------:|----:|-----:|');
     r.points.forEach(p => {
-      const adj = computeAdjustments(p.dropCm, p.rangeMeters);
-      lines.push(`| ${p.rangeMeters} | ${p.dropCm} | ${p.velocityMps} | ${p.energyJoules} | ${p.windDriftCm} | ${adj.moa} | ${adj.mrad} |`);
+      const adj  = computeAdjustments(p.dropCm, p.rangeMeters);
+      const rng  = toDisplay('range', p.rangeMeters, sys);
+      const drop = toDisplay('drop', p.dropCm, sys);
+      const vel  = toDisplay('velocity', p.velocityMps, sys);
+      const en   = toDisplay('energy', p.energyJoules, sys);
+      const wind = toDisplay('drift', p.windDriftCm, sys);
+      lines.push(`| ${rng} | ${drop} | ${vel} | ${en} | ${wind} | ${adj.moa} | ${adj.mrad} |`);
     });
     lines.push('');
   });

@@ -2144,7 +2144,7 @@ External ballistics atmospheric correction currently models only altitude + temp
 
 ---
 
-### ENH-3 · Global Metric / Imperial unit system (`app/units.js`, `#unitToggle`) · FE · Size M [Must Have]
+### ~~ENH-3 · Global Metric / Imperial unit system (`app/units.js`, `#unitToggle`) · FE · Size M [Must Have]~~ ✅ Done
 
 Long-range shooters frequently work in yards, grains, feet per second, inches, °F, and inHg rather than purely SI metric units. Adding a first-class unit system toggle lets users operate seamlessly in Metric or Imperial across inputs, charts, stat cards, hover readout, data table, DOPE/MPBR tools, exports, and shared URLs while keeping physics engine internals and JSON exports canonical Metric.
 

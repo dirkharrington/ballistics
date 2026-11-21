@@ -157,6 +157,14 @@ describe('savePrefs & loadPrefs', () => {
     expect(setSpy).toHaveBeenCalledWith(PREF_KEYS.zero, '250');
   });
 
+  test('savePrefs converts Imperial display inputs back to canonical Metric', () => {
+    document.getElementById('zeroRange').value = '100';
+    document.getElementById('temperature').value = '68';
+    savePrefs(new Set(['308-win-168gr']), null, 'imperial');
+    expect(localStorage.getItem(PREF_KEYS.zero)).toBe('91.44');
+    expect(localStorage.getItem(PREF_KEYS.temp)).toBe('20');
+  });
+
   test('savePrefs logs warning when localStorage throws', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {

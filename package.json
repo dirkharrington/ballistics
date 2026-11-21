@@ -33,6 +33,7 @@
       "app/io.js",
       "app/custom-bullets.js",
       "app/tools.js",
+      "app/units.js",
       "app/url-state.js",
       "app/custom-rounds.js",
       "app/physics/engine.ts",

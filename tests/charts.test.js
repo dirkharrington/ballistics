@@ -359,4 +359,25 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     await renderCharts([makeResult(2)], { zeroRangeMeters: 100 });
     expect(document.getElementById('simulationError').textContent).toBe(CHART_LOAD_ERROR_MSG);
   });
+
+  test('ENH-3: renderCharts, renderStatCards, windChartSubtitle, and updateReadout format Imperial units', async () => {
+    const res = makeResult(3, { densityAltitudeMeters: 1000 });
+    res.points[1].spinDriftCm = 2.54;
+    res.points[1].coriolisDeflectionCm = 5.08;
+    const req = { zeroRangeMeters: 100, windSpeedKph: 16, windDirectionDeg: 90, dragModel: 'G1' };
+
+    await renderCharts([res], req, { unitSystem: 'imperial' });
+
+    expect(document.querySelector('.stats-grid').textContent).toContain('MV fps');
+    expect(document.querySelector('.stats-grid').textContent).toContain('ft·lb muzzle energy');
+    expect(document.querySelector('.stats-grid').textContent).toContain('yd supersonic');
+    expect(document.querySelector('.stats-grid').textContent).toContain('ft density alt');
+    expect(document.body.innerHTML).toContain('zeroed at 109 yd');
+    expect(document.body.innerHTML).toContain('ft·lb downrange');
+    expect(windChartSubtitle(req, 'imperial')).toBe('10 mph from E');
+
+    updateReadout([res], 1, 'imperial');
+    expect(document.getElementById('readoutRange').textContent).toBe('109 yd');
+    expect(document.getElementById('readoutBody').textContent).toContain('ft·lb');
+  });
 });

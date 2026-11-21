@@ -30,6 +30,11 @@ import {
   _getSortState, _cancelTableChunkRaf, setTablePendingResults,
   flushTableIfDirty, clearTableDirty, getTableResults, _resetTableState,
 } from './table.js';
+import {
+  UNIT_SYSTEMS, normalizeUnitSystem, getUnitSystem, setUnitSystemState,
+  unitLabel, toDisplay, fromDisplay, loadUnitSystem, saveUnitSystem,
+  writeMetricInputValue, readMetricInputValue,
+} from './units.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -87,6 +92,125 @@ let sweepMode    = false;
 let sweepResults = null;
 let lastReq      = null;
 
+// Global unit system (ENH-3)
+let unitSystem   = UNIT_SYSTEMS.METRIC;
+
+const UNIT_INPUT_CONFIG = Object.freeze({
+  zeroRange:    { kind: 'range',       metric: { min: '25',  max: '500',  step: '25'   }, imperial: { min: '25',   max: '550',   step: '1'     } },
+  maxRange:     { kind: 'range',       metric: { min: '100', max: '2000', step: '100'  }, imperial: { min: '100',  max: '2200',  step: '1'     } },
+  windSpeed:    { kind: 'windSpeed',   metric: { min: '0',   max: '80',   step: '1'    }, imperial: { min: '0',    max: '50',    step: '1'     } },
+  altitude:     { kind: 'altitude',    metric: { min: '0',   max: '3000', step: '100'  }, imperial: { min: '0',    max: '10000', step: '1'     } },
+  temperature:  { kind: 'temp',        metric: { min: '-30', max: '50',   step: '1'    }, imperial: { min: '-22',  max: '122',   step: '0.1'   } },
+  step:         { kind: 'step',        metric: { min: '10',  max: '100',  step: '10'   }, imperial: { min: '10',   max: '110',   step: '1'     } },
+  sightHeight:  { kind: 'sightHeight', metric: { min: '10',  max: '100',  step: '0.1'  }, imperial: { min: '0.4',  max: '4',     step: '0.01'  } },
+  mpbrVitalCm:  { kind: 'vitalZone',   metric: { min: '2',   max: '100',  step: '1'    }, imperial: { min: '0.8',  max: '40',    step: '0.1'   } },
+  customWeight: { kind: 'weight',      metric: { min: '1',   max: '30',   step: '0.1'  }, imperial: { min: '15',   max: '465',   step: '0.1'   } },
+  customMV:     { kind: 'velocity',    metric: { min: '200', max: '1800', step: '10'   }, imperial: { min: '650',  max: '5900',  step: '1'     } },
+  customDia:    { kind: 'diameter',    metric: { min: '4',   max: '20',   step: '0.01' }, imperial: { min: '0.15', max: '0.8',   step: '0.001' } },
+});
+
+const ALL_UNIT_INPUTS = Object.freeze({
+  zeroRange:     'range',
+  maxRange:      'range',
+  windSpeed:     'windSpeed',
+  altitude:      'altitude',
+  temperature:   'temp',
+  step:          'step',
+  sightHeight:   'sightHeight',
+  mpbrVitalCm:   'vitalZone',
+  customWeight:  'weight',
+  customMV:      'velocity',
+  customDia:     'diameter',
+  bcCalcWeightG: 'weight',
+  bcCalcMvMps:   'velocity',
+  bcCalcDropCm:  'drop',
+  bcCalcRangeM:  'range',
+  bcCalcAltM:    'altitude',
+  bcCalcTempC:   'temp',
+  toolDrop:      'drop',
+  toolRange:     'range',
+});
+
+const PREF_UNIT_INPUT_IDS = new Set([
+  'zeroRange', 'maxRange', 'windSpeed', 'altitude', 'temperature', 'step', 'sightHeight',
+]);
+
+function _syncUnitToggleUI(sys) {
+  const btn = document.getElementById('unitToggle');
+  if (btn) {
+    btn.textContent = sys === UNIT_SYSTEMS.IMPERIAL ? 'IMPERIAL' : 'METRIC';
+    btn.setAttribute('aria-pressed', sys === UNIT_SYSTEMS.IMPERIAL ? 'true' : 'false');
+  }
+  document.querySelectorAll('[data-unit-kind]').forEach(el => {
+    el.textContent = unitLabel(el.dataset.unitKind, sys);
+  });
+  document.querySelectorAll('#sweepParam option[data-unit-label]').forEach(opt => {
+    opt.textContent = `${opt.dataset.labelPrefix} (${unitLabel(opt.dataset.unitLabel, sys)})`;
+  });
+  const readoutRangeEl = document.getElementById('readoutRange');
+  if (readoutRangeEl && readoutRangeEl.textContent.startsWith('—')) {
+    readoutRangeEl.textContent = `— ${unitLabel('range', sys)}`;
+  }
+  for (const [id, cfg] of Object.entries(UNIT_INPUT_CONFIG)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const bounds = cfg[sys];
+    el.setAttribute('min', bounds.min);
+    el.setAttribute('max', bounds.max);
+    el.setAttribute('step', bounds.step);
+  }
+}
+
+async function setUnitSystem(nextSys, { persist = true } = {}) {
+  const target = normalizeUnitSystem(nextSys);
+  const prev   = unitSystem;
+  if (target === prev) return target;
+
+  // Capture canonical metric values before switching unitSystem
+  const captured = {};
+  for (const [id, kind] of Object.entries(ALL_UNIT_INPUTS)) {
+    const el = document.getElementById(id);
+    if (el && el.value !== '') {
+      captured[id] = { kind, val: readMetricInputValue(el, kind, prev) };
+    }
+  }
+
+  unitSystem = target;
+  if (persist) {
+    saveUnitSystem(unitSystem);
+  } else {
+    setUnitSystemState(unitSystem);
+  }
+  _syncUnitToggleUI(unitSystem);
+
+  for (const [id, entry] of Object.entries(captured)) {
+    const el = document.getElementById(id);
+    writeMetricInputValue(el, entry.kind, entry.val, unitSystem);
+    el.dataset.unitApplied = unitSystem;
+  }
+
+  if (bullets.length > 0 && document.getElementById('bulletList')) {
+    renderBulletList();
+  }
+  if (_toolsInitialized) {
+    const toolsMod = await _loadTools();
+    toolsMod.setToolsUnitSystem(unitSystem);
+  }
+  if (sweepMode && sweepResults) {
+    const sweepParam = document.getElementById('sweepParam')?.value ?? 'wind';
+    await renderSweepCharts(sweepResults, sweepParam);
+  } else if (lastResults.length > 0) {
+    await renderResults(lastResults, lastReq ?? {}, unitSystem);
+  }
+  syncUrl();
+  return unitSystem;
+}
+
+function toggleUnitSystem() {
+  const next = unitSystem === UNIT_SYSTEMS.IMPERIAL ? UNIT_SYSTEMS.METRIC : UNIT_SYSTEMS.IMPERIAL;
+  return setUnitSystem(next, { persist: true });
+}
+
 // Memoised lazy chunk loaders (PERF-28 + ENH-7).
 // Each evicts its cached promise on rejection so subsequent actions can retry.
 const _lazyModPromises = { io: null, tools: null, dragCsv: null, sweep: null };
@@ -138,6 +262,7 @@ async function _ensureToolsLoaded() {
     toolsMod.initBcSolver(simulateAsync, solveBCAsync);
     toolsMod.initMpbrTool();
   }
+  toolsMod.setToolsUnitSystem(unitSystem);
   return toolsMod;
 }
 
@@ -150,7 +275,7 @@ let pendingDeleteId     = null;  // string | null
 // Input persistence cache & debouncers (PERF-23 / ENH-6)
 let _lastSavedPrefs = new Map();
 function savePrefs() {
-  return _savePrefs(selectedIds, _lastSavedPrefs);
+  return _savePrefs(selectedIds, _lastSavedPrefs, unitSystem);
 }
 
 const _persistInputs = debounce(() => { savePrefs(); syncUrl(); }, 200);
@@ -347,6 +472,8 @@ function renderBulletList() {
 
   list.innerHTML = builtIns.map((b, i) => {
     const isActive = selectedIds.has(b.id);
+    const mvDisp = toDisplay('velocity', b.muzzleVelocityMps, unitSystem);
+    const mvUnit = unitLabel('velocity', unitSystem);
     return `
     <div class="bullet-card${isActive ? ' active' : ''}" id="card-${escapeHtml(b.id)}"
          data-builtin-bullet-id="${escapeHtml(b.id)}"
@@ -355,7 +482,7 @@ function renderBulletList() {
          style="--bullet-color:${colorFor(b)}">
       <div class="bullet-name">${escapeHtml(b.name)}</div>
       <div class="bullet-specs">
-        BC: ${escapeHtml(String(b.ballisticCoefficient))} &nbsp;|&nbsp; MV: ${escapeHtml(String(b.muzzleVelocityMps))} m/s
+        BC: ${escapeHtml(String(b.ballisticCoefficient))} &nbsp;|&nbsp; MV: ${escapeHtml(String(mvDisp))} ${escapeHtml(mvUnit)}
       </div>
       <div class="check" aria-hidden="true"></div>
     </div>
@@ -494,19 +621,20 @@ async function runSimulation() {
   _setSimStatus('Computing trajectories…');
   _warmChart();
 
-  const twistRaw = document.getElementById('twistRate')?.value;
+  const get = id => document.getElementById(id);
+  const twistRaw = get('twistRate')?.value;
   const req = {
     bulletIds:                [...selectedIds],
-    zeroRangeMeters:          +document.getElementById('zeroRange').value,
-    maxRangeMeters:           +document.getElementById('maxRange').value,
-    stepMeters:               +document.getElementById('step').value,
-    windSpeedKph:             +document.getElementById('windSpeed').value,
-    windDirectionDeg:         +document.getElementById('windDir').value,
-    altitudeMeters:           +document.getElementById('altitude').value,
-    temperatureC:             +document.getElementById('temperature').value,
-    sightHeightMm:            +document.getElementById('sightHeight').value,
-    shootingAngleDegrees:     +document.getElementById('shootingAngle').value,
-    dragModel:                document.getElementById('dragModel').value,
+    zeroRangeMeters:          readMetricInputValue(get('zeroRange'),   'range',       unitSystem, 0),
+    maxRangeMeters:           readMetricInputValue(get('maxRange'),    'range',       unitSystem, 0),
+    stepMeters:               readMetricInputValue(get('step'),        'step',        unitSystem, 0),
+    windSpeedKph:             readMetricInputValue(get('windSpeed'),   'windSpeed',   unitSystem, 0),
+    windDirectionDeg:         +get('windDir').value,
+    altitudeMeters:           readMetricInputValue(get('altitude'),    'altitude',    unitSystem, 0),
+    temperatureC:             readMetricInputValue(get('temperature'), 'temp',        unitSystem, 0),
+    sightHeightMm:            readMetricInputValue(get('sightHeight'), 'sightHeight', unitSystem, 0),
+    shootingAngleDegrees:     +get('shootingAngle').value,
+    dragModel:                get('dragModel').value,
     ...(twistRaw ? { twistRateInchesPerTurn: +twistRaw } : {}),
     ...(latRaw   ? { latitudeDeg: +latRaw } : {}),
     ...(azRaw    ? { azimuthDeg:  +azRaw  } : {}),
@@ -544,11 +672,11 @@ async function runSimulation() {
 
 // ── Export & import delegation (lazy-loaded via app/io.js, PERF-28) ───────────
 function exportTrajectoryCSV() {
-  return _withIo(io => io.exportTrajectoryCSV(lastResults));
+  return _withIo(io => io.exportTrajectoryCSV(lastResults, unitSystem));
 }
 
 function exportCSV() {
-  return _withIo(io => io.exportCSV(lastResults, computeAdjustments));
+  return _withIo(io => io.exportCSV(lastResults, computeAdjustments, unitSystem));
 }
 
 function exportJSON() {
@@ -575,7 +703,7 @@ function importResultsFromFile(file) {
 }
 
 function exportMarkdown() {
-  return _withIo(io => io.exportMarkdown(lastResults, { computeAdjustments, escapeHtml }));
+  return _withIo(io => io.exportMarkdown(lastResults, { computeAdjustments, escapeHtml, unitSystem }));
 }
 
 function exportPNG(chartId) {
@@ -594,14 +722,15 @@ function showCustomError(msg) {
 async function runCustom() {
   _persistInputs.flush();
   _setSimulationError(null);
-  const name   = document.getElementById('customName').value.trim() || 'Custom Load';
-  const weight = +document.getElementById('customWeight').value;
-  const mv     = +document.getElementById('customMV').value;
-  const bc     = +document.getElementById('customBC').value;
-  const dia    = +document.getElementById('customDia').value;
+  const get    = id => document.getElementById(id);
+  const name   = get('customName').value.trim() || 'Custom Load';
+  const weight = readMetricInputValue(get('customWeight'), 'weight',   unitSystem, 0);
+  const mv     = readMetricInputValue(get('customMV'),     'velocity', unitSystem, 0);
+  const bc     = +get('customBC').value;
+  const dia    = readMetricInputValue(get('customDia'),    'diameter', unitSystem, 0);
 
-  const latRawC = document.getElementById('latitudeDeg')?.value;
-  const azRawC  = document.getElementById('azimuthDeg')?.value;
+  const latRawC = get('latitudeDeg')?.value;
+  const azRawC  = get('azimuthDeg')?.value;
 
   if (!(weight > 0))           return showCustomError('Weight must be greater than 0');
   if (!(mv > 0))               return showCustomError('Muzzle velocity must be greater than 0');
@@ -618,16 +747,16 @@ async function runCustom() {
     muzzleVelocityMps:     mv,
     ballisticCoefficient:  bc,
     bulletDiameterMm:      dia,
-    zeroRangeMeters:       +document.getElementById('zeroRange').value,
-    maxRangeMeters:        +document.getElementById('maxRange').value,
-    stepMeters:            +document.getElementById('step').value,
-    windSpeedKph:          +document.getElementById('windSpeed').value,
-    windDirectionDeg:      +document.getElementById('windDir').value,
-    altitudeMeters:        +document.getElementById('altitude').value,
-    temperatureC:          +document.getElementById('temperature').value,
-    sightHeightMm:         +document.getElementById('sightHeight').value,
-    shootingAngleDegrees:  +document.getElementById('shootingAngle').value,
-    dragModel:             document.getElementById('dragModel').value,
+    zeroRangeMeters:       readMetricInputValue(get('zeroRange'),   'range',       unitSystem, 0),
+    maxRangeMeters:        readMetricInputValue(get('maxRange'),    'range',       unitSystem, 0),
+    stepMeters:            readMetricInputValue(get('step'),        'step',        unitSystem, 0),
+    windSpeedKph:          readMetricInputValue(get('windSpeed'),   'windSpeed',   unitSystem, 0),
+    windDirectionDeg:      +get('windDir').value,
+    altitudeMeters:        readMetricInputValue(get('altitude'),    'altitude',    unitSystem, 0),
+    temperatureC:          readMetricInputValue(get('temperature'), 'temp',        unitSystem, 0),
+    sightHeightMm:         readMetricInputValue(get('sightHeight'), 'sightHeight', unitSystem, 0),
+    shootingAngleDegrees:  +get('shootingAngle').value,
+    dragModel:             get('dragModel').value,
     ...(latRawC ? { latitudeDeg: +latRawC } : {}),
     ...(azRawC  ? { azimuthDeg:  +azRawC  } : {}),
     ...(_customDragTable ? { customDragTable: _customDragTable } : {}),
@@ -676,24 +805,25 @@ function closeSidebar() {
 }
 
 // ── Results & tab switching ───────────────────────────────────────────────────
-async function renderResults(rawResults, req) {
-  const results = await renderCharts(rawResults, req, { onExportPNG: exportPNG });
+async function renderResults(rawResults, req, activeUnits = unitSystem) {
+  const sys     = normalizeUnitSystem(activeUnits);
+  const results = await renderCharts(rawResults, req, { onExportPNG: exportPNG, unitSystem: sys });
 
   // PERF-22: defer hidden-tab Data Table and DOPE card renders until their tab activates
-  setTablePendingResults(results);
+  setTablePendingResults(results, sys);
   _pendingDopeReq = req;
   _dopeDirty = true;
 
   if (document.getElementById('dataPanel')?.classList.contains('active')) {
     clearTableDirty();
-    renderTable(results);
+    renderTable(results, sys);
   }
   if (document.getElementById('toolsPanel')?.classList.contains('active')) {
     try {
       const toolsMod = await _ensureToolsLoaded();
       _dopeDirty = false;
-      toolsMod.renderDopeCard(results, req);
-      toolsMod.renderMpbrTool(results);
+      toolsMod.renderDopeCard(results, req, sys);
+      toolsMod.renderMpbrTool(results, sys);
     } catch (_) {
       _setSimulationError(TOOLS_LOAD_ERROR_MSG);
     }
@@ -714,8 +844,8 @@ async function switchTab(name, el) {
       const pendingResults = getTableResults();
       if (_dopeDirty && pendingResults) {
         _dopeDirty = false;
-        toolsMod.renderDopeCard(pendingResults, _pendingDopeReq);
-        toolsMod.renderMpbrTool(pendingResults);
+        toolsMod.renderDopeCard(pendingResults, _pendingDopeReq, unitSystem);
+        toolsMod.renderMpbrTool(pendingResults, unitSystem);
       }
     } catch (_) {
       _setSimulationError(TOOLS_LOAD_ERROR_MSG);
@@ -736,6 +866,7 @@ function runSweep() {
     getBulletById: id => _bulletById.get(id),
     nextSignal: _nextSimSignal,
     onExportPNG: exportPNG,
+    unitSystem,
     onSweepStateChange: (mode, results) => {
       sweepMode = mode;
       sweepResults = results;
@@ -758,6 +889,7 @@ function clearSweep() {
 function renderSweepCharts(sweepResultsList, sweepParam) {
   return _withSweep(sweepMod => sweepMod.renderSweepCharts(sweepResultsList, sweepParam, {
     onExportPNG: exportPNG,
+    unitSystem,
   }));
 }
 
@@ -769,16 +901,17 @@ function currentState() {
   /* istanbul ignore next -- each element is always present in the app shell */
   return {
     bulletIds:   [...selectedIds],
-    zero:        +(get('zeroRange')?.value     ?? PREF_DEFAULTS.zero),
-    maxRange:    +(get('maxRange')?.value      ?? PREF_DEFAULTS.maxRange),
-    wind:        +(get('windSpeed')?.value     ?? PREF_DEFAULTS.wind),
+    zero:        readMetricInputValue(get('zeroRange'),   'range',       unitSystem, PREF_DEFAULTS.zero),
+    maxRange:    readMetricInputValue(get('maxRange'),    'range',       unitSystem, PREF_DEFAULTS.maxRange),
+    wind:        readMetricInputValue(get('windSpeed'),   'windSpeed',   unitSystem, PREF_DEFAULTS.wind),
     windDir:     +(get('windDir')?.value       ?? PREF_DEFAULTS.windDir),
-    altitude:    +(get('altitude')?.value      ?? PREF_DEFAULTS.altitude),
-    temp:        +(get('temperature')?.value   ?? PREF_DEFAULTS.temp),
-    step:        +(get('step')?.value          ?? PREF_DEFAULTS.step),
-    sightHeight: +(get('sightHeight')?.value   ?? PREF_DEFAULTS.sightHeight),
+    altitude:    readMetricInputValue(get('altitude'),    'altitude',    unitSystem, PREF_DEFAULTS.altitude),
+    temp:        readMetricInputValue(get('temperature'), 'temp',        unitSystem, PREF_DEFAULTS.temp),
+    step:        readMetricInputValue(get('step'),        'step',        unitSystem, PREF_DEFAULTS.step),
+    sightHeight: readMetricInputValue(get('sightHeight'), 'sightHeight', unitSystem, PREF_DEFAULTS.sightHeight),
     angle:       +(get('shootingAngle')?.value ?? PREF_DEFAULTS.angle),
     dragModel:     get('dragModel')?.value     ?? PREF_DEFAULTS.dragModel,
+    units:       unitSystem,
     ...(latVal !== undefined && latVal !== '' ? { latitudeDeg: +latVal } : {}),
     ...(azVal  !== undefined && azVal  !== '' ? { azimuthDeg:  +azVal  } : {}),
   };
@@ -841,20 +974,42 @@ function init() {
 
   // Load saved preferences and URL params; URL takes per-key precedence over localStorage
   const fromUrl = decodeState(window.location.search);
+  unitSystem = normalizeUnitSystem(fromUrl.params.units ?? loadUnitSystem());
+  setUnitSystemState(unitSystem);
+  _syncUnitToggleUI(unitSystem);
   const merged  = { ...loadPrefs(), ...fromUrl.params };
   const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-  setVal('zeroRange',     merged.zero);
-  setVal('maxRange',      merged.maxRange);
-  setVal('windSpeed',     merged.wind);
-  setVal('windDir',       merged.windDir);
-  setVal('altitude',      merged.altitude);
-  setVal('temperature',   merged.temp);
-  setVal('step',          merged.step);
-  setVal('sightHeight',   merged.sightHeight);
-  setVal('shootingAngle', merged.angle);
-  setVal('dragModel',     merged.dragModel);
+  const setMetricVal = (id, kind, val) => {
+    const el = document.getElementById(id);
+    if (el) {
+      writeMetricInputValue(el, kind, val, unitSystem);
+      el.dataset.unitApplied = unitSystem;
+    }
+  };
+  setMetricVal('zeroRange',   'range',       merged.zero);
+  setMetricVal('maxRange',    'range',       merged.maxRange);
+  setMetricVal('windSpeed',   'windSpeed',   merged.wind);
+  setVal('windDir',           merged.windDir);
+  setMetricVal('altitude',    'altitude',    merged.altitude);
+  setMetricVal('temperature', 'temp',        merged.temp);
+  setMetricVal('step',        'step',        merged.step);
+  setMetricVal('sightHeight', 'sightHeight', merged.sightHeight);
+  setVal('shootingAngle',     merged.angle);
+  setVal('dragModel',         merged.dragModel);
   if (fromUrl.params.latitudeDeg != null) setVal('latitudeDeg', fromUrl.params.latitudeDeg);
   if (fromUrl.params.azimuthDeg  != null) setVal('azimuthDeg',  fromUrl.params.azimuthDeg);
+
+  for (const [id, kind] of Object.entries(ALL_UNIT_INPUTS)) {
+    if (PREF_UNIT_INPUT_IDS.has(id)) continue;
+    const el = document.getElementById(id);
+    if (!el || el.value === '') continue;
+    const prevSys = el.dataset.unitApplied || UNIT_SYSTEMS.METRIC;
+    if (prevSys !== unitSystem) {
+      const m = readMetricInputValue(el, kind, prevSys);
+      writeMetricInputValue(el, kind, m, unitSystem);
+      el.dataset.unitApplied = unitSystem;
+    }
+  }
 
   // UX-1: Load and merge custom bullets
   {
@@ -914,6 +1069,8 @@ function init() {
     const el = document.getElementById(id);
     if (!el) return;
     const onParamChange = () => {
+      delete el.dataset.canonicalMetric;
+      delete el.dataset.renderedDisplay;
       _persistInputs();
       if (_isAutoComputeEnabled() && selectedIds.size > 0) _scheduleAutoCompute();
     };
@@ -921,6 +1078,9 @@ function init() {
     el.addEventListener('change', onParamChange, { signal });
   });
   window.addEventListener('pagehide', () => _persistInputs.flush(), { signal });
+  document.getElementById('unitToggle')?.addEventListener('click', () => {
+    toggleUnitSystem();
+  }, { signal });
 
   // Bullet search filter & clear selection
   const searchInput = document.getElementById('bulletSearch');
@@ -978,10 +1138,10 @@ function init() {
   const handlers = {
     onLoad(p) {
       document.getElementById('customName').value   = p.name;
-      document.getElementById('customWeight').value = p.weightG;
-      document.getElementById('customMV').value     = p.mvMps;
+      writeMetricInputValue(document.getElementById('customWeight'), 'weight', p.weightG, unitSystem);
+      writeMetricInputValue(document.getElementById('customMV'), 'velocity', p.mvMps, unitSystem);
       document.getElementById('customBC').value     = p.bc;
-      document.getElementById('customDia').value    = p.diaMm;
+      writeMetricInputValue(document.getElementById('customDia'), 'diameter', p.diaMm, unitSystem);
       showCustomError('');
     },
     onDelete(id) {
@@ -990,10 +1150,10 @@ function init() {
   };
   document.getElementById('savePresetBtn')?.addEventListener('click', () => {
     const name    = document.getElementById('customName').value;
-    const weightG = +document.getElementById('customWeight').value;
-    const mvMps   = +document.getElementById('customMV').value;
+    const weightG = readMetricInputValue(document.getElementById('customWeight'), 'weight', unitSystem, 0);
+    const mvMps   = readMetricInputValue(document.getElementById('customMV'), 'velocity', unitSystem, 0);
     const bc      = +document.getElementById('customBC').value;
-    const diaMm   = +document.getElementById('customDia').value;
+    const diaMm   = readMetricInputValue(document.getElementById('customDia'), 'diameter', unitSystem, 0);
     const result  = savePreset({ name, weightG, mvMps, bc, diaMm });
     if (result.ok) {
       showCustomError('');
@@ -1371,7 +1531,7 @@ function _handleCustomBulletSubmit() {
 // ── State helpers (for test access) ──────────────────────────────────────────
 function _getState() {
   return {
-    bullets, _bulletById, selectedIds, lastResults, lastReq,
+    bullets, _bulletById, selectedIds, lastResults, lastReq, unitSystem,
     ..._getChartState(),
     customRecords, customStorageStatus, editingCustomId, pendingDeleteId,
   };
@@ -1389,6 +1549,8 @@ function _resetState() {
   bullets = []; _syncBulletIndex(bullets); selectedIds = new Set(); lastResults = [];
   _dopeDirty = false; _pendingDopeReq = null;
   sweepMode = false; sweepResults = null; lastReq = null;
+  unitSystem = UNIT_SYSTEMS.METRIC;
+  setUnitSystemState(UNIT_SYSTEMS.METRIC);
   _customDragTable = null;
   customRecords = []; customStorageStatus = 'ok';
   editingCustomId = null; pendingDeleteId = null;
@@ -1436,4 +1598,5 @@ export {
   _updateDragTableStatus, _clearCustomDragTable, CUSTOM_DRAG_TABLE_KEY,
   _setCustomRecords, _setCustomStorageStatus,
   initThemeToggle, updateToggleLabel, applyTheme, _applyChartTheme,
+  setUnitSystem, toggleUnitSystem, getUnitSystem,
 };

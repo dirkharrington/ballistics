@@ -3,7 +3,7 @@
 const {
   calcMoaMrad, convertUnit, initTools, CONVERSIONS,
   interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcBC,
-  calcMpbr, initMpbrTool, renderMpbrTool,
+  calcMpbr, initMpbrTool, renderMpbrTool, setToolsUnitSystem,
 } = require('../app/tools.js');
 
 function flushPromises() {
@@ -311,6 +311,7 @@ function buildDopeDOM() {
       <button id="dopePrintBtn" type="button">PRINT DOPE</button>
     </div>
     <div id="mpbrCard">
+      <label for="mpbrVitalCm">Vital Zone (<span data-unit-kind="vitalZone">cm</span>)</label>
       <input id="mpbrVitalCm" value="20" />
       <div id="mpbrResults" class="tool-results"></div>
     </div>
@@ -1169,5 +1170,72 @@ describe('initMpbrTool and renderMpbrTool', () => {
     inp.remove();
     renderMpbrTool(results);
     expect(container.textContent).toContain('Exceeds ±10 cm vital zone');
+  });
+
+  test('ENH-3: setToolsUnitSystem converts DOPE, MPBR, BC solver, and MOA/MRAD inputs in imperial mode', async () => {
+    setToolsUnitSystem('imperial');
+    history.replaceState(null, '', '/?dopeDistances=[100]');
+    const sim = jest.fn((bullet, req) => {
+      const pts = [];
+      for (let r = 0; r <= req.maxRangeMeters; r += req.stepMeters) {
+        pts.push({ rangeMeters: r, dropCm: -(r * r) / 100000, windDriftCm: r * 0.01, coriolisDeflectionCm: r * 0.005 });
+      }
+      return { bullet, points: pts };
+    });
+    initDopeCard(sim);
+    initMpbrTool();
+    renderDopeCard([{
+      bullet: { id: 'a', name: '.308' },
+      points: [
+        { rangeMeters: 0, dropCm: 0, windDriftCm: 0, coriolisDeflectionCm: 0 },
+        { rangeMeters: 200, dropCm: -20, windDriftCm: 5.08, coriolisDeflectionCm: 2.54 },
+      ],
+    }], {}, 'imperial');
+    const dopeHtml = document.getElementById('dopeTable').innerHTML;
+    expect(dopeHtml).toContain('Range (yd)');
+    expect(dopeHtml).toContain('Cor. (in)');
+
+    document.getElementById('mpbrVitalCm').value = '8';
+    renderMpbrTool([{
+      bullet: { id: 'a', name: '.308' },
+      points: [
+        { rangeMeters: 0, dropCm: -3.8 },
+        { rangeMeters: 120, dropCm: 12.5 },
+        { rangeMeters: 300, dropCm: -27.5 },
+      ],
+    }], 'imperial');
+    expect(document.querySelector('#mpbrCard [data-unit-kind="vitalZone"]').textContent).toBe('in');
+    expect(document.getElementById('mpbrResults').textContent).toContain('yd');
+    expect(document.getElementById('mpbrResults').textContent).toContain('Exceeds ±');
+
+    // BC solver in imperial
+    const solveFn = jest.fn().mockResolvedValue(0.475);
+    initBcSolver(sim, solveFn);
+    document.getElementById('bcCalcWeightG').value = '168';
+    document.getElementById('bcCalcMvMps').value = '2650';
+    document.getElementById('bcCalcDropCm').value = '-18';
+    document.getElementById('bcCalcRangeM').value = '500';
+    document.getElementById('bcCalcAltM').value = '1000';
+    document.getElementById('bcCalcTempC').value = '68';
+    document.getElementById('bcCalcBtn').click();
+    await flushPromises();
+    expect(solveFn).toHaveBeenCalledWith(expect.objectContaining({
+      weightG: 10.89,
+      tempC: 20,
+    }));
+
+    // MOA / MRAD calculator in imperial
+    document.body.insertAdjacentHTML('beforeend', `
+      <input id="toolDrop" value="-10" />
+      <input id="toolRange" value="100" />
+      <button id="toolCalcBtn"></button>
+      <div id="toolResults"></div>
+    `);
+    initTools();
+    document.getElementById('toolCalcBtn').click();
+    expect(document.getElementById('toolResults').textContent).toContain('MOA');
+
+    // Default reset back to metric
+    setToolsUnitSystem();
   });
 });
