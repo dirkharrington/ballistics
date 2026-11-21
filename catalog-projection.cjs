@@ -1,5 +1,5 @@
 /**
- * Project raw bullets.yaml entries down to the 8 runtime fields needed by the
+ * Project raw bullets.yaml entries down to the 9 runtime fields needed by the
  * frontend and physics engine, stripping unread prose (`description`, `caliber`).
  *
  * @param {Array<Record<string, unknown>>} bullets
@@ -12,6 +12,7 @@ function projectBulletCatalog(bullets) {
     bulletWeightGrams,
     muzzleVelocityMps,
     ballisticCoefficient,
+    ballisticCoefficientG7,
     bulletDiameterMm,
     muzzleEnergyJoules,
     hexColor,
@@ -21,6 +22,7 @@ function projectBulletCatalog(bullets) {
     bulletWeightGrams,
     muzzleVelocityMps,
     ballisticCoefficient,
+    ballisticCoefficientG7,
     bulletDiameterMm,
     muzzleEnergyJoules,
     hexColor,

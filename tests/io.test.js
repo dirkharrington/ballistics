@@ -232,6 +232,7 @@ describe('importResultsFromFile', () => {
     ['non-string bullet.name', JSON.stringify([{ bullet: { id: 'x', name: 2 }, points: [] }]), /bullet\.name/],
     ['long bullet.name', JSON.stringify([{ bullet: { id: 'x', name: 'y'.repeat(201) }, points: [] }]), /bullet\.name/],
     ['non-finite bullet numeric field', JSON.stringify([{ bullet: { id: 'x', name: 'A', muzzleVelocityMps: 'NaN' }, points: [] }]), /bullet\.muzzleVelocityMps/],
+    ['non-finite bullet.ballisticCoefficientG7', JSON.stringify([{ bullet: { id: 'x', name: 'A', ballisticCoefficientG7: null }, points: [] }]), /bullet\.ballisticCoefficientG7/],
     ['non-finite result numeric field', JSON.stringify([{ bullet: { id: 'x', name: 'A' }, points: [], maxOrdinateCm: null }]), /maxOrdinateCm/],
     ['null point', JSON.stringify([{ bullet: { id: 'x', name: 'A' }, points: [null] }]), /each point must be an object/],
     ['primitive point', JSON.stringify([{ bullet: { id: 'x', name: 'A' }, points: ['bad'] }]), /each point must be an object/],
@@ -247,9 +248,9 @@ describe('importResultsFromFile', () => {
     expect(onImported).not.toHaveBeenCalled();
   });
 
-  test('sanitizes valid payload, strips invalid hexColor, and calls onImported', async () => {
+  test('sanitizes valid payload, strips invalid hexColor, preserves ballisticCoefficientG7, and calls onImported', async () => {
     const payload = JSON.stringify([{
-      bullet: { id: 'x', name: 'Test', hexColor: 'invalid', muzzleVelocityMps: 800, extra: 'ignored' },
+      bullet: { id: 'x', name: 'Test', hexColor: 'invalid', muzzleVelocityMps: 800, ballisticCoefficientG7: 0.224, extra: 'ignored' },
       points: [{ rangeMeters: 0, dropCm: 0, extra: 'ignored' }],
       maxOrdinateCm: 5,
     }]);
@@ -261,7 +262,7 @@ describe('importResultsFromFile', () => {
     });
     expect(setError).toHaveBeenCalledWith(null);
     expect(onImported).toHaveBeenCalledWith([{
-      bullet: { id: 'x', name: 'Test', muzzleVelocityMps: 800 },
+      bullet: { id: 'x', name: 'Test', muzzleVelocityMps: 800, ballisticCoefficientG7: 0.224 },
       points: [{ rangeMeters: 0, dropCm: 0 }],
       maxOrdinateCm: 5,
     }]);

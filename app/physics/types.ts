@@ -22,6 +22,7 @@ export interface Bullet {
   readonly bulletWeightGrams: number;    // engine input; > 0
   readonly muzzleVelocityMps: number;    // engine input; > 0
   readonly ballisticCoefficient: number; // engine input; > 0 (G1- or G7-referenced, matching dragModel)
+  readonly ballisticCoefficientG7?: number | null; // optional G7 BC for catalog / custom bullets
   readonly bulletDiameterMm: number;     // engine input when twistRateInchesPerTurn is set; [1, 30]
   readonly muzzleEnergyJoules: number;   // not read by the engine
   readonly description?: string;         // optional; omitted from virtual:bullet-catalog and custom bullets
