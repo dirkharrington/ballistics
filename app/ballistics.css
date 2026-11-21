@@ -93,11 +93,10 @@
   --dim:       #3a5060;
   --text:      #c8dde8;
   --text-dim:  #4a7080;
-  --green:     #4ADE80;
-  --orange:    #F97316;
-  --blue:      #60A5FA;
-  --purple:    #E879F9;
   --danger:    #ff3333;
+  --error-text:   #fca5a5;
+  --error-bg:     rgba(255, 51, 51, 0.12);
+  --error-border: rgba(255, 51, 51, 0.45);
 
   /* ── Design tokens: repeated values ── */
   --radius-xs:  2px;   /* small UI chrome: scrollbars, badges, inputs */
@@ -123,6 +122,9 @@
   --text:      #1a2a38;
   --text-dim:  #5a7080;
   --danger:    #cc0000;
+  --error-text:   #b91c1c;
+  --error-bg:     #fff5f5;
+  --error-border: #fc8181;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -233,10 +235,15 @@ header {
 .unit-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .unit-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-
-@keyframes pulse-border {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
-  50%       { box-shadow: 0 0 8px 0 rgba(74,222,128,0.3); }
+.status-pill {
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 2px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--accent);
+  text-transform: uppercase;
 }
 
 /* ── layout ── */
@@ -265,7 +272,7 @@ header {
 .sidebar-compute {
   position: sticky;
   bottom: 0;
-  background: var(--bg-secondary, var(--bg2));
+  background: var(--bg2);
   padding: 0.75rem 1rem;
   border-top: 1px solid var(--border, rgba(255,255,255,0.1));
   z-index: 10;
@@ -421,8 +428,7 @@ header {
 
 .bullet-card:hover { border-color: var(--accent); background: var(--bg3); }
 .bullet-card:focus-visible,
-.bullet-card--custom:focus-visible,
-.bullet-custom-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bullet-card--custom:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bullet-card--limit-reached {
   border-color: var(--danger);
   animation: bulletLimitShake 0.3s ease;
@@ -954,7 +960,7 @@ tr:hover td { background: var(--bg3); }
 }
 .export-csv-btn:hover, .export-json-btn:hover, .export-md-btn:hover {
   color: var(--accent);
-  background: var(--hover);
+  background: var(--bg3);
 }
 
 .copy-link-btn {
@@ -1220,7 +1226,7 @@ tr:hover td { background: var(--bg3); }
 .tool-row input,
 .tool-row select {
   flex: 1;
-  background: var(--input-bg);
+  background: var(--bg3);
   border: 1px solid var(--border);
   color: var(--text);
   font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
@@ -1266,6 +1272,16 @@ tr:hover td { background: var(--bg3); }
   font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
   font-size: var(--font-sm);
   color: var(--text);
+}
+
+.dope-dist-input {
+  width: 60px;
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: var(--font-md);
+  padding: 4px;
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
 }
 
 .save-preset-btn {
@@ -1345,9 +1361,9 @@ tr:hover td { background: var(--bg3); }
 .sort-indicator { margin-left: 4px; }
 
 .simulation-error {
-  color: var(--color-error, #e53e3e);
-  background: var(--color-error-bg, #fff5f5);
-  border: 1px solid var(--color-error-border, #fc8181);
+  color: var(--error-text);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
   border-radius: 4px;
   padding: 0.5rem 0.75rem;
   margin-top: 0.5rem;
