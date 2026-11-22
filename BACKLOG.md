@@ -2595,3 +2595,15 @@ Since `UX-1` added full CRUD custom bullets (`app/custom-bullets.js`, `#customBu
 **Dependencies:** CLN-6, CLN-8, and explicit user approval.
 
 ---
+
+## Sprint 16 — DX Tooling
+
+**Sprint Goal:** Add [knip](https://knip.dev/) as an automated dead-code and unused-dependency gate so the clean post-Sprint-15 baseline is locked in and regressions (new unused exports, unreferenced files, phantom dependencies) are caught in CI before they accumulate.
+
+---
+
+### ~~DX-1 · Integrate knip — unused-export, dead-file & phantom-dep gate · DX · Size S [Must Have]~~ ✅ Done (PR #TBD)
+
+Installed knip, wrote `knip.config.ts` for the Vite + Web Worker + Jest graph, removed the `export` keyword from two internal-only types (`DragModel`, `DragTableRow` in `app/physics/types.ts`), added `npm run knip` script, and added a blocking `knip` step to the `frontend-build` CI job.
+
+---
