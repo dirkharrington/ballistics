@@ -410,6 +410,46 @@ export function _lineTension(points) {
   return points.length > 200 ? 0 : 0.3;
 }
 
+// Known label suffixes that tie a dataset to a bullet by name.
+const _LABEL_SUFFIXES = ['', ' (spin drift)', ' (coriolis)', ' MOA', ' MRAD'];
+
+export function _datasetBelongsToRemovedBullet(label, removedNames) {
+  for (const name of removedNames) {
+    for (const suffix of _LABEL_SUFFIXES) {
+      if (label === name + suffix) return true;
+    }
+  }
+  return false;
+}
+
+// Returns 'full' | 'incremental' | 'noop'.
+// 'incremental' means only bullets were added/removed, shared bullet data is unchanged.
+export function _detectUpdateMode(prevResults, newResults, prevSys, newSys) {
+  if (prevSys !== newSys) return 'full';
+  if (!prevResults?.length && !newResults?.length) return 'noop';
+
+  const prevMap = new Map((prevResults || []).map(r => [r.bullet.id, r]));
+  const newMap  = new Map((newResults  || []).map(r => [r.bullet.id, r]));
+
+  // For each common bullet, check name and sample the last trajectory point.
+  // Any mismatch means data or identity changed → full rebuild.
+  for (const [id, newR] of newMap) {
+    const prevR = prevMap.get(id);
+    if (!prevR) continue;
+    if (prevR.bullet.name     !== newR.bullet.name)     return 'full';
+    if (prevR.points.length   !== newR.points.length)   return 'full';
+    const last = newR.points.length - 1;
+    if (prevR.points[last]?.dropCm      !== newR.points[last]?.dropCm)      return 'full';
+    if (prevR.points[last]?.windDriftCm !== newR.points[last]?.windDriftCm) return 'full';
+  }
+
+  const addedCount   = [...newMap.keys()].filter(id => !prevMap.has(id)).length;
+  const removedCount = [...prevMap.keys()].filter(id => !newMap.has(id)).length;
+
+  if (addedCount === 0 && removedCount === 0) return 'noop';
+  return 'incremental';
+}
+
 // ── Stat cards ────────────────────────────────────────────────────────────────
 
 function _statCardsHtml(results, unitSystem) {
@@ -736,33 +776,74 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
       /* istanbul ignore else -- .stats-grid is always created on initial renderCharts */
       if (existingStats) existingStats.outerHTML = _statCardsHtml(results, sys);
 
-      chartDefs.forEach(def => {
-        const subEl = document.getElementById(def.id)?.closest('.chart-panel')?.querySelector('.chart-subtitle');
-        /* istanbul ignore else -- .chart-subtitle is always present inside .chart-panel */
-        if (subEl) subEl.textContent = def.subtitle;
-        const datasets = _buildTrajectoryDatasets(def, results, sys);
-        const meta = _chartMeta[def.id];
-        meta.results = results;
-        meta.unitSystem = sys;
-        meta.annotations.splice(0, meta.annotations.length, ...def.annotations);
-        const anim = _chartAnimation(datasets);
-        charts[def.id].data.datasets = datasets;
-        charts[def.id].options.scales.x.title.text = `Range (${rUnit})`;
-        charts[def.id].options.scales.y.title.text = def.yLabel;
-        charts[def.id].options.animation = anim;
-        charts[def.id].update(anim ? undefined : 'none');
-      });
+      const firstMeta = _chartMeta[chartDefs[0].id];
+      const mode = _detectUpdateMode(firstMeta.results, results, firstMeta.unitSystem, sys);
 
-      const adjDatasets = _buildAdjustmentDatasets(results, sys);
-      const adjMeta = _chartMeta.adjustChart;
-      adjMeta.results = results;
-      adjMeta.unitSystem = sys;
-      adjMeta.annotations.splice(0, adjMeta.annotations.length, ...sonicAnn);
-      const adjAnim = _chartAnimation(adjDatasets);
-      charts.adjustChart.data.datasets = adjDatasets;
-      charts.adjustChart.options.scales.x.title.text = `Range (${rUnit})`;
-      charts.adjustChart.options.animation = adjAnim;
-      charts.adjustChart.update(adjAnim ? undefined : 'none');
+      if (mode === 'incremental') {
+        const prevMap = new Map(firstMeta.results.map(r => [r.bullet.id, r]));
+        const addedResults   = results.filter(r => !prevMap.has(r.bullet.id));
+        const removedNames   = firstMeta.results
+          .filter(r => !results.some(nr => nr.bullet.id === r.bullet.id))
+          .map(r => r.bullet.name);
+
+        chartDefs.forEach(def => {
+          const subEl = document.getElementById(def.id)?.closest('.chart-panel')?.querySelector('.chart-subtitle');
+          /* istanbul ignore else -- .chart-subtitle is always present inside .chart-panel */
+          if (subEl) subEl.textContent = def.subtitle;
+          const meta = _chartMeta[def.id];
+          meta.results = results;
+          meta.annotations.splice(0, meta.annotations.length, ...def.annotations);
+          const current = charts[def.id].data.datasets;
+          for (let i = current.length - 1; i >= 0; i--) {
+            if (_datasetBelongsToRemovedBullet(current[i].label, removedNames)) current.splice(i, 1);
+          }
+          if (addedResults.length) {
+            current.push(..._buildTrajectoryDatasets(def, addedResults, sys));
+          }
+          charts[def.id].update('none');
+        });
+
+        const adjMeta = _chartMeta.adjustChart;
+        adjMeta.results = results;
+        adjMeta.annotations.splice(0, adjMeta.annotations.length, ...sonicAnn);
+        const adjCurrent = charts.adjustChart.data.datasets;
+        for (let i = adjCurrent.length - 1; i >= 0; i--) {
+          if (_datasetBelongsToRemovedBullet(adjCurrent[i].label, removedNames)) adjCurrent.splice(i, 1);
+        }
+        if (addedResults.length) {
+          adjCurrent.push(..._buildAdjustmentDatasets(addedResults, sys));
+        }
+        charts.adjustChart.update('none');
+      } else if (mode === 'full') {
+        chartDefs.forEach(def => {
+          const subEl = document.getElementById(def.id)?.closest('.chart-panel')?.querySelector('.chart-subtitle');
+          /* istanbul ignore else -- .chart-subtitle is always present inside .chart-panel */
+          if (subEl) subEl.textContent = def.subtitle;
+          const datasets = _buildTrajectoryDatasets(def, results, sys);
+          const meta = _chartMeta[def.id];
+          meta.results = results;
+          meta.unitSystem = sys;
+          meta.annotations.splice(0, meta.annotations.length, ...def.annotations);
+          const anim = _chartAnimation(datasets);
+          charts[def.id].data.datasets = datasets;
+          charts[def.id].options.scales.x.title.text = `Range (${rUnit})`;
+          charts[def.id].options.scales.y.title.text = def.yLabel;
+          charts[def.id].options.animation = anim;
+          charts[def.id].update(anim ? undefined : 'none');
+        });
+
+        const adjDatasets = _buildAdjustmentDatasets(results, sys);
+        const adjMeta = _chartMeta.adjustChart;
+        adjMeta.results = results;
+        adjMeta.unitSystem = sys;
+        adjMeta.annotations.splice(0, adjMeta.annotations.length, ...sonicAnn);
+        const adjAnim = _chartAnimation(adjDatasets);
+        charts.adjustChart.data.datasets = adjDatasets;
+        charts.adjustChart.options.scales.x.title.text = `Range (${rUnit})`;
+        charts.adjustChart.options.animation = adjAnim;
+        charts.adjustChart.update(adjAnim ? undefined : 'none');
+      }
+      // mode === 'noop': nothing to update
     } else {
       cc.innerHTML = '';
       destroyCharts();

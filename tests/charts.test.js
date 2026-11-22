@@ -19,6 +19,7 @@ const {
   _applyChartTheme, _observeChartCanvases, _teardownChartObserver,
   _getChartState, _resetChartState, _setCharts, _setChartEntry, _getChartMeta,
   _resetReadoutCache, syncModelPill,
+  _datasetBelongsToRemovedBullet, _detectUpdateMode,
 } = require('../app/charts.js');
 
 function buildChartsDOM() {
@@ -292,6 +293,87 @@ describe('updateReadout, crosshair sync, IntersectionObserver, and toggleReadout
 });
 
 describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and renderCharts', () => {
+  test('_datasetBelongsToRemovedBullet and _detectUpdateMode cover all modes', () => {
+    // _datasetBelongsToRemovedBullet: exact label matches for all suffixes
+    expect(_datasetBelongsToRemovedBullet('.308 Win',                  ['.308 Win'])).toBe(true);
+    expect(_datasetBelongsToRemovedBullet('.308 Win (spin drift)',     ['.308 Win'])).toBe(true);
+    expect(_datasetBelongsToRemovedBullet('.308 Win (coriolis)',       ['.308 Win'])).toBe(true);
+    expect(_datasetBelongsToRemovedBullet('.308 Win MOA',              ['.308 Win'])).toBe(true);
+    expect(_datasetBelongsToRemovedBullet('.308 Win MRAD',             ['.308 Win'])).toBe(true);
+    expect(_datasetBelongsToRemovedBullet('.223 Rem',                  ['.308 Win'])).toBe(false);
+
+    // _detectUpdateMode: null/empty inputs (both-null → noop)
+    expect(_detectUpdateMode(null, null, 'metric', 'metric')).toBe('noop');
+
+    const rA = makeResult(3, { bullet: { id: 'a', name: 'A', muzzleVelocityMps: 800, muzzleEnergyJoules: 3000, ballisticCoefficient: 0.4, bulletWeightGrams: 10 } });
+    const rB = makeResult(3, { bullet: { id: 'b', name: 'B', muzzleVelocityMps: 900, muzzleEnergyJoules: 2000, ballisticCoefficient: 0.3, bulletWeightGrams: 7 } });
+
+    // null prevResults / newResults covers the || [] fallback
+    expect(_detectUpdateMode(null, [rA], 'metric', 'metric')).toBe('incremental');
+    expect(_detectUpdateMode([rA], null, 'metric', 'metric')).toBe('incremental');
+
+    // unit system change → full
+    expect(_detectUpdateMode([rA], [rA], 'metric', 'imperial')).toBe('full');
+
+    // same bullet ID, name changed → full (dataset labels would diverge)
+    const rArenamed = { ...rA, bullet: { ...rA.bullet, name: 'A2' } };
+    expect(_detectUpdateMode([rA], [rArenamed], 'metric', 'metric')).toBe('full');
+
+    // same bullet, points.length differs → full
+    const rAlong = makeResult(5, { bullet: rA.bullet });
+    expect(_detectUpdateMode([rA], [rAlong], 'metric', 'metric')).toBe('full');
+
+    // same bullet, dropCm changed → full
+    const rAdrop = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, dropCm: -999 } : p) };
+    expect(_detectUpdateMode([rA], [rAdrop], 'metric', 'metric')).toBe('full');
+
+    // same bullet, windDriftCm changed → full
+    const rAwind = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, windDriftCm: 999 } : p) };
+    expect(_detectUpdateMode([rA], [rAwind], 'metric', 'metric')).toBe('full');
+
+    // same bullet, 0-length points (covers optional-chain null path in data check)
+    const rAempty  = { ...rA, points: [] };
+    const rAempty2 = { ...rA, points: [] };
+    expect(_detectUpdateMode([rAempty], [rAempty2], 'metric', 'metric')).toBe('noop');
+
+    // same bullets, same data → noop
+    expect(_detectUpdateMode([rA], [rA], 'metric', 'metric')).toBe('noop');
+
+    // bullet added → incremental
+    expect(_detectUpdateMode([rA], [rA, rB], 'metric', 'metric')).toBe('incremental');
+
+    // bullet removed → incremental
+    expect(_detectUpdateMode([rA, rB], [rA], 'metric', 'metric')).toBe('incremental');
+  });
+
+  test('renderCharts: incremental add/remove and noop paths skip full redraw', async () => {
+    const rA = makeResult(3);
+    const rB = makeResult(3, { bullet: { id: '223-rem-55gr', name: '.223', muzzleVelocityMps: 990, muzzleEnergyJoules: 1750, ballisticCoefficient: 0.2, bulletWeightGrams: 3.56 } });
+    const rC = makeResult(3, { bullet: { id: '6-5creed-140gr', name: '6.5 Creed', muzzleVelocityMps: 850, muzzleEnergyJoules: 2900, ballisticCoefficient: 0.6, bulletWeightGrams: 9 } });
+
+    // Initial render: 2 bullets
+    await renderCharts([rA, rB], {});
+    expect(MockChart).toHaveBeenCalledTimes(5);
+    MockChart.mockClear();
+    mockChartUpdate.mockClear();
+
+    // Add a third bullet (incremental): no new Chart instances, update('none') only
+    await renderCharts([rA, rB, rC], {});
+    expect(MockChart).not.toHaveBeenCalled();
+    expect(mockChartUpdate).toHaveBeenCalledWith('none');
+
+    // Remove a bullet (incremental)
+    mockChartUpdate.mockClear();
+    await renderCharts([rA, rC], {});
+    expect(MockChart).not.toHaveBeenCalled();
+    expect(mockChartUpdate).toHaveBeenCalledWith('none');
+
+    // Noop: same bullets, same data — no update calls at all
+    mockChartUpdate.mockClear();
+    await renderCharts([rA, rC], {});
+    expect(mockChartUpdate).not.toHaveBeenCalled();
+  });
+
   test('_chartAnimation and _lineTension cover reduced motion and point thresholds', () => {
     expect(_lineTension(new Array(200))).toBe(0.3);
     expect(_lineTension(new Array(201))).toBe(0);
