@@ -90,6 +90,10 @@ jobs:
           key: ${{ runner.os }}-jest-${{ hashFiles('package-lock.json', 'babel.config.js', 'tsconfig.json') }}
           restore-keys: ${{ runner.os }}-jest-
 
+      - name: Knip (unused exports / dead files / phantom deps)
+        if: needs.changes.outputs.frontend == 'true'
+        run: npm run knip
+
       - name: Test
         if: needs.changes.outputs.frontend == 'true'
         run: npm test -- --ci
