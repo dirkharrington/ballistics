@@ -19,7 +19,7 @@ const {
   _applyChartTheme, _observeChartCanvases, _teardownChartObserver,
   _getChartState, _resetChartState, _setCharts, _setChartEntry, _getChartMeta,
   _resetReadoutCache, syncModelPill,
-  _datasetBelongsToRemovedBullet, _detectUpdateMode,
+  _detectUpdateMode,
 } = require('../app/charts.js');
 
 function buildChartsDOM() {
@@ -293,50 +293,77 @@ describe('updateReadout, crosshair sync, IntersectionObserver, and toggleReadout
 });
 
 describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and renderCharts', () => {
-  test('_datasetBelongsToRemovedBullet and _detectUpdateMode cover all modes', () => {
-    // _datasetBelongsToRemovedBullet: exact label matches for all suffixes
-    expect(_datasetBelongsToRemovedBullet('.308 Win',                  ['.308 Win'])).toBe(true);
-    expect(_datasetBelongsToRemovedBullet('.308 Win (spin drift)',     ['.308 Win'])).toBe(true);
-    expect(_datasetBelongsToRemovedBullet('.308 Win (coriolis)',       ['.308 Win'])).toBe(true);
-    expect(_datasetBelongsToRemovedBullet('.308 Win MOA',              ['.308 Win'])).toBe(true);
-    expect(_datasetBelongsToRemovedBullet('.308 Win MRAD',             ['.308 Win'])).toBe(true);
-    expect(_datasetBelongsToRemovedBullet('.223 Rem',                  ['.308 Win'])).toBe(false);
-
-    // _detectUpdateMode: null/empty inputs (both-null → noop)
+  test('_detectUpdateMode covers all modes and field checks', () => {
+    // null/empty inputs → noop
     expect(_detectUpdateMode(null, null, 'metric', 'metric')).toBe('noop');
 
-    const rA = makeResult(3, { bullet: { id: 'a', name: 'A', muzzleVelocityMps: 800, muzzleEnergyJoules: 3000, ballisticCoefficient: 0.4, bulletWeightGrams: 10 } });
-    const rB = makeResult(3, { bullet: { id: 'b', name: 'B', muzzleVelocityMps: 900, muzzleEnergyJoules: 2000, ballisticCoefficient: 0.3, bulletWeightGrams: 7 } });
+    const rA = makeResult(3, { bullet: { id: 'a', name: 'A', hexColor: '#ff0000', muzzleVelocityMps: 800, muzzleEnergyJoules: 3000, ballisticCoefficient: 0.4, bulletWeightGrams: 10 } });
+    const rB = makeResult(3, { bullet: { id: 'b', name: 'B', hexColor: '#00ff00', muzzleVelocityMps: 900, muzzleEnergyJoules: 2000, ballisticCoefficient: 0.3, bulletWeightGrams: 7 } });
 
-    // null prevResults / newResults covers the || [] fallback
+    // null prev/newResults covers the || [] fallback
     expect(_detectUpdateMode(null, [rA], 'metric', 'metric')).toBe('incremental');
     expect(_detectUpdateMode([rA], null, 'metric', 'metric')).toBe('incremental');
 
     // unit system change → full
     expect(_detectUpdateMode([rA], [rA], 'metric', 'imperial')).toBe('full');
 
-    // same bullet ID, name changed → full (dataset labels would diverge)
+    // name change → full
     const rArenamed = { ...rA, bullet: { ...rA.bullet, name: 'A2' } };
     expect(_detectUpdateMode([rA], [rArenamed], 'metric', 'metric')).toBe('full');
 
-    // same bullet, points.length differs → full
+    // hexColor change → full
+    const rArecolor = { ...rA, bullet: { ...rA.bullet, hexColor: '#0000ff' } };
+    expect(_detectUpdateMode([rA], [rArecolor], 'metric', 'metric')).toBe('full');
+
+    // supersonicLimitMeters change → full
+    const rAsuper = { ...rA, supersonicLimitMeters: 999 };
+    expect(_detectUpdateMode([rA], [rAsuper], 'metric', 'metric')).toBe('full');
+
+    // maxOrdinateCm change → full
+    const rAord = { ...rA, maxOrdinateCm: 99 };
+    expect(_detectUpdateMode([rA], [rAord], 'metric', 'metric')).toBe('full');
+
+    // maxOrdinateRangeMeters change → full
+    const rAordR = { ...rA, maxOrdinateRangeMeters: 999 };
+    expect(_detectUpdateMode([rA], [rAordR], 'metric', 'metric')).toBe('full');
+
+    // points.length differs → full
     const rAlong = makeResult(5, { bullet: rA.bullet });
     expect(_detectUpdateMode([rA], [rAlong], 'metric', 'metric')).toBe('full');
 
-    // same bullet, dropCm changed → full
+    // dropCm changed → full
     const rAdrop = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, dropCm: -999 } : p) };
     expect(_detectUpdateMode([rA], [rAdrop], 'metric', 'metric')).toBe('full');
 
-    // same bullet, windDriftCm changed → full
+    // windDriftCm changed → full
     const rAwind = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, windDriftCm: 999 } : p) };
     expect(_detectUpdateMode([rA], [rAwind], 'metric', 'metric')).toBe('full');
 
-    // same bullet, 0-length points (covers optional-chain null path in data check)
+    // spinDriftCm changed → full (twist rate edit)
+    const rAspin = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, spinDriftCm: 11.9 } : p) };
+    expect(_detectUpdateMode([rA], [rAspin], 'metric', 'metric')).toBe('full');
+
+    // coriolisDeflectionCm changed → full (lat/az edit)
+    const rAcor = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, coriolisDeflectionCm: 6.1 } : p) };
+    expect(_detectUpdateMode([rA], [rAcor], 'metric', 'metric')).toBe('full');
+
+    // energyJoules changed → full (weight edit)
+    const rAenergy = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, energyJoules: 9999 } : p) };
+    expect(_detectUpdateMode([rA], [rAenergy], 'metric', 'metric')).toBe('full');
+
+    // velocityMps changed → full
+    const rAvel = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, velocityMps: 1 } : p) };
+    expect(_detectUpdateMode([rA], [rAvel], 'metric', 'metric')).toBe('full');
+
+    // duplicate IDs in newResults → full (Map collapse)
+    expect(_detectUpdateMode([rA], [rA, rA], 'metric', 'metric')).toBe('full');
+
+    // 0-length points → noop (covers optional-chain null path)
     const rAempty  = { ...rA, points: [] };
     const rAempty2 = { ...rA, points: [] };
     expect(_detectUpdateMode([rAempty], [rAempty2], 'metric', 'metric')).toBe('noop');
 
-    // same bullets, same data → noop
+    // same data → noop
     expect(_detectUpdateMode([rA], [rA], 'metric', 'metric')).toBe('noop');
 
     // bullet added → incremental
@@ -346,10 +373,14 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     expect(_detectUpdateMode([rA, rB], [rA], 'metric', 'metric')).toBe('incremental');
   });
 
-  test('renderCharts: incremental add/remove and noop paths skip full redraw', async () => {
+  test('renderCharts: incremental add/remove paths use bulletId, noop refreshes meta', async () => {
     const rA = makeResult(3);
-    const rB = makeResult(3, { bullet: { id: '223-rem-55gr', name: '.223', muzzleVelocityMps: 990, muzzleEnergyJoules: 1750, ballisticCoefficient: 0.2, bulletWeightGrams: 3.56 } });
-    const rC = makeResult(3, { bullet: { id: '6-5creed-140gr', name: '6.5 Creed', muzzleVelocityMps: 850, muzzleEnergyJoules: 2900, ballisticCoefficient: 0.6, bulletWeightGrams: 9 } });
+    const rB = makeResult(3, { bullet: { id: '223-rem-55gr',    name: '.223',       muzzleVelocityMps: 990, muzzleEnergyJoules: 1750, ballisticCoefficient: 0.2, bulletWeightGrams: 3.56 } });
+    const rC = makeResult(3, { bullet: { id: '6-5creed-140gr',  name: '6.5 Creed',  muzzleVelocityMps: 850, muzzleEnergyJoules: 2900, ballisticCoefficient: 0.6, bulletWeightGrams: 9   } });
+    // rFoo / rFooMoa: a bullet whose NAME is "Foo" and one named "Foo MOA" — the old suffix logic
+    // would falsely delete "Foo MOA" when removing "Foo".  The new bulletId logic must not.
+    const rFoo    = makeResult(3, { bullet: { id: 'foo-id',     name: 'Foo',     muzzleVelocityMps: 800, muzzleEnergyJoules: 3000, ballisticCoefficient: 0.4, bulletWeightGrams: 10 } });
+    const rFooMoa = makeResult(3, { bullet: { id: 'foo-moa-id', name: 'Foo MOA', muzzleVelocityMps: 820, muzzleEnergyJoules: 3100, ballisticCoefficient: 0.45, bulletWeightGrams: 11 } });
 
     // Initial render: 2 bullets
     await renderCharts([rA, rB], {});
@@ -362,16 +393,29 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     expect(MockChart).not.toHaveBeenCalled();
     expect(mockChartUpdate).toHaveBeenCalledWith('none');
 
-    // Remove a bullet (incremental)
+    // Remove a bullet (incremental): bulletId removal must not affect other bullets' datasets
     mockChartUpdate.mockClear();
     await renderCharts([rA, rC], {});
     expect(MockChart).not.toHaveBeenCalled();
     expect(mockChartUpdate).toHaveBeenCalledWith('none');
 
-    // Noop: same bullets, same data — no update calls at all
+    // "Foo" / "Foo MOA" name-collision guard: removing "Foo" must not remove "Foo MOA" datasets
+    await renderCharts([rFoo, rFooMoa], {});
+    MockChart.mockClear();
     mockChartUpdate.mockClear();
-    await renderCharts([rA, rC], {});
+    // After remove rFoo (incremental), rFooMoa datasets must survive
+    await renderCharts([rFooMoa], {});
+    expect(MockChart).not.toHaveBeenCalled(); // still incremental, no full rebuild
+    expect(mockChartUpdate).toHaveBeenCalledWith('none');
+    // Verify rFooMoa's datasets were kept: meta must reference rFooMoa only
+    expect(_getChartMeta('dropChart').results.some(r => r.bullet.id === 'foo-moa-id')).toBe(true);
+
+    // Noop: same bullets, same data — no chart update calls, but meta.results stays current
+    mockChartUpdate.mockClear();
+    await renderCharts([rFooMoa], {});
     expect(mockChartUpdate).not.toHaveBeenCalled();
+    // meta.results must still be refreshed in noop path
+    expect(_getChartMeta('dropChart').results).toEqual([rFooMoa]);
   });
 
   test('_chartAnimation and _lineTension cover reduced motion and point thresholds', () => {
