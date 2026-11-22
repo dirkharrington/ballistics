@@ -1,11 +1,11 @@
 /** Reference drag model (input). Runtime is lenient: any value other than 'G7' selects G1. */
-export type DragModel = 'G1' | 'G7';
+type DragModel = 'G1' | 'G7';
 
 /** Drag model actually used for a result (output). 'custom' = customDragTable was applied. FEAT-3 */
 export type EffectiveDragModel = DragModel | 'custom';
 
 /** One row of a reference drag table from physics-tables.yaml: [velocity ft/s, drag-function value]. */
-export type DragTableRow = readonly [velocityFps: number, dragFunction: number];
+type DragTableRow = readonly [velocityFps: number, dragFunction: number];
 export type DragTable = readonly DragTableRow[];
 
 /** One point on a user-supplied Mach → Cd curve. Validated by simulate() (FEAT-3 §3.3). */
