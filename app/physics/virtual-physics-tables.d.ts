@@ -1,5 +1,6 @@
 declare module 'virtual:physics-tables' {
   const G1_TABLE: ReadonlyArray<readonly [number, number]>;
+  const G5_TABLE: ReadonlyArray<readonly [number, number]>;
   const G7_TABLE: ReadonlyArray<readonly [number, number]>;
   const ATMOSPHERE: {
     readonly stdTempF: number;
@@ -8,7 +9,7 @@ declare module 'virtual:physics-tables' {
     readonly pressureCoeff: number;
     readonly pressureExp: number;
   };
-  export { G1_TABLE, G7_TABLE, ATMOSPHERE };
-  const _default: { G1_TABLE: typeof G1_TABLE; G7_TABLE: typeof G7_TABLE; ATMOSPHERE: typeof ATMOSPHERE };
+  export { G1_TABLE, G5_TABLE, G7_TABLE, ATMOSPHERE };
+  const _default: { G1_TABLE: typeof G1_TABLE; G5_TABLE: typeof G5_TABLE; G7_TABLE: typeof G7_TABLE; ATMOSPHERE: typeof ATMOSPHERE };
   export default _default;
 }

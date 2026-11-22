@@ -666,6 +666,16 @@ export function _applyChartTheme(theme) {
 }
 
 /**
+ * Update the MODEL: pill in the header immediately.
+ * Pass `isCustom = true` to show CUSTOM (custom drag CSV in use).
+ */
+export function syncModelPill(dragModel = 'G1', isCustom = false) {
+  const modelEl = document.getElementById('modelStatus');
+  /* istanbul ignore else -- #modelStatus is always present in the app shell */
+  if (modelEl) modelEl.textContent = `MODEL: ${isCustom ? 'CUSTOM' : dragModel}`;
+}
+
+/**
  * Render stat cards and the 5 trajectory charts (reusing existing Chart instances in place).
  * Returns the filtered valid results array.
  */
@@ -683,10 +693,8 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
   const rc = document.getElementById('resultsContainer');
   rc.style.display = 'flex';
   const cc = document.getElementById('chartContainer');
-  const modelEl = document.getElementById('modelStatus');
   const isCustomModel = Boolean(req.customDragTable?.length || results.some(r => r.dragModel === 'custom'));
-  /* istanbul ignore else -- #modelStatus is always present in the app shell */
-  if (modelEl) modelEl.textContent = `MODEL: ${isCustomModel ? 'CUSTOM' : (req.dragModel ?? 'G1')}`;
+  syncModelPill(req.dragModel ?? 'G1', isCustomModel);
 
   resetCrosshairState();
   _readoutCache = null;

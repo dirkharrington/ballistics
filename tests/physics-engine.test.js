@@ -10,7 +10,7 @@ const {
   findZeroAngleFps,
   integrateTrajectoryFps,
 } = require('../app/physics/engine.ts');
-const { G1_TABLE, G7_TABLE } = require('./__mocks__/physics-tables.js');
+const { G1_TABLE, G5_TABLE, G7_TABLE } = require('./__mocks__/physics-tables.js');
 
 const golden = require('./fixtures/spa1-golden.json');
 
@@ -279,6 +279,16 @@ describe('simulate()', () => {
     });
   });
 
+  test('G5 model dragModel field is set correctly and trajectory is valid', () => {
+    const g5 = simulate(BASE_BULLET, { ...BASE_PARAMS, dragModel: 'G5' });
+    expect(g5.dragModel).toBe('G5');
+    expect(g5.points.length).toBeGreaterThan(0);
+    g5.points.forEach(p => {
+      expect(p.velocityMps).toBeGreaterThan(0);
+      expect(p.energyJoules).toBeGreaterThan(0);
+    });
+  });
+
   test('absent dragModel defaults to G1 behaviour', () => {
     const noModel  = simulate(BASE_BULLET, { ...BASE_PARAMS });
     const explicit = simulate(BASE_BULLET, { ...BASE_PARAMS, dragModel: 'G1' });
@@ -311,8 +321,8 @@ describe('simulate()', () => {
 // Drag table monotonicity & clamping (migrated from interpolateDragTable)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Drag table monotonicity & clamping', () => {
-  test('G1_TABLE and G7_TABLE velocities are strictly ascending with positive dv deltas', () => {
-    for (const table of [G1_TABLE, G7_TABLE]) {
+  test('G1_TABLE, G5_TABLE and G7_TABLE velocities are strictly ascending with positive dv deltas', () => {
+    for (const table of [G1_TABLE, G5_TABLE, G7_TABLE]) {
       const ct = compileDragTable(table);
       expect(ct.last).toBe(table.length - 1);
       for (let i = 1; i <= ct.last; i++) {

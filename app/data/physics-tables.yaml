@@ -48,6 +48,53 @@ g1Table:
   - { v: 3600, f: 0.0858 }
   - { v: 4000, f: 0.0800 }
 
+# ── G5 drag function (secant-ogive long boattail; between G1 and G7) ───────
+# Normalised from published Pejsa/Litz tabulated values to match the
+# velocity-step resolution of the G1/G7 tables above.
+# At deep supersonic G5 ≈ 83 % of G1 (G7 ≈ 55 %); they converge at subsonic.
+g5Table:
+  - { v: 0,    f: 0.1198 }
+  - { v: 400,  f: 0.1198 }
+  - { v: 500,  f: 0.1197 }
+  - { v: 600,  f: 0.1196 }
+  - { v: 700,  f: 0.1193 }
+  - { v: 800,  f: 0.1191 }
+  - { v: 900,  f: 0.1191 }
+  - { v: 950,  f: 0.1195 }
+  - { v: 1000, f: 0.1230 }
+  - { v: 1050, f: 0.1285 }
+  - { v: 1100, f: 0.1370 }
+  - { v: 1150, f: 0.1490 }
+  - { v: 1200, f: 0.1620 }
+  - { v: 1250, f: 0.1735 }
+  - { v: 1300, f: 0.1830 }
+  - { v: 1350, f: 0.1900 }
+  - { v: 1400, f: 0.1930 }
+  - { v: 1450, f: 0.1920 }
+  - { v: 1500, f: 0.1888 }
+  - { v: 1600, f: 0.1808 }
+  - { v: 1700, f: 0.1720 }
+  - { v: 1800, f: 0.1630 }
+  - { v: 1900, f: 0.1550 }
+  - { v: 2000, f: 0.1470 }
+  - { v: 2100, f: 0.1395 }
+  - { v: 2200, f: 0.1326 }
+  - { v: 2300, f: 0.1264 }
+  - { v: 2400, f: 0.1210 }
+  - { v: 2500, f: 0.1160 }
+  - { v: 2600, f: 0.1112 }
+  - { v: 2700, f: 0.1069 }
+  - { v: 2800, f: 0.1030 }
+  - { v: 2900, f: 0.0994 }
+  - { v: 3000, f: 0.0961 }
+  - { v: 3100, f: 0.0930 }
+  - { v: 3200, f: 0.0901 }
+  - { v: 3300, f: 0.0875 }
+  - { v: 3400, f: 0.0851 }
+  - { v: 3500, f: 0.0829 }
+  - { v: 3600, f: 0.0810 }
+  - { v: 4000, f: 0.0756 }
+
 # ── G7 drag function (Mayewski table for long-range boat-tail projectiles) ──
 # v: velocity in fps   f: form factor F(v)
 # G7 values are ~55–65% of G1 at supersonic speeds (less base drag) and converge
