@@ -259,10 +259,14 @@ header {
 .sidebar {
   background: var(--bg2);
   border-right: 1px solid var(--border);
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
+
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-track { background: var(--bg); }
+.sidebar::-webkit-scrollbar-thumb { background: var(--dim); border-radius: var(--radius-xs); }
 
 .bullet-list::-webkit-scrollbar { width: 4px; }
 .bullet-list::-webkit-scrollbar-track { background: var(--bg); }
@@ -402,7 +406,7 @@ header {
 }
 
 /* ── bullet cards ── */
-.bullet-list { padding: 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; overflow-y: auto; min-height: 0; }
+.bullet-list { padding: 12px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; flex-shrink: 0; max-height: calc(5 * 57px + 4 * 6px + 2 * 12px); /* 5 cards */ }
 
 .bullet-card {
   border: 1px solid var(--border);
@@ -411,6 +415,7 @@ header {
   cursor: pointer;
   transition: border-color 0.15s, background-color 0.15s;
   position: relative;
+  flex-shrink: 0;
   overflow: hidden;
   background: var(--panel);
 }
