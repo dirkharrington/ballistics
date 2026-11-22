@@ -2852,3 +2852,50 @@ Fixed six devsecops BLOCK findings from PR #198:
 - Noop path refreshes `meta.results`, subtitles, and annotations to keep crosshair readout current.
 
 ---
+
+## Sprint 20 — Security Hardening & Chart Diff Quality
+
+**Sprint Goal:** Resolve all open devsecops findings: strip the privacy-leaking lat/az pair from share URLs, fill the missing `rangeMeters` diff check in `_detectUpdateMode`, and add the bulletId/wind-order assertions the chart diff tests lack.
+
+**Source:** Triaged from devsecops agent-memory 2026-11-22; all older SPA-5/WA-12/WA-13/localStorage/CI findings verified STALE against current codebase.
+
+---
+
+### SEC-LAT-URL · Remove latitude/azimuth from share URL · FE · Size S
+
+**Problem:** `url-state.js` lists `latitudeDeg` and `azimuthDeg` in its serialized key arrays (lines 4 and 21). These values reach the browser history, clipboard, and any shared link, leaking the shooter's approximate geographic location — a privacy exposure flagged in devsecops review of PR #78 (WA-13).
+
+**Acceptance criteria:**
+- `latitudeDeg` and `azimuthDeg` are removed from the URL-serialized key lists in `url-state.js`.
+- Both fields remain in app state and are passed to the physics engine unchanged.
+- Round-trip (export → import URL) test verifies the two fields are absent from the encoded string.
+- Existing state loaded from an old URL that includes `lat=`/`az=` still parses without error (unknown keys are dropped by the existing validator).
+- 100% coverage maintained.
+
+---
+
+### CHART-DIFF-L2 · `_detectUpdateMode` missing `rangeMeters` check · FE · Size XS
+
+**Problem:** `_detectUpdateMode` in `charts.js` compares terminal-point fields (`dropCm`, `windDriftCm`, etc.) but not `points[last].rangeMeters`. A change in max-range or step size produces a different `points` length which is already caught, but an identical length with different final `rangeMeters` (e.g. two bullets at the same range step but one trimmed earlier) would return `noop` while the charts are stale. Flagged as L2 in devsecops review of PR #199.
+
+**Acceptance criteria:**
+- `points[last].rangeMeters` is compared alongside the other terminal fields in `_detectUpdateMode`.
+- New test: two results identical except `points[last].rangeMeters` differs → mode is `'full'`.
+- 100% coverage maintained.
+
+---
+
+### CHART-DIFF-L3 · Tests: verify bulletId values and wind-chart order after incremental add · FE · Size S
+
+**Problem:** The incremental-add test in `tests/charts.test.js` asserts dataset counts and removal but does not:
+1. Verify that surviving datasets carry their original `bulletId` and new datasets carry the new bullet's id.
+2. Verify wind-chart dataset count and order (drop, spin drift, Coriolis) after adding a bullet.
+Flagged as L3 in devsecops review of PR #199.
+
+**Acceptance criteria:**
+- After an incremental add, the test asserts that every trajectory dataset on `dropChart` has a `bulletId` matching one of the active bullet ids.
+- After an incremental add, the test asserts wind-chart dataset count equals `3 × activeBulletCount`.
+- After an incremental add, the test asserts wind-chart dataset order: for each bullet the three datasets appear in the order drop, spin drift, Coriolis.
+- 100% coverage maintained.
+
+---
