@@ -80,6 +80,7 @@ function buildDOM() {
     <input id="shootingAngle" value="0"    />
     <select id="dragModel">
       <option value="G1" selected>G1 (standard)</option>
+      <option value="G5">G5 (VLD long boattail)</option>
       <option value="G7">G7 (long-range)</option>
     </select>
     <aside class="sidebar" id="sidebar"></aside>
@@ -1922,6 +1923,17 @@ describe('G7 drag model — init & persistence', () => {
     el.dispatchEvent(new Event('input'));
     jest.advanceTimersByTime(200);
     expect(localStorage.getItem(PREF_KEYS.dragModel)).toBe('G7');
+  });
+
+  test('FEAT-5: dragModel change event updates MODEL pill immediately without waiting for simulation', () => {
+    mod.init();
+    const el = document.getElementById('dragModel');
+    el.value = 'G5';
+    el.dispatchEvent(new Event('change'));
+    expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G5');
+    el.value = 'G7';
+    el.dispatchEvent(new Event('change'));
+    expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G7');
   });
 });
 

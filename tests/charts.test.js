@@ -18,7 +18,7 @@ const {
   windChartSubtitle, buildChartConfig, renderCharts, destroyCharts,
   _applyChartTheme, _observeChartCanvases, _teardownChartObserver,
   _getChartState, _resetChartState, _setCharts, _setChartEntry, _getChartMeta,
-  _resetReadoutCache,
+  _resetReadoutCache, syncModelPill,
 } = require('../app/charts.js');
 
 function buildChartsDOM() {
@@ -403,5 +403,14 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     // ENH-5: per-bullet custom dragModel sets MODEL: CUSTOM pill
     await renderCharts([makeResult(2, { dragModel: 'custom' })], { zeroRangeMeters: 100 });
     expect(document.getElementById('modelStatus').textContent).toBe('MODEL: CUSTOM');
+  });
+
+  test('FEAT-5: syncModelPill updates #modelStatus immediately for G5 and custom', () => {
+    syncModelPill('G5');
+    expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G5');
+    syncModelPill('G1', true);
+    expect(document.getElementById('modelStatus').textContent).toBe('MODEL: CUSTOM');
+    syncModelPill();
+    expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G1');
   });
 });

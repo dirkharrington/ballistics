@@ -40,7 +40,7 @@
   </div>
   <div class="header-title">
     <h1>Ballistics Visualizer</h1>
-    <p>External trajectory modeling // G1 drag model // RK4 integration</p>
+    <p>External trajectory modeling // configurable drag model // RK4 integration</p>
   </div>
   <div class="header-status">
     <button type="button" id="unitToggle" class="unit-toggle" aria-pressed="false" title="Switch between Metric and Imperial units">METRIC</button>
@@ -152,9 +152,10 @@
       </div>
       <div class="param-row">
         <div class="param-group">
-          <label>Drag Model <span title="G1: standard flat-base/spitzer bullets. G7: boat-tail long-range bullets. Use G7 only when BC is rated against the G7 standard projectile.">ℹ</span></label>
+          <label>Drag Model <span title="G1: standard flat-base/spitzer bullets. G5: secant-ogive long boattail (VLD). G7: long boattail long-range. Use G5 or G7 only when BC is rated against that standard.">ℹ</span></label>
           <select id="dragModel">
             <option value="G1" selected>G1 (standard)</option>
+            <option value="G5">G5 (VLD long boattail)</option>
             <option value="G7">G7 (long-range)</option>
           </select>
         </div>

@@ -18,7 +18,7 @@ import {
 import {
   HEX_COLOR_RE, colorFor, _warmChart,
   resetCrosshairState, toggleReadoutPin,
-  renderCharts, _applyChartTheme, _getChartState, _resetChartState,
+  renderCharts, syncModelPill, _applyChartTheme, _getChartState, _resetChartState,
 } from './charts.js';
 import {
   renderTable, onSortHeaderClick,
@@ -1104,6 +1104,9 @@ function init() {
     el.addEventListener('input', onParamChange, { signal });
     el.addEventListener('change', onParamChange, { signal });
   });
+  document.getElementById('dragModel')?.addEventListener('change', () => {
+    syncModelPill(document.getElementById('dragModel').value);
+  }, { signal });
   window.addEventListener('pagehide', () => _persistInputs.flush(), { signal });
   document.getElementById('unitToggle')?.addEventListener('click', () => {
     toggleUnitSystem();

@@ -1,5 +1,5 @@
-/** Reference drag model (input). Runtime is lenient: any value other than 'G7' selects G1. */
-type DragModel = 'G1' | 'G7';
+/** Reference drag model (input). Runtime is lenient: any unrecognised value selects G1. */
+type DragModel = 'G1' | 'G5' | 'G7';
 
 /** Drag model actually used for a result (output). 'custom' = customDragTable was applied. FEAT-3 */
 export type EffectiveDragModel = DragModel | 'custom';
@@ -73,7 +73,7 @@ export interface TrajectoryResult {
   readonly maxOrdinateRangeMeters: number;
   readonly supersonicLimitMeters: number;
   readonly densityAltitudeMeters: number;
-  readonly dragModel: EffectiveDragModel;   // FEAT-3. 'custom' when customDragTable was applied, else 'G7' if params.dragModel === 'G7', else 'G1'
+  readonly dragModel: EffectiveDragModel;   // FEAT-3. 'custom' when customDragTable was applied, else params.dragModel if G5/G7, else 'G1'
 }
 
 /** Inputs for worker-side G1 BC back-calculation (PERF-17). */

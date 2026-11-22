@@ -1,4 +1,4 @@
-import { G1_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
+import { G1_TABLE, G5_TABLE, G7_TABLE, ATMOSPHERE } from 'virtual:physics-tables';
 import type { Bullet, TrajectoryParams, TrajectoryPoint, TrajectoryResult, DragTable, DragPoint, EffectiveDragModel, SolveBCParams } from './types.ts';
 export type * from './types.ts';
 
@@ -171,9 +171,11 @@ export function compileDragTable(table: DragTable): CompiledDragTable {
 }
 
 const G1_COMPILED = compileDragTable(G1_TABLE);
+const G5_COMPILED = compileDragTable(G5_TABLE);
 const G7_COMPILED = compileDragTable(G7_TABLE);
 const _compiledCache = new WeakMap<DragTable, CompiledDragTable>([
   [G1_TABLE, G1_COMPILED],
+  [G5_TABLE, G5_COMPILED],
   [G7_TABLE, G7_COMPILED],
 ]);
 
@@ -546,8 +548,14 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
   const custom      = params.customDragTable;
   const useCustom   = custom != null && custom.length > 0;
   const dragModel: EffectiveDragModel =
-    useCustom ? 'custom' : ((params.dragModel ?? 'G1') === 'G7' ? 'G7' : 'G1');
-  const dragTable   = useCustom ? toDragTable(custom) : (dragModel === 'G7' ? G7_TABLE : G1_TABLE);
+    useCustom ? 'custom'
+    : params.dragModel === 'G7' ? 'G7'
+    : params.dragModel === 'G5' ? 'G5'
+    : 'G1';
+  const dragTable   = useCustom ? toDragTable(custom)
+    : dragModel === 'G7' ? G7_TABLE
+    : dragModel === 'G5' ? G5_TABLE
+    : G1_TABLE;
 
   const twist  = params.twistRateInchesPerTurn;
   const lat = params.latitudeDeg;

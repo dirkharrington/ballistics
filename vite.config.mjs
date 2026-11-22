@@ -176,12 +176,14 @@ function physicsTablesPlugin() {
           resolve(__dirname, 'app/data/physics-tables.yaml'), 'utf-8')
         const data = yaml.load(raw)
         const G1_TABLE = data.g1Table.map(({ v, f }) => [v, f])
+        const G5_TABLE = data.g5Table.map(({ v, f }) => [v, f])
         const G7_TABLE = data.g7Table.map(({ v, f }) => [v, f])
         const ATMOSPHERE = data.atmosphere
         return `export const G1_TABLE = ${JSON.stringify(G1_TABLE)};\n`
+             + `export const G5_TABLE = ${JSON.stringify(G5_TABLE)};\n`
              + `export const G7_TABLE = ${JSON.stringify(G7_TABLE)};\n`
              + `export const ATMOSPHERE = ${JSON.stringify(ATMOSPHERE)};\n`
-             + `export default { G1_TABLE, G7_TABLE, ATMOSPHERE };\n`
+             + `export default { G1_TABLE, G5_TABLE, G7_TABLE, ATMOSPHERE };\n`
       }
     }
   }

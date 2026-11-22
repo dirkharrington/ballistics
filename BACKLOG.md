@@ -2602,7 +2602,7 @@ Since `UX-1` added full CRUD custom bullets (`app/custom-bullets.js`, `#customBu
 
 ---
 
-### FEAT-5 · Add G5 drag model and make the header MODEL pill update instantly on select change · Physics / FE · Size S [Must Have]
+### ~~FEAT-5~~ · Add G5 drag model and make the header MODEL pill update instantly on select change · Physics / FE · Size S [Must Have] ✅ Done — PR #193
 
 **Context:**  
 The app already has a `#dragModel` select in the Parameters section (G1 and G7 options) wired to the auto-compute scheduler, so changing the model already triggers a re-run. However:
