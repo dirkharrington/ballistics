@@ -2596,6 +2596,56 @@ Since `UX-1` added full CRUD custom bullets (`app/custom-bullets.js`, `#customBu
 
 ---
 
+## Sprint 17 — Sidebar UX Consolidation
+
+**Sprint Goal:** Collapse three visually scattered sidebar regions — the custom-bullet panel, sweep controls, and the now-redundant COMPUTE TRAJECTORIES button — into one coherent tools section, then remove the manual compute button entirely since the chart auto-updates live on every bullet selection and parameter change.
+
+---
+
+### UX-11 · Merge custom-bullet panel and sweep controls into the sidebar-compute container, then remove the manual compute button · FE · Size S [Must Have]
+
+**Context:**  
+The sidebar currently has three separate regions for related tooling:
+1. `#customBulletPanel` (Add Custom Bullet) lives immediately below the bullet list, before the Parameters section.
+2. `div.sidebar-compute` holds the ▶ COMPUTE TRAJECTORIES button and the Auto-compute toggle.
+3. `#sweepControls` is a separate `<div>` below the compute section, shown/hidden by JS.
+
+Since auto-compute is on by default and the chart re-runs on every bullet selection and parameter change, the manual ▶ COMPUTE TRAJECTORIES button is redundant. Consolidating all three into one `.sidebar-tools` section clarifies that custom-bullet creation and sweep analysis are both "tools that act on the current selection," not part of the bullet-picker or the parameters form.
+
+**Work items:**
+
+1. **`app/index.html`**
+   - Remove `#runBtn` (`▶ COMPUTE TRAJECTORIES`) from `div.sidebar-compute`.
+   - Rename `div.sidebar-compute` → `div.sidebar-tools` (or repurpose it in-place).
+   - Move `#customBulletPanel` out of the bullet-picker section and into `.sidebar-tools`, immediately before `#sweepControls`.
+   - `#sweepControls` stays where it is within `.sidebar-tools`.
+   - The Auto-compute toggle (`#autoComputeToggle`) may remain as a power-user escape hatch or be removed — keep it if any test covers its persistence; drop it if it only guarded the now-removed button.
+
+2. **`app/ballistics.js`**
+   - Delete all code that references `#runBtn`: the `syncRunButton()` function, its call sites, and the `runBtn.addEventListener('click', …)` handler. `runSimulation()` itself is still called by the auto-compute scheduler and sweep — do not remove it.
+   - Remove `#runBtn.classList.add('loading')` / `.remove('loading')` from `runSimulation()`; replace with a spinner or loading state on `#simulationStatus` if one is desired.
+   - If `#autoComputeToggle` is removed from HTML, delete `_isAutoComputeEnabled()`, `loadAutoComputePref()`, `saveAutoComputePref()`, and the toggle's `change` listener; replace every `_isAutoComputeEnabled()` call site with `true`.
+
+3. **`app/style.css` / relevant CSS**
+   - Rename `.sidebar-compute` selector → `.sidebar-tools`.
+   - Confirm `#customBulletPanel` renders correctly in its new position (spacing, border, collapsed/expanded state).
+
+4. **`tests/ballistics.test.js`**
+   - Update the fixture HTML: move `#customBulletPanel` to the tools section; remove `#runBtn`; rename container class.
+   - Delete or rewrite every test that asserts on `#runBtn` (enable/disable, click-to-run, loading class, closes-sidebar-before-running).
+   - 100% coverage must be maintained; add tests for any new behaviour introduced (e.g. auto-compute always fires after selection when toggle is removed).
+
+**Acceptance criteria:**
+- `#runBtn` does not exist in the DOM.
+- `#customBulletPanel` and `#sweepControls` are siblings inside `.sidebar-tools` (or equivalent renamed container).
+- Selecting or deselecting a bullet triggers `runSimulation()` automatically with no manual button press required.
+- The placeholder text "Select rounds & compute trajectories" in the empty-state chart panel is updated to "Select rounds to compute trajectories" (remove the imperative "& compute").
+- `npm test`, `npm run build`, and `npm run test:e2e` pass at 100 % coverage.
+
+**Dependencies:** None.
+
+---
+
 ## Sprint 16 — DX Tooling
 
 **Sprint Goal:** Add [knip](https://knip.dev/) as an automated dead-code and unused-dependency gate so the clean post-Sprint-15 baseline is locked in and regressions (new unused exports, unreferenced files, phantom dependencies) are caught in CI before they accumulate.
