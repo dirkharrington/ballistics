@@ -2595,3 +2595,90 @@ Since `UX-1` added full CRUD custom bullets (`app/custom-bullets.js`, `#customBu
 **Dependencies:** CLN-6, CLN-8, and explicit user approval.
 
 ---
+
+## Sprint 16 — DX Tooling
+
+**Sprint Goal:** Add [knip](https://knip.dev/) as an automated dead-code and unused-dependency gate so the clean post-Sprint-15 baseline is locked in and regressions (new unused exports, unreferenced files, phantom dependencies) are caught in CI before they accumulate.
+
+Merge order: DX-1 (config + fixes) → DX-2 (CI gate, if split) or handle both in a single PR.
+
+---
+
+### DX-1 · Integrate knip — unused-export, dead-file & phantom-dep gate · DX · Size S [Must Have]
+
+[Knip](https://knip.dev/) statically analyses the whole project graph — entry points, re-exports, dynamic imports, and `package.json` dependencies — and reports unused exports, unreferenced source files, and declared-but-unused npm packages. Post-Sprint-15 cleanup left the codebase in its cleanest state; this story locks that baseline in.
+
+**Work items:**
+
+1. **Install knip:**
+   ```
+   npm install --save-dev knip
+   ```
+
+2. **Create `knip.config.ts` at the repo root** with entry points that match the actual graph:
+   ```ts
+   import type { KnipConfig } from 'knip';
+
+   const config: KnipConfig = {
+     entry: [
+       'app/index.html',
+       'app/ballistics.js',
+       'app/sw.js',
+       'app/physics/engine.worker.ts',
+     ],
+     project: ['app/**/*.{js,ts}'],
+     ignore: [
+       'app/data/**',      // YAML data files; not JS modules
+       'app/public/**',
+       'app/fonts/**',
+     ],
+     ignoreDependencies: [
+       'jest-environment-jsdom',  // referenced by jest config, not import
+       'jest-puppeteer',          // referenced by jest.e2e.config.cjs
+       'puppeteer',
+     ],
+     jest: {
+       config: ['package.json'],
+       entry: ['tests/**/*.test.{js,ts}', 'tests/__mocks__/**/*.js'],
+     },
+     vite: {
+       config: 'vite.config.mjs',
+     },
+   };
+
+   export default config;
+   ```
+   Run `npx knip` and triage all findings. Expected categories:
+   - **Unused exports:** remove or add `// knip-ignore` with rationale for any that must stay public (e.g., exported for tests or future use).
+   - **Unreferenced files:** delete or add to `ignore` if intentional (build artefacts, public assets).
+   - **Unused dependencies:** remove from `package.json` if truly unused; add to `ignoreDependencies` only if used by config files outside the JS module graph.
+
+3. **Fix all genuine findings** surfaced in step 2 (remove exports, delete files, uninstall deps); document any `knip-ignore` suppressions with a one-line rationale comment.
+
+4. **Add `knip` npm script** to `package.json`:
+   ```json
+   "knip": "knip"
+   ```
+
+5. **Add a knip step to `.github/workflows/ci.yml`** in the `frontend-build` job, after the existing `typecheck` / `test` steps:
+   ```yaml
+   - name: Knip (dead exports / unused deps)
+     run: npm run knip
+   ```
+   The step exits non-zero on any finding, blocking merge. `knip.config.ts` suppressions are the escape hatch for intentional deviations.
+
+6. **Update `BACKLOG.md`** to mark DX-1 Done with this PR number.
+
+**Coverage:** No new Jest tests needed; `npm test` must still pass at 100/100/100/100 after any export/file removals.
+
+**Acceptance:**
+
+- `npx knip` exits 0 with zero findings on `main`.
+- `npm run knip` is defined in `package.json`.
+- The `frontend-build` CI job runs `knip` and fails on any new finding.
+- `npm test` passes at 100/100/100/100.
+- `npm run build` succeeds and the built `dist/` is functionally identical to pre-change.
+
+**Dependencies:** Sprint 15 fully merged (baseline must be clean before locking it in).
+
+---
