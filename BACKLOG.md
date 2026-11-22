@@ -2649,7 +2649,7 @@ The app already has a `#dragModel` select in the Parameters section (G1 and G7 o
 
 ---
 
-### UX-11 · Merge custom-bullet panel and sweep controls into the sidebar-compute container, then remove the manual compute button · FE · Size S [Must Have]
+### ~~UX-11~~ · Merge custom-bullet panel and sweep controls into the sidebar-compute container, then remove the manual compute button · FE · Size S [Must Have] ✅ Done — PR #192
 
 **Context:**  
 The sidebar currently has three separate regions for related tooling:
