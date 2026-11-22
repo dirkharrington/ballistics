@@ -410,10 +410,11 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     // Verify rFooMoa's datasets were kept: meta must reference rFooMoa only
     expect(_getChartMeta('dropChart').results.some(r => r.bullet.id === 'foo-moa-id')).toBe(true);
 
-    // Noop: same bullets, same data — no chart update calls, but meta.results stays current
+    // Noop: same bullets, same data — datasets not rebuilt but charts still get update('none')
+    // so annotation redraws stay current if result order changed.
     mockChartUpdate.mockClear();
     await renderCharts([rFooMoa], {});
-    expect(mockChartUpdate).not.toHaveBeenCalled();
+    expect(mockChartUpdate).toHaveBeenCalledWith('none');
     // meta.results must still be refreshed in noop path
     expect(_getChartMeta('dropChart').results).toEqual([rFooMoa]);
   });

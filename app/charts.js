@@ -856,7 +856,8 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
         charts.adjustChart.options.animation = adjAnim;
         charts.adjustChart.update(adjAnim ? undefined : 'none');
       } else {
-        // noop: no dataset rebuild, but keep meta current so crosshair readout and subtitles stay fresh
+        // noop: no dataset rebuild, but refresh meta and annotations then redraw so annotation
+        // values (supersonic limit, max ordinate) are current if result order changed.
         chartDefs.forEach(def => {
           const subEl = document.getElementById(def.id)?.closest('.chart-panel')?.querySelector('.chart-subtitle');
           /* istanbul ignore else -- .chart-subtitle is always present inside .chart-panel */
@@ -864,10 +865,12 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
           const meta = _chartMeta[def.id];
           meta.results = results;
           meta.annotations.splice(0, meta.annotations.length, ...def.annotations);
+          charts[def.id].update('none');
         });
         const adjMeta = _chartMeta.adjustChart;
         adjMeta.results = results;
         adjMeta.annotations.splice(0, adjMeta.annotations.length, ...sonicAnn);
+        charts.adjustChart.update('none');
       }
     } else {
       cc.innerHTML = '';
