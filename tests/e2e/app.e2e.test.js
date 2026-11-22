@@ -79,14 +79,6 @@ describe('boot, catalog & initial simulation', () => {
     const firstActive = await page.$eval('.bullet-card:first-of-type', el => el.classList.contains('active'));
     expect(firstActive).toBe(true);
 
-    const initiallyVisible = await page.$eval(
-      '#resultsContainer',
-      el => getComputedStyle(el).display !== 'none',
-    );
-    if (!initiallyVisible) {
-      await page.click('#runBtn');
-    }
-
     await waitForResults(1);
 
     const display = await page.$eval('#resultsContainer', el => getComputedStyle(el).display);
@@ -130,7 +122,6 @@ describe('bullet selection, lazy tabs & exports', () => {
     await page.click('.bullet-card:nth-of-type(2)');
     expect(await page.$$eval('.bullet-card.active', cards => cards.length)).toBe(2);
 
-    await page.click('#runBtn');
     await waitForResults(2);
 
     const statCount = await page.$$eval('.stat-card', cards => cards.length);
@@ -272,8 +263,6 @@ describe('custom bullet catalog', () => {
       { timeout: 3000 },
     );
 
-    await page.$eval('#runBtn', el => el.scrollIntoView({ block: 'center' }));
-    await page.click('#runBtn');
     await waitForResults(2);
 
     const statsText = await page.$eval('.stats-grid', el => el.textContent);
