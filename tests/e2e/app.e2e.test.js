@@ -269,3 +269,287 @@ describe('custom bullet catalog', () => {
     expect(statsText).toContain('E2E 175gr SMK');
   });
 });
+
+// ── Drag model switching & MODEL pill immediacy (TEST-1) ──────────────────────
+
+describe('drag model switching', () => {
+  beforeAll(async () => {
+    await loadApp();
+    await waitForResults(1);
+  });
+
+  test('MODEL pill updates immediately when #dragModel changes to G7, G5, and back to G1', async () => {
+    // Switch to G7 — pill must reflect the change before simulation completes
+    await page.select('#dragModel', 'G7');
+    await page.waitForFunction(
+      () => document.getElementById('modelStatus').textContent === 'MODEL: G7',
+      { timeout: 2000 },
+    );
+    const pillG7 = await page.$eval('#modelStatus', el => el.textContent);
+    expect(pillG7).toBe('MODEL: G7');
+
+    // Switch to G5
+    await page.select('#dragModel', 'G5');
+    await page.waitForFunction(
+      () => document.getElementById('modelStatus').textContent === 'MODEL: G5',
+      { timeout: 2000 },
+    );
+    const pillG5 = await page.$eval('#modelStatus', el => el.textContent);
+    expect(pillG5).toBe('MODEL: G5');
+
+    // Switch back to G1 and wait for charts to finish
+    await page.select('#dragModel', 'G1');
+    await page.waitForFunction(
+      () => document.getElementById('modelStatus').textContent === 'MODEL: G1',
+      { timeout: 2000 },
+    );
+    const pillG1 = await page.$eval('#modelStatus', el => el.textContent);
+    expect(pillG1).toBe('MODEL: G1');
+    await waitForResults(1);
+  });
+});
+
+// ── Sweep mode full workflow (TEST-2) ─────────────────────────────────────────
+
+describe('sweep mode', () => {
+  test('sweep mode: select wind param, run sweep, verify sweep charts appear, then clear', async () => {
+    await loadApp();
+    await waitForResults(1);
+
+    // sweepControls appears once a bullet is selected (auto-happens on first load)
+    await page.waitForFunction(
+      () => {
+        const sc = document.getElementById('sweepControls');
+        return sc && sc.style.display !== 'none';
+      },
+      { timeout: 5000 },
+    );
+
+    // Select wind sweep parameter
+    await page.select('#sweepParam', 'wind');
+
+    // Click SWEEP and wait for clearSweepBtn to become visible (indicates sweep completed)
+    await page.click('#sweepBtn');
+    await page.waitForFunction(
+      () => document.getElementById('clearSweepBtn')?.style.display !== 'none',
+      { timeout: 20000 },
+    );
+
+    // Verify 3 sweep chart canvases appeared
+    const sweepCanvasIds = await page.$$eval('#chartContainer canvas', canvases =>
+      canvases.map(c => c.id).filter(id => id.startsWith('sweep')),
+    );
+    expect(sweepCanvasIds).toHaveLength(3);
+    expect(sweepCanvasIds).toContain('sweepDropChart');
+    expect(sweepCanvasIds).toContain('sweepWindChart');
+    expect(sweepCanvasIds).toContain('sweepVelChart');
+
+    // Clear sweep — sweep canvases should be removed from DOM
+    await page.click('#clearSweepBtn');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#chartContainer canvas[id^="sweep"]').length === 0,
+      { timeout: 5000 },
+    );
+
+    const sweepCanvasesAfterClear = await page.$$eval(
+      '#chartContainer canvas[id^="sweep"]',
+      canvases => canvases.length,
+    );
+    expect(sweepCanvasesAfterClear).toBe(0);
+  });
+});
+
+// ── URL state persistence (TEST-3) ───────────────────────────────────────────
+
+describe('URL state persistence', () => {
+  test('param changes are encoded in the URL and restored on reload', async () => {
+    await loadApp();
+    await waitForResults(1);
+
+    // Change zeroRange to a distinctive non-default value via input event
+    await page.$eval('#zeroRange', (el) => {
+      el.value = '200';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.$eval('#maxRange', (el) => {
+      el.value = '800';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    // Wait for the debouncer to flush and URL to update
+    await page.waitForFunction(
+      () => window.location.search.includes('zero=200'),
+      { timeout: 5000 },
+    );
+
+    const href = await page.evaluate(() => window.location.href);
+    expect(href).toContain('zero=200');
+    expect(href).toContain('maxRange=800');
+
+    // Reload to the same URL — params must be restored
+    await page.goto(href, { waitUntil: 'load' });
+    await page.waitForSelector('.bullet-card', { timeout: 10000 });
+
+    const restoredZero = await page.$eval('#zeroRange', el => el.value);
+    const restoredMax = await page.$eval('#maxRange', el => el.value);
+    expect(restoredZero).toBe('200');
+    expect(restoredMax).toBe('800');
+  });
+});
+
+// ── Profile save / load / delete (TEST-4) ────────────────────────────────────
+
+describe('profile save / load / delete', () => {
+  test('saves a profile, restores params on load, and deletes it cleanly', async () => {
+    await loadApp();
+    await waitForResults(1);
+
+    // Set a distinctive non-default zero range value
+    await page.$eval('#zeroRange', (el) => {
+      el.value = '150';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    // Type profile name and save
+    await page.click('#profileNameInput', { clickCount: 3 });
+    await page.type('#profileNameInput', 'E2E Profile');
+    await page.click('#saveProfileBtn');
+
+    // Verify profile appears in the select
+    await page.waitForFunction(
+      () => Array.from(document.getElementById('profileSelect').options)
+        .some(o => o.text === 'E2E Profile'),
+      { timeout: 5000 },
+    );
+
+    // Reset zero range to default
+    await page.$eval('#zeroRange', (el) => {
+      el.value = '100';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(await page.$eval('#zeroRange', el => el.value)).toBe('100');
+
+    // Load saved profile
+    await page.select('#profileSelect', 'E2E Profile');
+    await page.waitForFunction(
+      () => document.getElementById('zeroRange').value === '150',
+      { timeout: 5000 },
+    );
+    expect(await page.$eval('#zeroRange', el => el.value)).toBe('150');
+
+    // Delete the profile
+    await page.click('#deleteProfileBtn');
+    await page.waitForFunction(
+      () => !Array.from(document.getElementById('profileSelect').options)
+        .some(o => o.text === 'E2E Profile'),
+      { timeout: 5000 },
+    );
+    const profileOptions = await page.$$eval('#profileSelect option', opts =>
+      opts.map(o => o.text),
+    );
+    expect(profileOptions).not.toContain('E2E Profile');
+  });
+});
+
+// ── Unit system toggle (TEST-5) ───────────────────────────────────────────────
+
+describe('unit system toggle', () => {
+  beforeAll(async () => {
+    await loadApp();
+    await waitForResults(1);
+  });
+
+  test('toggles between METRIC and IMPERIAL, updating the toggle label and unit labels', async () => {
+    // Initial state: METRIC
+    const initialLabel = await page.$eval('#unitToggle', el => el.textContent.trim());
+    expect(initialLabel).toBe('METRIC');
+
+    const metricRangeUnit = await page.$eval(
+      'label[for="zeroRange"] [data-unit-kind="range"]',
+      el => el.textContent,
+    );
+    expect(metricRangeUnit).toBe('m');
+
+    // Switch to imperial
+    await page.click('#unitToggle');
+    await page.waitForFunction(
+      () => document.getElementById('unitToggle').getAttribute('aria-pressed') === 'true',
+      { timeout: 3000 },
+    );
+
+    const imperialLabel = await page.$eval('#unitToggle', el => el.textContent.trim());
+    expect(imperialLabel).toBe('IMPERIAL');
+
+    const imperialRangeUnit = await page.$eval(
+      'label[for="zeroRange"] [data-unit-kind="range"]',
+      el => el.textContent,
+    );
+    expect(imperialRangeUnit).toBe('yd');
+
+    // Switch back to metric
+    await page.click('#unitToggle');
+    await page.waitForFunction(
+      () => document.getElementById('unitToggle').getAttribute('aria-pressed') === 'false',
+      { timeout: 3000 },
+    );
+
+    const revertedLabel = await page.$eval('#unitToggle', el => el.textContent.trim());
+    expect(revertedLabel).toBe('METRIC');
+
+    const revertedRangeUnit = await page.$eval(
+      'label[for="zeroRange"] [data-unit-kind="range"]',
+      el => el.textContent,
+    );
+    expect(revertedRangeUnit).toBe('m');
+  });
+});
+
+// ── Multi-bullet comparison (TEST-6) ─────────────────────────────────────────
+
+describe('multi-bullet comparison', () => {
+  test('selecting a third bullet card shows 2 stat cards; deselecting reverts to 1', async () => {
+    await loadApp();
+    await waitForResults(1);
+
+    // The first card is active from loadApp. Activate the third card.
+    const thirdActive = await page.$eval(
+      '.bullet-card:nth-of-type(3)',
+      el => el.classList.contains('active'),
+    );
+    expect(thirdActive).toBe(false);
+
+    await page.click('.bullet-card:nth-of-type(3)');
+    await waitForResults(2);
+
+    const statCount = await page.$$eval('.stat-card', cards => cards.length);
+    expect(statCount).toBe(2);
+
+    // Both active bullet names appear in the stats grid
+    const [bullet1Name, bullet3Name] = await page.$$eval(
+      '.bullet-card.active',
+      cards => cards.map(c => c.querySelector('.bullet-name')?.textContent?.trim() ?? ''),
+    );
+    const statsText = await page.$eval('.stats-grid', el => el.textContent);
+    expect(statsText).toContain(bullet1Name);
+    expect(statsText).toContain(bullet3Name);
+
+    // Deselect the third bullet
+    await page.click('.bullet-card:nth-of-type(3)');
+    await page.waitForFunction(
+      () => document.querySelectorAll('.bullet-card.active').length === 1,
+      { timeout: 5000 },
+    );
+    // Wait for the re-simulation to complete and stat cards to settle at exactly 1
+    await page.waitForFunction(
+      () => document.querySelectorAll('.stat-card').length === 1,
+      { timeout: 10000 },
+    );
+
+    const statCountAfter = await page.$$eval('.stat-card', cards => cards.length);
+    expect(statCountAfter).toBe(1);
+  });
+});
