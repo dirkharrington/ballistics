@@ -2602,6 +2602,53 @@ Since `UX-1` added full CRUD custom bullets (`app/custom-bullets.js`, `#customBu
 
 ---
 
+### FEAT-5 · Add G5 drag model and make the header MODEL pill update instantly on select change · Physics / FE · Size S [Must Have]
+
+**Context:**  
+The app already has a `#dragModel` select in the Parameters section (G1 and G7 options) wired to the auto-compute scheduler, so changing the model already triggers a re-run. However:
+1. The `#modelStatus` header pill (`MODEL: G1`) only updates *after* a simulation completes (inside `charts.js` `renderResults`). It stays stale while a compute is in flight, making the UI feel unresponsive.
+2. Only two reference drag models exist. G5 (secant-ogive, long boattail) is a commonly published standard for heavy VLD projectiles and fills the gap between G1 (flat-base) and G7 (long boattail).
+
+**Work items:**
+
+1. **G5 drag table** (`app/data/g5-table.json` or inline in `app/physics/physics-tables.js`)  
+   Add the ICAO G5 reference drag coefficient table (Mach vs. CD). Source from published Pejsa/Litz tabulated values; normalise to the same Mach-step resolution as the existing G1/G7 tables.
+
+2. **`virtual:physics-tables` plugin** (`vite.config.mjs`)  
+   Export `G5_TABLE` from the virtual module alongside `G1_TABLE` and `G7_TABLE`.
+
+3. **`app/physics/engine.ts`**  
+   - Import `G5_TABLE` from `virtual:physics-tables`.
+   - Extend the drag-model resolution at line ~549: `'G5' → G5_TABLE`.
+   - Extend `compileDragTable` cache to include G5.
+   - `EffectiveDragModel` type in `types.ts`: add `'G5'` to the union.
+
+4. **`app/index.html`**  
+   Add `<option value="G5">G5 (VLD long boattail)</option>` to `#dragModel`.
+
+5. **`app/charts.js`**  
+   Move the `#modelStatus` pill update out of `renderResults` and into a dedicated `syncModelPill()` helper that reads `#dragModel`'s current value directly. Call it:
+   - On every `dragModel` `change` event (immediate visual feedback).
+   - After `renderResults` as today (keeps `CUSTOM` override for custom drag CSV).
+
+6. **`app/ballistics.js`**  
+   Wire `dragModel` `change` event to call `syncModelPill()` in addition to the existing auto-compute scheduling.
+
+7. **Tests**  
+   - Unit tests for G5 engine path (trajectory produces physically plausible values vs. G1/G7).
+   - Test that `#modelStatus` updates immediately on `#dragModel` `change` event without waiting for `renderResults`.
+   - 100% coverage maintained throughout.
+
+**Acceptance criteria:**
+- `#dragModel` has three options: G1 (standard), G7 (long-range), G5 (VLD long boattail).
+- Changing the selector updates `#modelStatus` immediately (before the re-compute finishes).
+- Selecting G5 and running a simulation produces a trajectory visually between G1 and G7 for a typical 175 gr BTHP at 800 m/s MV.
+- `npm test`, `npm run build`, and `npm run test:e2e` pass at 100% coverage.
+
+**Dependencies:** None. Can proceed independently of UX-11.
+
+---
+
 ### UX-11 · Merge custom-bullet panel and sweep controls into the sidebar-compute container, then remove the manual compute button · FE · Size S [Must Have]
 
 **Context:**  
