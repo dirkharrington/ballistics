@@ -844,6 +844,14 @@ describe('init', () => {
     expect(selectedIds.has(bullets[0].id)).toBe(true);
   });
 
+  test('first-visit init with auto-compute on schedules initial simulation', async () => {
+    simulateAsync.mockClear();
+    mod.init();
+    jest.advanceTimersByTime(250);
+    expect(simulateAsync).toHaveBeenCalledTimes(1);
+    await flushMicrotasks();
+    jest.runAllTimers();
+  });
 
   test('readoutPin click wired by init toggles crosshairPinned', () => {
     mod.init();

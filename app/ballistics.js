@@ -1256,6 +1256,8 @@ function init() {
 
   // Pin button toggles crosshair lock
   document.getElementById('readoutPin')?.addEventListener('click', toggleReadoutPin, { signal });
+
+  if (_isAutoComputeEnabled() && selectedIds.size > 0) _scheduleAutoCompute();
 }
 
 // ── Custom bullet panel availability sync ─────────────────────────────────────
