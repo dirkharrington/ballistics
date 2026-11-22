@@ -281,16 +281,28 @@ describe('drag model switching', () => {
   test('MODEL pill updates immediately when #dragModel changes to G7, G5, and back to G1', async () => {
     // Switch to G7 — pill must reflect the change before simulation completes
     await page.select('#dragModel', 'G7');
+    await page.waitForFunction(
+      () => document.getElementById('modelStatus').textContent === 'MODEL: G7',
+      { timeout: 2000 },
+    );
     const pillG7 = await page.$eval('#modelStatus', el => el.textContent);
     expect(pillG7).toBe('MODEL: G7');
 
     // Switch to G5
     await page.select('#dragModel', 'G5');
+    await page.waitForFunction(
+      () => document.getElementById('modelStatus').textContent === 'MODEL: G5',
+      { timeout: 2000 },
+    );
     const pillG5 = await page.$eval('#modelStatus', el => el.textContent);
     expect(pillG5).toBe('MODEL: G5');
 
     // Switch back to G1 and wait for charts to finish
     await page.select('#dragModel', 'G1');
+    await page.waitForFunction(
+      () => document.getElementById('modelStatus').textContent === 'MODEL: G1',
+      { timeout: 2000 },
+    );
     const pillG1 = await page.$eval('#modelStatus', el => el.textContent);
     expect(pillG1).toBe('MODEL: G1');
     await waitForResults(1);
@@ -516,9 +528,14 @@ describe('multi-bullet comparison', () => {
     const statCount = await page.$$eval('.stat-card', cards => cards.length);
     expect(statCount).toBe(2);
 
-    // Both bullet names appear in the stats grid
+    // Both active bullet names appear in the stats grid
+    const [bullet1Name, bullet3Name] = await page.$$eval(
+      '.bullet-card.active',
+      cards => cards.map(c => c.querySelector('.bullet-name')?.textContent?.trim() ?? ''),
+    );
     const statsText = await page.$eval('.stats-grid', el => el.textContent);
-    expect(statsText.length).toBeGreaterThan(0);
+    expect(statsText).toContain(bullet1Name);
+    expect(statsText).toContain(bullet3Name);
 
     // Deselect the third bullet
     await page.click('.bullet-card:nth-of-type(3)');
