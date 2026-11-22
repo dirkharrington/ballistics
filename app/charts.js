@@ -410,37 +410,40 @@ export function _lineTension(points) {
   return points.length > 200 ? 0 : 0.3;
 }
 
-// Known label suffixes that tie a dataset to a bullet by name.
-const _LABEL_SUFFIXES = ['', ' (spin drift)', ' (coriolis)', ' MOA', ' MRAD'];
-
-export function _datasetBelongsToRemovedBullet(label, removedNames) {
-  for (const name of removedNames) {
-    for (const suffix of _LABEL_SUFFIXES) {
-      if (label === name + suffix) return true;
-    }
-  }
-  return false;
-}
-
 // Returns 'full' | 'incremental' | 'noop'.
-// 'incremental' means only bullets were added/removed, shared bullet data is unchanged.
+// 'incremental' means only bullets were added/removed; shared bullet data is unchanged.
 export function _detectUpdateMode(prevResults, newResults, prevSys, newSys) {
   if (prevSys !== newSys) return 'full';
   if (!prevResults?.length && !newResults?.length) return 'noop';
 
-  const prevMap = new Map((prevResults || []).map(r => [r.bullet.id, r]));
-  const newMap  = new Map((newResults  || []).map(r => [r.bullet.id, r]));
+  const prevArr = prevResults || [];
+  const newArr  = newResults  || [];
 
-  // For each common bullet, check name and sample the last trajectory point.
-  // Any mismatch means data or identity changed → full rebuild.
+  const prevMap = new Map(prevArr.map(r => [r.bullet.id, r]));
+  const newMap  = new Map(newArr.map(r => [r.bullet.id, r]));
+
+  // Duplicate IDs collapse in Map — a stale result could be missed.
+  if (prevMap.size !== prevArr.length || newMap.size !== newArr.length) return 'full';
+
   for (const [id, newR] of newMap) {
     const prevR = prevMap.get(id);
     if (!prevR) continue;
+    // Identity and color
     if (prevR.bullet.name     !== newR.bullet.name)     return 'full';
-    if (prevR.points.length   !== newR.points.length)   return 'full';
+    if (prevR.bullet.hexColor !== newR.bullet.hexColor) return 'full';
+    // Result-level fields that drive annotations and stat cards
+    if (prevR.supersonicLimitMeters  !== newR.supersonicLimitMeters)  return 'full';
+    if (prevR.maxOrdinateCm          !== newR.maxOrdinateCm)          return 'full';
+    if (prevR.maxOrdinateRangeMeters !== newR.maxOrdinateRangeMeters) return 'full';
+    // Trajectory data — sample last point for all plotted series
+    if (prevR.points.length !== newR.points.length) return 'full';
     const last = newR.points.length - 1;
-    if (prevR.points[last]?.dropCm      !== newR.points[last]?.dropCm)      return 'full';
-    if (prevR.points[last]?.windDriftCm !== newR.points[last]?.windDriftCm) return 'full';
+    if (prevR.points[last]?.dropCm               !== newR.points[last]?.dropCm)               return 'full';
+    if (prevR.points[last]?.windDriftCm          !== newR.points[last]?.windDriftCm)          return 'full';
+    if (prevR.points[last]?.spinDriftCm          !== newR.points[last]?.spinDriftCm)          return 'full';
+    if (prevR.points[last]?.coriolisDeflectionCm !== newR.points[last]?.coriolisDeflectionCm) return 'full';
+    if (prevR.points[last]?.energyJoules         !== newR.points[last]?.energyJoules)         return 'full';
+    if (prevR.points[last]?.velocityMps          !== newR.points[last]?.velocityMps)          return 'full';
   }
 
   const addedCount   = [...newMap.keys()].filter(id => !prevMap.has(id)).length;
@@ -578,6 +581,7 @@ function _buildTrajectoryDatasets(def, results, unitSystem) {
   const sys = normalizeUnitSystem(unitSystem);
   const datasets = results.map(r => ({
     label:            r.bullet.name,
+    bulletId:         r.bullet.id,
     data:             r.points.map(p => ({
       x: toDisplay('range', p.rangeMeters, sys),
       y: toDisplay(def.unitKind, p[def.key], sys),
@@ -596,6 +600,7 @@ function _buildTrajectoryDatasets(def, results, unitSystem) {
       results.forEach(r => {
         datasets.push({
           label:            r.bullet.name + ' (spin drift)',
+          bulletId:         r.bullet.id,
           data:             r.points.map(p => ({
             x: toDisplay('range', p.rangeMeters, sys),
             y: toDisplay('drift', p.spinDriftCm ?? 0, sys),
@@ -615,6 +620,7 @@ function _buildTrajectoryDatasets(def, results, unitSystem) {
       results.forEach(r => {
         datasets.push({
           label:            r.bullet.name + ' (coriolis)',
+          bulletId:         r.bullet.id,
           data:             r.points.map(p => ({
             x: toDisplay('range', p.rangeMeters, sys),
             y: toDisplay('drift', p.coriolisDeflectionCm ?? 0, sys),
@@ -652,6 +658,7 @@ function _buildAdjustmentDatasets(results, unitSystem) {
     }
     moaDatasets.push({
       label:            r.bullet.name + ' MOA',
+      bulletId:         r.bullet.id,
       data:             moaData,
       borderColor:      color,
       backgroundColor:  'transparent',
@@ -663,6 +670,7 @@ function _buildAdjustmentDatasets(results, unitSystem) {
     });
     mradDatasets.push({
       label:            r.bullet.name + ' MRAD',
+      bulletId:         r.bullet.id,
       data:             mradData,
       borderColor:      color,
       backgroundColor:  'transparent',
@@ -781,10 +789,12 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
 
       if (mode === 'incremental') {
         const prevMap = new Map(firstMeta.results.map(r => [r.bullet.id, r]));
-        const addedResults   = results.filter(r => !prevMap.has(r.bullet.id));
-        const removedNames   = firstMeta.results
-          .filter(r => !results.some(nr => nr.bullet.id === r.bullet.id))
-          .map(r => r.bullet.name);
+        const addedResults = results.filter(r => !prevMap.has(r.bullet.id));
+        const removedIds   = new Set(
+          firstMeta.results
+            .filter(r => !results.some(nr => nr.bullet.id === r.bullet.id))
+            .map(r => r.bullet.id),
+        );
 
         chartDefs.forEach(def => {
           const subEl = document.getElementById(def.id)?.closest('.chart-panel')?.querySelector('.chart-subtitle');
@@ -793,12 +803,17 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
           const meta = _chartMeta[def.id];
           meta.results = results;
           meta.annotations.splice(0, meta.annotations.length, ...def.annotations);
-          const current = charts[def.id].data.datasets;
-          for (let i = current.length - 1; i >= 0; i--) {
-            if (_datasetBelongsToRemovedBullet(current[i].label, removedNames)) current.splice(i, 1);
-          }
-          if (addedResults.length) {
-            current.push(..._buildTrajectoryDatasets(def, addedResults, sys));
+
+          if (def.id === 'windChart') {
+            // Always rebuild wind chart fully: spin/coriolis presence and legend order
+            // must reflect all current bullets, not just the incrementally added ones.
+            charts[def.id].data.datasets = _buildTrajectoryDatasets(def, results, sys);
+          } else {
+            const current = charts[def.id].data.datasets;
+            for (let i = current.length - 1; i >= 0; i--) {
+              if (removedIds.has(current[i].bulletId)) current.splice(i, 1);
+            }
+            if (addedResults.length) current.push(..._buildTrajectoryDatasets(def, addedResults, sys));
           }
           charts[def.id].update('none');
         });
@@ -808,11 +823,9 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
         adjMeta.annotations.splice(0, adjMeta.annotations.length, ...sonicAnn);
         const adjCurrent = charts.adjustChart.data.datasets;
         for (let i = adjCurrent.length - 1; i >= 0; i--) {
-          if (_datasetBelongsToRemovedBullet(adjCurrent[i].label, removedNames)) adjCurrent.splice(i, 1);
+          if (removedIds.has(adjCurrent[i].bulletId)) adjCurrent.splice(i, 1);
         }
-        if (addedResults.length) {
-          adjCurrent.push(..._buildAdjustmentDatasets(addedResults, sys));
-        }
+        if (addedResults.length) adjCurrent.push(..._buildAdjustmentDatasets(addedResults, sys));
         charts.adjustChart.update('none');
       } else if (mode === 'full') {
         chartDefs.forEach(def => {
@@ -842,8 +855,23 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
         charts.adjustChart.options.scales.x.title.text = `Range (${rUnit})`;
         charts.adjustChart.options.animation = adjAnim;
         charts.adjustChart.update(adjAnim ? undefined : 'none');
+      } else {
+        // noop: no dataset rebuild, but refresh meta and annotations then redraw so annotation
+        // values (supersonic limit, max ordinate) are current if result order changed.
+        chartDefs.forEach(def => {
+          const subEl = document.getElementById(def.id)?.closest('.chart-panel')?.querySelector('.chart-subtitle');
+          /* istanbul ignore else -- .chart-subtitle is always present inside .chart-panel */
+          if (subEl) subEl.textContent = def.subtitle;
+          const meta = _chartMeta[def.id];
+          meta.results = results;
+          meta.annotations.splice(0, meta.annotations.length, ...def.annotations);
+          charts[def.id].update('none');
+        });
+        const adjMeta = _chartMeta.adjustChart;
+        adjMeta.results = results;
+        adjMeta.annotations.splice(0, adjMeta.annotations.length, ...sonicAnn);
+        charts.adjustChart.update('none');
       }
-      // mode === 'noop': nothing to update
     } else {
       cc.innerHTML = '';
       destroyCharts();

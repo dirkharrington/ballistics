@@ -2830,3 +2830,25 @@ Selecting a second bullet should produce charts with 2 datasets each and 2 stat 
 Installed knip, wrote `knip.config.ts` for the Vite + Web Worker + Jest graph, removed the `export` keyword from two internal-only types (`DragModel`, `DragTableRow` in `app/physics/types.ts`), added `npm run knip` script, and added a blocking `knip` step to the `frontend-build` CI job.
 
 ---
+
+## Sprint 19 — Chart Rendering Correctness
+
+**Sprint Goal:** Fix six correctness bugs introduced by the diff-based incremental chart update (PR #198): stale spin-drift/coriolis/energy series on param edits, label-collision removal, wind chart series ordering, stale noop metadata, and duplicate-ID safety.
+
+---
+
+### ~~PERF-INC-1 · Diff-based incremental chart dataset update on bullet add/remove · FE · Size S~~ ✅ Done (PR #198)
+
+`renderCharts` now detects add/remove-only changes via `_detectUpdateMode` and splices datasets in place instead of rebuilding all five charts. Noop path skips all updates entirely.
+
+---
+
+### ~~PERF-INC-2 · Chart diff correctness: widen field checks, bulletId removal, wind full-rebuild, noop meta refresh · FE · Size M~~ ✅ Done (PR #199)
+
+Fixed six devsecops BLOCK findings from PR #198:
+- `_detectUpdateMode` now samples `spinDriftCm`, `coriolisDeflectionCm`, `energyJoules`, `velocityMps`, `hexColor`, `supersonicLimitMeters`, `maxOrdinateCm`, `maxOrdinateRangeMeters` and duplicate-ID guard.
+- Removal uses `dataset.bulletId` instead of label-suffix matching (prevents "Foo MOA" false-positive when removing "Foo").
+- Wind chart always rebuilt fully in incremental mode (preserves spin/coriolis presence and legend order).
+- Noop path refreshes `meta.results`, subtitles, and annotations to keep crosshair readout current.
+
+---
