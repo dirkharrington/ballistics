@@ -2602,7 +2602,7 @@ Since `UX-1` added full CRUD custom bullets (`app/custom-bullets.js`, `#customBu
 
 ---
 
-### ~~DX-1 · Integrate knip — unused-export, dead-file & phantom-dep gate · DX · Size S [Must Have]~~ ✅ Done (PR #TBD)
+### ~~DX-1 · Integrate knip — unused-export, dead-file & phantom-dep gate · DX · Size S [Must Have]~~ ✅ Done (PR #191)
 
 Installed knip, wrote `knip.config.ts` for the Vite + Web Worker + Jest graph, removed the `export` keyword from two internal-only types (`DragModel`, `DragTableRow` in `app/physics/types.ts`), added `npm run knip` script, and added a blocking `knip` step to the `frontend-build` CI job.
 
