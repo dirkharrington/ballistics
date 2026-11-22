@@ -259,14 +259,14 @@ header {
 .sidebar {
   background: var(--bg2);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.sidebar::-webkit-scrollbar { width: 4px; }
-.sidebar::-webkit-scrollbar-track { background: var(--bg); }
-.sidebar::-webkit-scrollbar-thumb { background: var(--dim); border-radius: var(--radius-xs); }
+.bullet-list::-webkit-scrollbar { width: 4px; }
+.bullet-list::-webkit-scrollbar-track { background: var(--bg); }
+.bullet-list::-webkit-scrollbar-thumb { background: var(--dim); border-radius: var(--radius-xs); }
 
 /* ── sticky tools section ── */
 .sidebar-tools {
@@ -402,7 +402,7 @@ header {
 }
 
 /* ── bullet cards ── */
-.bullet-list { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.bullet-list { padding: 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; overflow-y: auto; min-height: 0; }
 
 .bullet-card {
   border: 1px solid var(--border);
