@@ -2693,6 +2693,132 @@ Since auto-compute is on by default and the chart re-runs on every bullet select
 
 ---
 
+## Sprint 18 — Testing Depth
+
+**Sprint Goal:** Expand behavioral and E2E test coverage across the six user-facing workflows that the existing 6-test E2E suite omits entirely: drag model switching, sweep mode, profile save/load/delete, URL-state persistence, unit system toggle, and multi-bullet comparison. All new tests run against the production build (`dist/`) via Puppeteer, the same as the existing smoke suite.
+
+---
+
+### TEST-1 · E2E — drag model switching and MODEL pill immediacy · QA · Size XS [Must Have]
+
+**Context:**
+FEAT-5 added G5 and made the MODEL pill reactive on `#dragModel change`. No E2E test verifies this behaviour in the real browser.
+
+**Work items:**
+1. `tests/e2e/app.e2e.test.js` — add a new `describe('drag model switching', ...)` block with:
+   - Switch `#dragModel` to G7 and verify `#modelStatus` reads `MODEL: G7` before the simulation completes.
+   - Switch to G5 and verify `MODEL: G5`.
+   - Wait for `waitForResults(1)` to confirm charts re-render after each switch.
+   - Switch back to G1 and verify `MODEL: G1`.
+
+**Acceptance:**
+- Test passes against production build.
+- No new page or console errors.
+
+---
+
+### TEST-2 · E2E — sweep mode full workflow · QA · Size S [Must Have]
+
+**Context:**
+Sweep mode (`#sweepBtn`, `#sweepParam`, `#clearSweepBtn`) produces three parallel Chart.js canvases. No E2E test exercises this flow at all.
+
+**Work items:**
+1. `tests/e2e/app.e2e.test.js` — add `describe('sweep mode', ...)` with:
+   - Load app with one bullet active.
+   - Scroll `#sweepControls` into view and verify they are visible.
+   - Select `wind` from `#sweepParam`.
+   - Click `#sweepBtn` and wait for `#clearSweepBtn` to become visible.
+   - Verify three sweep canvases appear in `#chartContainer` (`.sweep-chart` canvases or by chart count ≥ 3 extra beyond the standard 5).
+   - Click `#clearSweepBtn` and verify sweep canvases are removed (chart count returns to 5).
+
+**Acceptance:**
+- Test passes against production build.
+- No new page or console errors.
+
+---
+
+### TEST-3 · E2E — URL state persistence across page reload · QA · Size S [Must Have]
+
+**Context:**
+`app/url-state.js` encodes the current parameter state into the URL on every change. No E2E test verifies that navigating to a URL with encoded params restores those params after load.
+
+**Work items:**
+1. `tests/e2e/app.e2e.test.js` — add `describe('URL state persistence', ...)` with:
+   - Load app clean, wait for initial simulation.
+   - Change `#zeroRange` to `200` and `#maxRange` to `800`, then wait for a brief debounce (~600 ms).
+   - Capture `window.location.href`.
+   - Verify URL contains `zero=200` and `maxRange=800`.
+   - Navigate back to that URL and wait for bullet cards.
+   - Verify `#zeroRange` input value is `200` and `#maxRange` is `800`.
+
+**Acceptance:**
+- Test passes against production build.
+- URL contains the encoded param values.
+- Reload restores values correctly.
+
+---
+
+### TEST-4 · E2E — profile save / load / delete workflow · QA · Size S [Must Have]
+
+**Context:**
+`app/profiles.js` persists named parameter profiles in `localStorage`. No E2E test covers the full save-load-delete lifecycle visible in the header profile bar.
+
+**Work items:**
+1. `tests/e2e/app.e2e.test.js` — add `describe('profile save / load / delete', ...)` with:
+   - Load app clean.
+   - Change `#zeroRange` to `150` (a distinctive non-default value).
+   - Type `E2E Profile` into `#profileNameInput` and click `#saveProfileBtn`.
+   - Verify `#profileSelect` contains an option with text `E2E Profile`.
+   - Change `#zeroRange` back to `100` (the default).
+   - Select `E2E Profile` from `#profileSelect` and wait for params to load.
+   - Verify `#zeroRange` is now `150`.
+   - Click `#deleteProfileBtn` and verify the option is removed from `#profileSelect`.
+
+**Acceptance:**
+- Test passes against production build.
+- Profile round-trips correctly through save → change → load.
+
+---
+
+### TEST-5 · E2E — unit system toggle (metric ↔ imperial) · QA · Size XS [Must Have]
+
+**Context:**
+`#unitToggle` switches all inputs and outputs between metric and imperial. No E2E test verifies this conversion in the browser.
+
+**Work items:**
+1. `tests/e2e/app.e2e.test.js` — add `describe('unit system toggle', ...)` with:
+   - Load app clean, wait for initial simulation.
+   - Capture `#zeroRange` label text (should contain `m` for metric).
+   - Click `#unitToggle` and wait for `aria-pressed="true"` on the toggle.
+   - Verify `#unitToggle` text changes to `IMPERIAL`.
+   - Verify the zero range label (or placeholder) changes to reflect yards/ft.
+   - Click `#unitToggle` again and verify it reverts to `METRIC`.
+
+**Acceptance:**
+- Test passes against production build.
+- Toggle text and unit labels update correctly.
+
+---
+
+### TEST-6 · E2E — multi-bullet comparison (2 bullets produce 2 datasets) · QA · Size XS [Must Have]
+
+**Context:**
+Selecting a second bullet should produce charts with 2 datasets each and 2 stat cards. The existing test verifies card count but does not verify chart dataset counts.
+
+**Work items:**
+1. `tests/e2e/app.e2e.test.js` — add `describe('multi-bullet comparison', ...)` with:
+   - Load app clean, wait for initial simulation with bullet 1 active.
+   - Click bullet card 3 (deliberately non-adjacent to default) to activate a second bullet.
+   - `waitForResults(2)` and verify 2 stat cards.
+   - Inspect the first chart canvas via `page.evaluate` to read `Chart.instances` or `window.__chartInstances` and verify dataset count is 2.
+   - Deactivate bullet 3 and verify stat cards return to 1.
+
+**Acceptance:**
+- Test passes against production build.
+- Chart datasets match bullet selection count.
+
+---
+
 ## Sprint 16 — DX Tooling
 
 **Sprint Goal:** Add [knip](https://knip.dev/) as an automated dead-code and unused-dependency gate so the clean post-Sprint-15 baseline is locked in and regressions (new unused exports, unreferenced files, phantom dependencies) are caught in CI before they accumulate.
