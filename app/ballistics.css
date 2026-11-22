@@ -406,7 +406,7 @@ header {
 }
 
 /* ── bullet cards ── */
-.bullet-list { padding: 12px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; flex-shrink: 0; max-height: calc(5 * 57px + 4 * 6px + 2 * 12px); /* 5 cards */ }
+.bullet-list { padding: 12px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; overscroll-behavior: contain; min-height: 0; flex-shrink: 0; max-height: calc(5 * 57px + 4 * 6px + 2 * 12px); /* 5 cards */ }
 
 .bullet-card {
   border: 1px solid var(--border);
