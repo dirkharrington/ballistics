@@ -86,7 +86,6 @@ function buildDOM() {
     <aside class="sidebar" id="sidebar"></aside>
     <button id="paramsToggle" class="fab-params">☰ PARAMS</button>
     <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
-    <button id="runBtn" class="run-btn"><span>▶ COMPUTE TRAJECTORIES</span></button>
     <label class="auto-compute-label">
       <input type="checkbox" id="autoComputeToggle" checked>
       <span>Auto-compute on change</span>
@@ -408,30 +407,27 @@ describe('updateBulletCards', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// syncRunButton
+// syncSelectionMeta
 // ─────────────────────────────────────────────────────────────────────────────
-describe('syncRunButton', () => {
-  test('disables runBtn and clearSelectionBtn when selectedIds is empty', () => {
+describe('syncSelectionMeta', () => {
+  test('disables clearSelectionBtn and sets count when selectedIds is empty', () => {
     mod._setSelectedIds(new Set());
-    mod.syncRunButton();
-    expect(document.getElementById('runBtn').disabled).toBe(true);
+    mod.syncSelectionMeta();
     expect(document.getElementById('clearSelectionBtn').disabled).toBe(true);
     expect(document.getElementById('selectedCount').textContent).toBe('0 / 5 selected');
   });
 
-  test('enables runBtn and clearSelectionBtn when selectedIds is non-empty', () => {
+  test('enables clearSelectionBtn and sets count when selectedIds is non-empty', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
-    mod.syncRunButton();
-    expect(document.getElementById('runBtn').disabled).toBe(false);
+    mod.syncSelectionMeta();
     expect(document.getElementById('clearSelectionBtn').disabled).toBe(false);
     expect(document.getElementById('selectedCount').textContent).toBe('1 / 5 selected');
   });
 
-  test('no-op when runBtn, selectedCount, or clearSelectionBtn elements are absent', () => {
-    document.getElementById('runBtn').remove();
+  test('no-op when selectedCount or clearSelectionBtn elements are absent', () => {
     document.getElementById('selectedCount').remove();
     document.getElementById('clearSelectionBtn').remove();
-    expect(() => mod.syncRunButton()).not.toThrow();
+    expect(() => mod.syncSelectionMeta()).not.toThrow();
   });
 });
 
@@ -702,16 +698,14 @@ describe('runSimulation', () => {
     expect(document.getElementById('simulationError').hasAttribute('hidden')).toBe(false);
   });
 
-  test('restores button text after successful simulation', async () => {
+  test('sets sim status after successful simulation', async () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
     mod._setBullets(mod.getBuiltInBullets());
 
     await mod.runSimulation();
     jest.runAllTimers();
 
-    const btn = document.getElementById('runBtn');
-    expect(btn.querySelector('span').textContent).toBe('▶ COMPUTE TRAJECTORIES');
-    expect(btn.classList.contains('loading')).toBe(false);
+    expect(document.getElementById('simStatus').textContent).toMatch(/Trajectories ready/);
   });
 
   test('outer catch logs error when simulateAsync rejects with non-input error', async () => {
@@ -722,8 +716,6 @@ describe('runSimulation', () => {
     await mod.runSimulation();
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
-    const btn = document.getElementById('runBtn');
-    expect(btn.querySelector('span').textContent).toBe('▶ COMPUTE TRAJECTORIES');
   });
 
   test('reads parameters from DOM inputs', async () => {
@@ -853,6 +845,14 @@ describe('init', () => {
     expect(selectedIds.has(bullets[0].id)).toBe(true);
   });
 
+  test('first-visit init with auto-compute on schedules initial simulation', async () => {
+    simulateAsync.mockClear();
+    mod.init();
+    jest.advanceTimersByTime(250);
+    expect(simulateAsync).toHaveBeenCalledTimes(1);
+    await flushMicrotasks();
+    jest.runAllTimers();
+  });
 
   test('readoutPin click wired by init toggles crosshairPinned', () => {
     mod.init();
@@ -1604,7 +1604,7 @@ describe('export dropdown toggle', () => {
     mod.init();
     document.querySelector('.export-toggle').click();
     expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(true);
-    document.getElementById('runBtn').click();
+    document.getElementById('copyLinkBtn').click();
     expect(document.querySelector('.export-dropdown').classList.contains('open')).toBe(false);
   });
 });
@@ -2048,10 +2048,10 @@ describe('openSidebar / closeSidebar', () => {
     expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
   });
 
-  test('runBtn click closes sidebar before running simulation', () => {
+  test('backdrop click closes sidebar', () => {
     mod.init();
     mod.openSidebar();
-    document.getElementById('runBtn').click();
+    document.getElementById('sidebarBackdrop').click();
     expect(document.getElementById('sidebar').classList.contains('open')).toBe(false);
   });
 });
@@ -4170,7 +4170,6 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
     expect(mod._getState().selectedIds.size).toBe(0);
     expect(document.getElementById('selectedCount').textContent).toBe('0 / 5 selected');
     expect(document.getElementById('clearSelectionBtn').disabled).toBe(true);
-    expect(document.getElementById('runBtn').disabled).toBe(true);
     expect(document.getElementById('sweepControls').style.display).toBe('none');
     expect(document.getElementById('resultsContainer').style.display).toBe('none');
     expect(document.getElementById('emptyState').style.display).toBe('');
@@ -4330,7 +4329,7 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
     expect(cards[5].getAttribute('tabindex')).toBe('0');
   });
 
-  test('debounced auto-compute runs after 250ms on param/selection changes and respects toggle & runBtn cancel', async () => {
+  test('debounced auto-compute runs after 250ms on param/selection changes and respects toggle', async () => {
     // Saved preference 'false' disables auto-compute
     localStorage.setItem(AUTO_COMPUTE_KEY, 'false');
     mod.init();
@@ -4372,17 +4371,8 @@ describe('ENH-6: Selection cap, search filter, roving tabindex, and auto-compute
     await flushMicrotasks();
     jest.runAllTimers();
 
-    // Clicking #runBtn cancels pending auto-compute so it runs only once
-    simulateAsync.mockClear();
-    document.getElementById('zeroRange').value = '150';
-    document.getElementById('zeroRange').dispatchEvent(new Event('input'));
-    document.getElementById('runBtn').click();
-    expect(simulateAsync).toHaveBeenCalledTimes(2);
-    simulateAsync.mockClear();
-    jest.advanceTimersByTime(300);
-    expect(simulateAsync).not.toHaveBeenCalled();
-
     // Unchecking autoComputeToggle cancels pending auto-compute
+    simulateAsync.mockClear();
     document.getElementById('zeroRange').value = '175';
     document.getElementById('zeroRange').dispatchEvent(new Event('input'));
     autoToggle.checked = false;

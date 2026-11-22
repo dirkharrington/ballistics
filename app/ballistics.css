@@ -268,8 +268,8 @@ header {
 .sidebar::-webkit-scrollbar-track { background: var(--bg); }
 .sidebar::-webkit-scrollbar-thumb { background: var(--dim); border-radius: var(--radius-xs); }
 
-/* ── sticky compute button ── */
-.sidebar-compute {
+/* ── sticky tools section ── */
+.sidebar-tools {
   position: sticky;
   bottom: 0;
   background: var(--bg2);
