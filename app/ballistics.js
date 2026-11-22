@@ -498,7 +498,7 @@ function renderBulletList() {
   pendingDeleteId = null;
 
   filterBulletList();
-  syncRunButton();
+  syncSelectionMeta();
 }
 
 function _isAutoComputeEnabled() {
@@ -533,7 +533,7 @@ function _syncSingleBulletCard(id) {
     card.classList.toggle('active', isActive);
     card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   }
-  syncRunButton();
+  syncSelectionMeta();
   syncCustomDeleteGuards(document.getElementById('bulletList'), selectedIds);
   pendingDeleteId = null;
 }
@@ -577,7 +577,7 @@ function updateBulletCards() {
       card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     }
   });
-  syncRunButton();
+  syncSelectionMeta();
   syncCustomDeleteGuards(document.getElementById('bulletList'), selectedIds);
   pendingDeleteId = null;
 }
@@ -592,9 +592,7 @@ function clearSelection() {
   _setSimStatus('Selection cleared.');
 }
 
-function syncRunButton() {
-  const btn = document.getElementById('runBtn');
-  if (btn) btn.disabled = selectedIds.size === 0;
+function syncSelectionMeta() {
   const countEl = document.getElementById('selectedCount');
   if (countEl) countEl.textContent = `${selectedIds.size} / ${MAX_SELECTED_BULLETS} selected`;
   const clearBtn = document.getElementById('clearSelectionBtn');
@@ -646,8 +644,6 @@ async function runSimulation() {
   const extras = _readEnvExtras();
   if (extras.error) { _setSimulationError(extras.error); return; }
 
-  const btn = document.getElementById('runBtn');
-  btn.classList.add('loading');
   _setSimStatus('Computing trajectories…');
   _warmChart();
 
@@ -680,14 +676,10 @@ async function runSimulation() {
       const exportBtn = document.getElementById('exportCsvBtn');
       /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
       if (exportBtn) exportBtn.style.display = '';
-      btn.classList.remove('loading');
-      btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
       _setSimStatus(`Trajectories ready. ${results.length} result${results.length === 1 ? '' : 's'} computed.`);
     });
   } catch (err) {
     if (err?.name === 'AbortError') return;
-    btn.classList.remove('loading');
-    btn.querySelector('span').textContent = '▶ COMPUTE TRAJECTORIES';
     if (err instanceof TrajectoryInputError) {
       _setSimulationError(err.message);
       _setSimStatus(`Simulation failed: ${err.message}`);
@@ -1141,11 +1133,6 @@ function init() {
   document.getElementById('clearSelectionBtn')?.addEventListener('click', clearSelection, { signal });
 
   // Static event listeners
-  document.getElementById('runBtn')?.addEventListener('click', () => {
-    _scheduleAutoCompute.cancel();
-    closeSidebar();
-    runSimulation();
-  }, { signal });
   document.getElementById('exportCsvBtn')?.addEventListener('click', exportTrajectoryCSV, { signal });
   document.querySelector('.export-csv-btn')?.addEventListener('click', exportCSV, { signal });
   document.querySelector('.export-json-btn')?.addEventListener('click', exportJSON, { signal });
@@ -1601,7 +1588,7 @@ if (document.getElementById('bulletList')) {
 export {
   getBuiltInBullets, computeClientSide,
   MAX_SELECTED_BULLETS,
-  renderBulletList, toggleBullet, updateBulletCards, clearSelection, filterBulletList, syncRunButton, runSimulation,
+  renderBulletList, toggleBullet, updateBulletCards, clearSelection, filterBulletList, syncSelectionMeta, runSimulation,
   _scheduleAutoCompute,
   renderResults, switchTab, init,
   exportTrajectoryCSV,
