@@ -1,5 +1,6 @@
 // ── Export & import helpers (lazy-loaded on demand via ballistics.js) ─────────
 import { normalizeUnitSystem, toDisplay, unitLabel } from './units.js';
+import { resultSpeedOfSound, formatMach } from './mach.js';
 
 /** Bullet-level numeric fields copied from imported JSON. */
 const BULLET_NUMERIC_FIELDS = [
@@ -87,8 +88,9 @@ export function exportCSV(results, computeAdjustments, unitSystem = 'metric') {
   const vUnit  = unitLabel('velocity', sys);
   const eUnit  = unitLabel('energy', sys);
   const drUnit = unitLabel('drift', sys);
-  const rows = [`Round,Range (${rUnit}),Drop (${dUnit}),Velocity (${vUnit}),Energy (${eUnit}),Wind Drift (${drUnit}),Time (s),MOA,MRAD`];
+  const rows = [`Round,Range (${rUnit}),Drop (${dUnit}),Velocity (${vUnit}),Energy (${eUnit}),Wind Drift (${drUnit}),Time (s),MOA,MRAD,Mach`];
   results.forEach(r => {
+    const sos = resultSpeedOfSound(r);
     r.points.forEach(p => {
       const adj  = computeAdjustments(p.dropCm, p.rangeMeters);
       const rng  = toDisplay('range', p.rangeMeters, sys);
@@ -96,10 +98,18 @@ export function exportCSV(results, computeAdjustments, unitSystem = 'metric') {
       const vel  = toDisplay('velocity', p.velocityMps, sys);
       const en   = toDisplay('energy', p.energyJoules, sys);
       const wind = toDisplay('drift', p.windDriftCm, sys);
-      rows.push(`${csvCell(r.bullet.name)},${rng},${drop},${vel},${en},${wind},${p.timeOfFlightSec},${adj.moa},${adj.mrad}`);
+      rows.push(`${csvCell(r.bullet.name)},${rng},${drop},${vel},${en},${wind},${p.timeOfFlightSec},${adj.moa},${adj.mrad},${formatMach(p.velocityMps, sos)}`);
     });
   });
   _downloadBlob(new Blob([rows.join('\n')], { type: 'text/csv' }), 'trajectory.csv');
+}
+
+/** Copy of results with a `mach` field added to every point (ignored on import). */
+function withMach(results) {
+  return results.map(r => {
+    const sos = resultSpeedOfSound(r);
+    return { ...r, points: r.points.map(p => ({ ...p, mach: Number(formatMach(p.velocityMps, sos)) })) };
+  });
 }
 
 /**
@@ -109,7 +119,7 @@ export function exportCSV(results, computeAdjustments, unitSystem = 'metric') {
 export function exportJSON(results) {
   if (!results.length) return;
   _downloadBlob(
-    new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' }),
+    new Blob([JSON.stringify(withMach(results), null, 2)], { type: 'application/json' }),
     'trajectory.json',
   );
 }
@@ -130,8 +140,9 @@ export function exportMarkdown(results, { computeAdjustments, escapeHtml, unitSy
   const lines = [];
   results.forEach(r => {
     lines.push(`## ${escapeHtml(r.bullet.name)}\n`);
-    lines.push(`| Range (${rUnit}) | Drop (${dUnit}) | Velocity (${vUnit}) | Energy (${eUnit}) | Wind Drift (${drUnit}) | MOA | MRAD |`);
-    lines.push('|----------:|----------:|---------------:|-----------:|----------------:|----:|-----:|');
+    lines.push(`| Range (${rUnit}) | Drop (${dUnit}) | Velocity (${vUnit}) | Energy (${eUnit}) | Wind Drift (${drUnit}) | MOA | MRAD | Mach |`);
+    lines.push('|----------:|----------:|---------------:|-----------:|----------------:|----:|-----:|-----:|');
+    const sos = resultSpeedOfSound(r);
     r.points.forEach(p => {
       const adj  = computeAdjustments(p.dropCm, p.rangeMeters);
       const rng  = toDisplay('range', p.rangeMeters, sys);
@@ -139,7 +150,7 @@ export function exportMarkdown(results, { computeAdjustments, escapeHtml, unitSy
       const vel  = toDisplay('velocity', p.velocityMps, sys);
       const en   = toDisplay('energy', p.energyJoules, sys);
       const wind = toDisplay('drift', p.windDriftCm, sys);
-      lines.push(`| ${rng} | ${drop} | ${vel} | ${en} | ${wind} | ${adj.moa} | ${adj.mrad} |`);
+      lines.push(`| ${rng} | ${drop} | ${vel} | ${en} | ${wind} | ${adj.moa} | ${adj.mrad} | ${formatMach(p.velocityMps, sos)} |`);
     });
     lines.push('');
   });

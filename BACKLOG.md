@@ -2970,3 +2970,13 @@ gh api repos/dirkharrington/ballistics/branches/main/protection/required_status_
 ```
 
 ---
+
+---
+
+## Sprint 23 — Field Realism: Temperature, Transonic & Truing
+
+---
+
+### S23-2 — Transonic / subsonic range markers ✅ Done (PR #PLACEHOLDER)
+
+Adds `app/mach.js` with exported pure `speedOfSound()` and `findMachCrossing()`. Each bullet's stat card now shows the range at which it drops to Mach 1.2 (transonic) and Mach 1.0 (subsonic) — "Beyond max range" if not reached, "At muzzle" if already below. The data table gains a **Mach** column, also included in the CSV, JSON (per-point `mach`) and Markdown exports. The velocity chart draws a dashed "Mach 1.2" line at 1.2 × speed of sound, in the existing supersonic annotation colour. Speed of sound uses each result's own ambient temperature. 100% Jest coverage maintained.
