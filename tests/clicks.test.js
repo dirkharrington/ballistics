@@ -23,6 +23,12 @@ describe('toClicks', () => {
     expect(() => toClicks(1)).toThrow();
     expect(() => toClicks(1, NaN)).toThrow();
   });
+  test('boundary: 3.37 MOA at ¼ MOA is 13 clicks, not 14 from premature rounding', () => {
+    // 3.37 / 0.25 = 13.48 → Math.round → 13 (correct with unrounded angle)
+    expect(toClicks(3.37, 0.25)).toBe(13);
+    // 3.37 → 3.4 (rounded to 1 decimal) → 3.4 / 0.25 = 13.6 → Math.round → 14 (double-rounding error)
+    expect(toClicks(Math.round(3.37 * 10) / 10, 0.25)).toBe(14);
+  });
 });
 
 describe('MRAD → MOA conversion', () => {

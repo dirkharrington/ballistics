@@ -121,17 +121,20 @@ function _buildDopeTable(results, unitSystem) {
       const drop = interpolateAt(r.points, distMeters, 'dropCm');
       if (drop == null) return '<td>–</td>'.repeat(colSpan);
       const { moa, mrad } = computeAdjustments(drop, distMeters);
+      const elevSign   = drop < 0 ? 1 : (drop > 0 ? -1 : 0);
+      const rawElevMoa = elevSign * Math.atan2(Math.abs(drop) / 100, distMeters) * (180 / Math.PI) * 60;
       let windCells = '';
       if (hasWind) {
         const wind = interpolateAt(r.points, distMeters, 'windDriftCm');
         if (wind == null) {
           windCells = '<td>–</td><td>–</td><td>–</td>';
         } else {
-          const wRad  = Math.atan2(wind / 100, distMeters);
-          const wMoa  = Math.round(wRad * (180 / Math.PI) * 60 * 10) / 10 + 0;
-          const wMrad = Math.round(wRad * 1000 * 10) / 10 + 0;
+          const wRad    = Math.atan2(wind / 100, distMeters);
+          const rawWMoa = wRad * (180 / Math.PI) * 60;
+          const wMoa    = Math.round(rawWMoa * 10) / 10 + 0;
+          const wMrad   = Math.round(wRad * 1000 * 10) / 10 + 0;
           // Wind clicks are the dial correction: drift right (+) is corrected by dialling left.
-          windCells = `<td>${wMoa > 0 ? '+' : ''}${wMoa}</td><td>${wMrad > 0 ? '+' : ''}${wMrad}</td><td>${formatWindClicks(-toClicks(wMoa, click.moa))}</td>`;
+          windCells = `<td>${wMoa > 0 ? '+' : ''}${wMoa}</td><td>${wMrad > 0 ? '+' : ''}${wMrad}</td><td>${formatWindClicks(-toClicks(rawWMoa, click.moa))}</td>`;
         }
       }
       let corCell = '';
@@ -150,7 +153,7 @@ function _buildDopeTable(results, unitSystem) {
           ? `<td>${eotDisp >= 0 ? '+' : ''}${eotDisp.toFixed(1)}</td>`
           : '<td>–</td>';
       }
-      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td><td>${formatElevClicks(toClicks(moa, click.moa))}</td>${windCells}${corCell}${eotCell}`;
+      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td><td>${formatElevClicks(toClicks(rawElevMoa, click.moa))}</td>${windCells}${corCell}${eotCell}`;
     }).join('');
     return `<tr><td><strong>${dist}</strong></td>${tds}</tr>`;
   }).join('');
