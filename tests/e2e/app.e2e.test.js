@@ -553,3 +553,154 @@ describe('multi-bullet comparison', () => {
     expect(statCountAfter).toBe(1);
   });
 });
+
+// ── S23-5: custom bullet, JSON export/import, theme persistence ───────────────
+
+/** Fill and submit the custom-bullet form (the form must already be open). */
+async function submitCustomBullet({ name, shortName = 'S23', weight = '175', bcG1 = '0.505', bcG7 = '0.26', diameter = '0.308', mv = '2650' }) {
+  const fields = {
+    '#cbName': name, '#cbShortName': shortName, '#cbBulletWeightGrains': weight,
+    '#cbBcG1': bcG1, '#cbBcG7': bcG7, '#cbBulletDiameterInches': diameter, '#cbMuzzleVelocityFps': mv,
+  };
+  for (const [sel, val] of Object.entries(fields)) {
+    if (val) await page.type(sel, val);
+  }
+  await page.$eval('#customBulletSaveBtn', el => el.scrollIntoView({ block: 'center' }));
+  await page.click('#customBulletSaveBtn');
+}
+
+async function openCustomBulletForm() {
+  await page.$eval('#addCustomBulletBtn', el => el.scrollIntoView({ block: 'center' }));
+  await page.click('#addCustomBulletBtn');
+  await page.waitForSelector('#customBulletForm:not([hidden])', { timeout: 3000 });
+}
+
+describe('S23-5a custom bullet form', () => {
+  it('S23-5a: creates a custom bullet and runs a simulation', async () => {
+    await loadApp(true);
+    await openCustomBulletForm();
+    await submitCustomBullet({ name: 'S23 Custom 175gr' });
+    await page.waitForSelector('#customBulletForm[hidden]', { timeout: 3000 });
+
+    // Bullet appears in the list
+    await page.waitForSelector('.bullet-card--custom', { timeout: 3000 });
+    const names = await page.$$eval('.bullet-card--custom', cards => cards.map(c => c.textContent));
+    expect(names.some(t => t.includes('S23 Custom 175gr'))).toBe(true);
+
+    // Select it and wait for a simulation
+    await page.$eval('.bullet-card--custom', el => el.scrollIntoView({ block: 'center' }));
+    await page.click('.bullet-card--custom');
+    await page.waitForFunction(
+      () => document.querySelector('.bullet-card--custom')?.classList.contains('active'),
+      { timeout: 3000 },
+    );
+    await waitForResults(2);
+
+    const width = await page.$eval('#dropChart', c => c.width);
+    expect(width).toBeGreaterThan(0);
+    expect(await page.$eval('.stats-grid', el => el.textContent)).toContain('S23 Custom 175gr');
+  });
+
+  it('S23-5a: blocks save when name is empty', async () => {
+    await loadApp(true);
+    await openCustomBulletForm();
+    const before = await page.$$eval('.bullet-card--custom', cards => cards.length);
+
+    await submitCustomBullet({ name: '' });
+
+    const err = await page.$eval('#cbName-error', el => ({
+      text: el.textContent, visible: el.offsetParent !== null || getComputedStyle(el).display !== 'none',
+    }));
+    expect(err.text).toMatch(/required/i);
+    expect(err.visible).toBe(true);
+    expect(await page.$eval('#customBulletForm', el => el.hasAttribute('hidden'))).toBe(false);
+    expect(await page.$$eval('.bullet-card--custom', cards => cards.length)).toBe(before);
+  });
+});
+
+describe('S23-5b JSON export / import', () => {
+  /** Click the JSON export button, capturing the blob link and its text. */
+  async function captureJsonExport() {
+    return page.evaluate(() => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('JSON export timed out')), 10000);
+      const origCreate = URL.createObjectURL;
+      let blob = null;
+      URL.createObjectURL = function (b) { blob = b; return origCreate.call(URL, b); };
+      const origClick = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = async function () {
+        HTMLAnchorElement.prototype.click = origClick;
+        URL.createObjectURL = origCreate;
+        clearTimeout(timer);
+        resolve({ download: this.download, href: this.href, text: blob ? await blob.text() : null });
+      };
+      document.querySelector('.export-json-btn').click();
+    }));
+  }
+
+  it('S23-5b: JSON export produces a downloadable link', async () => {
+    await loadApp(true);
+    await waitForResults(1);
+
+    const exported = await captureJsonExport();
+    expect(exported.href.startsWith('blob:')).toBe(true);
+    expect(exported.download).toBe('trajectory.json');
+    const parsed = JSON.parse(exported.text);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed[0].points.length).toBeGreaterThan(0);
+  });
+
+  it('S23-5b: JSON import restores bullet state', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+
+    // Create a known custom bullet, run a simulation and capture the export
+    await loadApp(true);
+    await openCustomBulletForm();
+    await submitCustomBullet({ name: 'S23 Roundtrip 168gr', shortName: 'RT168', weight: '168', mv: '2600' });
+    await page.waitForSelector('.bullet-card--custom', { timeout: 3000 });
+    await page.$eval('.bullet-card--custom', el => el.scrollIntoView({ block: 'center' }));
+    await page.click('.bullet-card--custom');
+    await waitForResults(2);
+    const exported = await captureJsonExport();
+    expect(exported.text).toContain('S23 Roundtrip 168gr');
+
+    // Reset to a clean app: the custom bullet no longer exists
+    await loadApp(true);
+    await waitForResults(1);
+    expect(await page.$eval('.stats-grid', el => el.textContent)).not.toContain('S23 Roundtrip 168gr');
+
+    // Import the captured JSON through the file input
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 's23-import-'));
+    const file = path.join(dir, 'trajectory.json');
+    fs.writeFileSync(file, exported.text);
+    try {
+      const input = await page.$('#importJsonFile');
+      await input.uploadFile(file);
+      await page.waitForFunction(
+        () => document.querySelector('.stats-grid')?.textContent.includes('S23 Roundtrip 168gr'),
+        { timeout: 10000 },
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    expect(await page.$eval('#simulationError', el => el.hasAttribute('hidden'))).toBe(true);
+  });
+});
+
+describe('S23-5c theme persistence', () => {
+  it('S23-5c: theme is persisted across reload', async () => {
+    await loadApp(true);
+    // The theme lives on <html data-theme>, persisted in localStorage `bv_theme`
+    const theme = () => page.$eval('html', el => el.getAttribute('data-theme'));
+    const before = await theme();
+    await page.click('#themeToggle');
+    const after = await theme();
+    expect(after).not.toBe(before);
+    expect(await page.evaluate(() => localStorage.getItem('bv_theme'))).toBe(after);
+
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('.bullet-card', { timeout: 10000 });
+    expect(await theme()).toBe(after);
+  });
+});
