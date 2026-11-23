@@ -443,6 +443,8 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     expect(windDs).toHaveLength(6);
     // Order: all windDrift, then all spinDrift, then all coriolis (by series type, not per bullet)
     expect(windDs.map(ds => ds.bulletId)).toEqual(['x-id', 'y-id', 'x-id', 'y-id', 'x-id', 'y-id']);
+    // Label assertions confirm series type — a spinDrift/Coriolis swap would fail here
+    expect(windDs.map(ds => ds.label)).toEqual(['X', 'Y', 'X (spin drift)', 'Y (spin drift)', 'X (coriolis)', 'Y (coriolis)']);
   });
 
   test('_chartAnimation and _lineTension cover reduced motion and point thresholds', () => {

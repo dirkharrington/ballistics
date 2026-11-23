@@ -2885,7 +2885,7 @@ Fixed six devsecops BLOCK findings from PR #198:
 
 ---
 
-### ~~CHART-DIFF-L3 · Tests: verify bulletId values and wind-chart order after incremental add · FE · Size S~~ ✅ Done (PR #201)
+### ~~CHART-DIFF-L3 · Tests: verify bulletId values and wind-chart order after incremental add · FE · Size S~~ ✅ Done (PR #201; label-assertion follow-up: PR #202)
 
 **Problem:** The incremental-add test in `tests/charts.test.js` asserts dataset counts and removal but does not:
 1. Verify that surviving datasets carry their original `bulletId` and new datasets carry the new bullet's id.
