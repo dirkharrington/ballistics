@@ -2699,7 +2699,7 @@ Since auto-compute is on by default and the chart re-runs on every bullet select
 
 ---
 
-### TEST-1 · E2E — drag model switching and MODEL pill immediacy · QA · Size XS [Must Have]
+### ~~TEST-1 · E2E — drag model switching and MODEL pill immediacy · QA · Size XS [Must Have]~~ ✅ Done (PR #195)
 
 **Context:**
 FEAT-5 added G5 and made the MODEL pill reactive on `#dragModel change`. No E2E test verifies this behaviour in the real browser.
@@ -2717,7 +2717,7 @@ FEAT-5 added G5 and made the MODEL pill reactive on `#dragModel change`. No E2E 
 
 ---
 
-### TEST-2 · E2E — sweep mode full workflow · QA · Size S [Must Have]
+### ~~TEST-2 · E2E — sweep mode full workflow · QA · Size S [Must Have]~~ ✅ Done (PR #195)
 
 **Context:**
 Sweep mode (`#sweepBtn`, `#sweepParam`, `#clearSweepBtn`) produces three parallel Chart.js canvases. No E2E test exercises this flow at all.
@@ -2737,7 +2737,7 @@ Sweep mode (`#sweepBtn`, `#sweepParam`, `#clearSweepBtn`) produces three paralle
 
 ---
 
-### TEST-3 · E2E — URL state persistence across page reload · QA · Size S [Must Have]
+### ~~TEST-3 · E2E — URL state persistence across page reload · QA · Size S [Must Have]~~ ✅ Done (PR #195)
 
 **Context:**
 `app/url-state.js` encodes the current parameter state into the URL on every change. No E2E test verifies that navigating to a URL with encoded params restores those params after load.
@@ -2758,7 +2758,7 @@ Sweep mode (`#sweepBtn`, `#sweepParam`, `#clearSweepBtn`) produces three paralle
 
 ---
 
-### TEST-4 · E2E — profile save / load / delete workflow · QA · Size S [Must Have]
+### ~~TEST-4 · E2E — profile save / load / delete workflow · QA · Size S [Must Have]~~ ✅ Done (PR #195)
 
 **Context:**
 `app/profiles.js` persists named parameter profiles in `localStorage`. No E2E test covers the full save-load-delete lifecycle visible in the header profile bar.
@@ -2780,7 +2780,7 @@ Sweep mode (`#sweepBtn`, `#sweepParam`, `#clearSweepBtn`) produces three paralle
 
 ---
 
-### TEST-5 · E2E — unit system toggle (metric ↔ imperial) · QA · Size XS [Must Have]
+### ~~TEST-5 · E2E — unit system toggle (metric ↔ imperial) · QA · Size XS [Must Have]~~ ✅ Done (PR #195)
 
 **Context:**
 `#unitToggle` switches all inputs and outputs between metric and imperial. No E2E test verifies this conversion in the browser.
@@ -2800,7 +2800,7 @@ Sweep mode (`#sweepBtn`, `#sweepParam`, `#clearSweepBtn`) produces three paralle
 
 ---
 
-### TEST-6 · E2E — multi-bullet comparison (2 bullets produce 2 datasets) · QA · Size XS [Must Have]
+### ~~TEST-6 · E2E — multi-bullet comparison (2 bullets produce 2 datasets) · QA · Size XS [Must Have]~~ ✅ Done (PR #195)
 
 **Context:**
 Selecting a second bullet should produce charts with 2 datasets each and 2 stat cards. The existing test verifies card count but does not verify chart dataset counts.
