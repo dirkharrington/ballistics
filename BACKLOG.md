@@ -3023,3 +3023,13 @@ Adds an **MV Truing** card to the Tools tab. Enter an observed range and drop (c
 ### S23-5 — E2E: custom bullet, export/import, theme ✅ Done (PR #215)
 
 Adds five Puppeteer tests to `tests/e2e/app.e2e.test.js`: custom bullet creation + simulation, empty-name save blocked, JSON export produces a `blob:` download link, JSON export → clean reload → import restores the custom bullet's results, and theme persistence across reload (theme is `<html data-theme>` + `bv_theme`, not a body class). Verified locally against the built `dist/` with Chromium (17/17 E2E tests pass).
+
+---
+
+## Sprint 24 — Tech Debt, E2E & BC Truing
+
+---
+
+### S24-2 — Include scope click settings in share URL ✅ Done (PR #PRNUM)
+
+The share URL (`COPY LINK` / address bar) now carries `clickValue` (allow-list: `0.25moa`, `0.5moa`, `1moa`, `0.1mrad`, `0.05mrad`, `custom`) and, only when `clickValue=custom`, `clickValueCustom` (validated to (0, 100]). Invalid values are ignored on decode. On load the URL values override saved prefs and the custom-click input visibility is re-synced. 100% Jest coverage maintained.

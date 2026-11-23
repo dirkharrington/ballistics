@@ -900,6 +900,8 @@ function currentState() {
     : undefined;
   const humVal   = get('humidityPercent')?.value;
   const eotvosOn = Boolean(get('includeEotvos')?.checked);
+  const clickVal = get('clickValue')?.value;
+  const clickCustomVal = Number(get('clickValueCustom')?.value);
   const mvSensRaw = readMetricInputValue(get('mvSens'), 'mvSens', unitSystem, 0);
   const mvSensVal = Math.round(mvSensRaw * 1000) / 1000;
   /* istanbul ignore next -- each element is always present in the app shell */
@@ -922,6 +924,8 @@ function currentState() {
     ...(humVal !== undefined && humVal !== '' ? { humidityPercent: +humVal } : {}),
     ...(mvSensVal ? { mvSens: mvSensVal } : {}),
     ...(eotvosOn ? { includeEotvos: true } : {}),
+    ...(clickVal ? { clickValue: clickVal } : {}),
+    ...(clickVal === 'custom' && clickCustomVal > 0 && clickCustomVal <= 100 ? { clickValueCustom: clickCustomVal } : {}),
   };
 }
 
