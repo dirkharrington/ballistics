@@ -3026,6 +3026,6 @@ Adds five Puppeteer tests to `tests/e2e/app.e2e.test.js`: custom bullet creation
 
 ---
 
-### S24-3 — E2E coverage for Sprint 23 features ✅ Done (PR #PRNUM)
+### S24-3 — E2E coverage for Sprint 23 features ✅ Done (PR #218)
 
 Adds four Puppeteer smoke tests to `tests/e2e/app.e2e.test.js`: MV temperature sensitivity → "Effective MV" stat line; transonic/subsonic Mach markers (or "Beyond max range") on the stat card; DOPE table "Elev Clicks" column after selecting ½ MOA; MV truing (Tools tab) producing a numeric trued MV with no error. 21/21 E2E tests pass locally against the built `dist/`.
