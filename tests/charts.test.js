@@ -355,6 +355,10 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     const rAvel = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, velocityMps: 1 } : p) };
     expect(_detectUpdateMode([rA], [rAvel], 'metric', 'metric')).toBe('full');
 
+    // rangeMeters changed → full (step size or trajectory length edit)
+    const rArange = { ...rA, points: rA.points.map((p, i) => i === 2 ? { ...p, rangeMeters: p.rangeMeters + 1 } : p) };
+    expect(_detectUpdateMode([rA], [rArange], 'metric', 'metric')).toBe('full');
+
     // duplicate IDs in newResults → full (Map collapse)
     expect(_detectUpdateMode([rA], [rA, rA], 'metric', 'metric')).toBe('full');
 
@@ -392,12 +396,18 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     await renderCharts([rA, rB, rC], {});
     expect(MockChart).not.toHaveBeenCalled();
     expect(mockChartUpdate).toHaveBeenCalledWith('none');
+    // CHART-DIFF-L3: all dropChart datasets carry bulletId for active bullets
+    const dropDsAfterAdd = _getChartState().charts['dropChart'].data.datasets;
+    expect(dropDsAfterAdd.map(ds => ds.bulletId)).toEqual([rA.bullet.id, rB.bullet.id, rC.bullet.id]);
 
     // Remove a bullet (incremental): bulletId removal must not affect other bullets' datasets
     mockChartUpdate.mockClear();
     await renderCharts([rA, rC], {});
     expect(MockChart).not.toHaveBeenCalled();
     expect(mockChartUpdate).toHaveBeenCalledWith('none');
+    // CHART-DIFF-L3: removed bullet's bulletId gone; remaining bullets intact
+    const dropDsAfterRemove = _getChartState().charts['dropChart'].data.datasets;
+    expect(dropDsAfterRemove.map(ds => ds.bulletId)).toEqual([rA.bullet.id, rC.bullet.id]);
 
     // "Foo" / "Foo MOA" name-collision guard: removing "Foo" must not remove "Foo MOA" datasets
     await renderCharts([rFoo, rFooMoa], {});
@@ -417,6 +427,22 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     expect(mockChartUpdate).toHaveBeenCalledWith('none');
     // meta.results must still be refreshed in noop path
     expect(_getChartMeta('dropChart').results).toEqual([rFooMoa]);
+  });
+
+  test('CHART-DIFF-L3: windChart datasets group by series type (wind, spinDrift, coriolis)', async () => {
+    const withAllDrift = (r) => ({
+      ...r,
+      points: r.points.map(p => ({ ...p, spinDriftCm: 0.5, coriolisDeflectionCm: 0.3 })),
+    });
+    const rX = withAllDrift(makeResult(3, { bullet: { id: 'x-id', name: 'X', hexColor: '#ff0000', muzzleVelocityMps: 800, muzzleEnergyJoules: 3000, ballisticCoefficient: 0.4, bulletWeightGrams: 10 } }));
+    const rY = withAllDrift(makeResult(3, { bullet: { id: 'y-id', name: 'Y', hexColor: '#00ff00', muzzleVelocityMps: 850, muzzleEnergyJoules: 2900, ballisticCoefficient: 0.5, bulletWeightGrams: 11 } }));
+
+    await renderCharts([rX, rY], {});
+    const windDs = _getChartState().charts['windChart'].data.datasets;
+    // 3 series × 2 bullets = 6 datasets
+    expect(windDs).toHaveLength(6);
+    // Order: all windDrift, then all spinDrift, then all coriolis (by series type, not per bullet)
+    expect(windDs.map(ds => ds.bulletId)).toEqual(['x-id', 'y-id', 'x-id', 'y-id', 'x-id', 'y-id']);
   });
 
   test('_chartAnimation and _lineTension cover reduced motion and point thresholds', () => {

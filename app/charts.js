@@ -444,6 +444,7 @@ export function _detectUpdateMode(prevResults, newResults, prevSys, newSys) {
     if (prevR.points[last]?.coriolisDeflectionCm !== newR.points[last]?.coriolisDeflectionCm) return 'full';
     if (prevR.points[last]?.energyJoules         !== newR.points[last]?.energyJoules)         return 'full';
     if (prevR.points[last]?.velocityMps          !== newR.points[last]?.velocityMps)          return 'full';
+    if (prevR.points[last]?.rangeMeters          !== newR.points[last]?.rangeMeters)          return 'full';
   }
 
   const addedCount   = [...newMap.keys()].filter(id => !prevMap.has(id)).length;

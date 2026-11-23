@@ -2224,11 +2224,11 @@ describe('init() with URL params (FE-1)', () => {
     spy.mockRestore();
   });
 
-  test('init() restores latitudeDeg and azimuthDeg from URL params', () => {
+  test('init() ignores latitudeDeg and azimuthDeg in URL params (SEC-LAT-URL)', () => {
     history.replaceState(null, '', '/?latitudeDeg=45&azimuthDeg=90');
     mod.init();
-    expect(document.getElementById('latitudeDeg').value).toBe('45');
-    expect(document.getElementById('azimuthDeg').value).toBe('90');
+    expect(document.getElementById('latitudeDeg').value).toBe('');
+    expect(document.getElementById('azimuthDeg').value).toBe('');
     history.replaceState(null, '', '/');
   });
 
