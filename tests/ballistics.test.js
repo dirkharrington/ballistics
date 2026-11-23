@@ -2436,6 +2436,39 @@ describe('currentState', () => {
   });
 });
 
+describe('currentState – S24-2 click settings', () => {
+  test('includes clickValue; omits clickValueCustom unless custom', () => {
+    document.getElementById('clickValue').value = '0.5moa';
+    const state = mod.currentState();
+    expect(state.clickValue).toBe('0.5moa');
+    expect(state.clickValueCustom).toBeUndefined();
+  });
+  test('includes clickValueCustom when custom is selected', () => {
+    document.getElementById('clickValue').value = 'custom';
+    document.getElementById('clickValueCustom').value = '0.3';
+    const state = mod.currentState();
+    expect(state.clickValue).toBe('custom');
+    expect(state.clickValueCustom).toBe(0.3);
+  });
+  test('omits clickValueCustom when custom value is out of range', () => {
+    document.getElementById('clickValue').value = 'custom';
+    document.getElementById('clickValueCustom').value = '0';
+    expect(mod.currentState().clickValueCustom).toBeUndefined();
+  });
+  test('omits click keys when the select is absent', () => {
+    document.getElementById('clickValue').remove();
+    expect(mod.currentState().clickValue).toBeUndefined();
+  });
+  test('init restores click settings from the share URL', () => {
+    history.replaceState(null, '', '/?clickValue=custom&clickValueCustom=0.3');
+    mod.init();
+    expect(document.getElementById('clickValue').value).toBe('custom');
+    expect(document.getElementById('clickValueCustom').value).toBe('0.3');
+    expect(document.getElementById('clickValueCustom').style.display).toBe('');
+    history.replaceState(null, '', '/');
+  });
+});
+
 describe('syncUrl', () => {
   test('calls history.replaceState with new query string', () => {
     const spy = jest.spyOn(history, 'replaceState');

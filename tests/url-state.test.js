@@ -27,8 +27,8 @@ const STATE_20 = { ...BASE_STATE, bulletIds: make20Bullets() };
 
 // ── URL_PARAM_KEYS ─────────────────────────────────────────────────────────────
 describe('URL_PARAM_KEYS', () => {
-  test('contains exactly 15 keys', () => {
-    expect(URL_PARAM_KEYS).toHaveLength(15);
+  test('contains exactly 17 keys', () => {
+    expect(URL_PARAM_KEYS).toHaveLength(17);
   });
   test('is frozen', () => {
     expect(Object.isFrozen(URL_PARAM_KEYS)).toBe(true);
@@ -64,7 +64,7 @@ describe('encodeState', () => {
   test('always emits all required keys; optional keys absent when null', () => {
     const qs = encodeState(BASE_STATE);
     const params = new URLSearchParams(qs);
-    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens']);
+    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens', 'clickValue', 'clickValueCustom']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);
@@ -389,7 +389,7 @@ describe('mergeIntoSearch', () => {
   test('all required owned keys are always emitted; optional keys absent when null', () => {
     const result = mergeIntoSearch('', BASE_STATE);
     const params = new URLSearchParams(result);
-    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens']);
+    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens', 'clickValue', 'clickValueCustom']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);
@@ -522,5 +522,39 @@ describe('ENH-3: units URL state', () => {
 
     const merged = mergeIntoSearch('?utm_source=x&units=imperial', BASE_STATE);
     expect(new URLSearchParams(merged).has('units')).toBe(false);
+  });
+});
+
+// ── S24-2: scope click settings ────────────────────────────────────────────────
+describe('click settings – encode/decode', () => {
+  test('round-trips every allowed clickValue', () => {
+    for (const v of ['0.25moa', '0.5moa', '1moa', '0.1mrad', '0.05mrad', 'custom']) {
+      const qs = encodeState({ ...BASE_STATE, clickValue: v });
+      expect(decodeState(qs).params.clickValue).toBe(v);
+    }
+  });
+  test('omits click keys when absent from state', () => {
+    const params = new URLSearchParams(encodeState(BASE_STATE));
+    expect(params.has('clickValue')).toBe(false);
+    expect(params.has('clickValueCustom')).toBe(false);
+  });
+  test('round-trips clickValueCustom', () => {
+    const qs = encodeState({ ...BASE_STATE, clickValue: 'custom', clickValueCustom: 0.3 });
+    const { params } = decodeState(qs);
+    expect(params.clickValue).toBe('custom');
+    expect(params.clickValueCustom).toBe(0.3);
+  });
+  test('rejects unknown clickValue', () => {
+    expect(decodeState('?clickValue=2moa').params.clickValue).toBeUndefined();
+    expect(decodeState('?clickValue=<script>').params.clickValue).toBeUndefined();
+    expect(decodeState('?clickValue=2moa').recognized).toBe(true);
+  });
+  test('clickValueCustom must be in (0, 100]', () => {
+    expect(decodeState('?clickValueCustom=0').params.clickValueCustom).toBeUndefined();
+    expect(decodeState('?clickValueCustom=-1').params.clickValueCustom).toBeUndefined();
+    expect(decodeState('?clickValueCustom=100.5').params.clickValueCustom).toBeUndefined();
+    expect(decodeState('?clickValueCustom=abc').params.clickValueCustom).toBeUndefined();
+    expect(decodeState('?clickValueCustom=100').params.clickValueCustom).toBe(100);
+    expect(decodeState('?clickValueCustom=0.25').params.clickValueCustom).toBe(0.25);
   });
 });
