@@ -2977,9 +2977,15 @@ gh api repos/dirkharrington/ballistics/branches/main/protection/required_status_
 
 ---
 
+### S23-1 — MV temp sensitivity ✅ Done (PR #211)
+
+Adds an **MV Temp Sensitivity** input (`#mvSens`, fps/°F imperial · m/s/°C metric) beside the temperature input. Effective MV = nominal MV + sensitivity × (ambient − 15 °C) via the exported pure `effectiveMV()` in `app/mv-sens.js`, applied for catalog and custom bullets and in sweep mode (each sweep temperature uses its own effective MV). Validated to ±10 fps/°F (±3 m/s/°C) with an inline `#mvSens-error`; the stat card shows an "Effective MV" line when it differs from nominal. Persisted as `bv_mvSens` (canonical metric), included in profiles and the share URL (`mvSens`), and converted on the unit toggle. 100% Jest coverage maintained.
+
+---
+
 ### S23-2 — Transonic / subsonic range markers ✅ Done (PR #212)
 
-Adds `app/mach.js` with exported pure `speedOfSound()` and `findMachCrossing()`. Each bullet's stat card now shows the range at which it drops to Mach 1.2 (transonic) and Mach 1.0 (subsonic) — "Beyond max range" if not reached, "At muzzle" if already below. The data table gains a **Mach** column, also included in the CSV, JSON (per-point `mach`) and Markdown exports. The velocity chart draws a dashed "Mach 1.2" line at 1.2 × speed of sound, in the existing supersonic annotation colour. Speed of sound uses each result's own ambient temperature. 100% Jest coverage maintained.
+Adds `app/mach.js` with exported pure `speedOfSound()` and `findMachCrossing()`. Each bullet's stat card now shows the range at which it drops to Mach 1.2 (transonic) and Mach 1.0 (subsonic) — "Beyond max range" if not reached, "At muzzle" if already below. The data table gains a **Mach (ambient)** column, also included in the CSV, JSON (per-point `mach`) and Markdown exports. The velocity chart draws a dashed "Mach 1.2" line at 1.2 × speed of sound, in the existing supersonic annotation colour. Speed of sound uses each result's own ambient temperature. 100% Jest coverage maintained.
 
 ---
 

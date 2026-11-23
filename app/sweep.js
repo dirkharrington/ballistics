@@ -1,4 +1,5 @@
 import { bulletForDragModel } from './custom-bullets.js';
+import { applyMvSensitivity } from './mv-sens.js';
 import { simulateAsync } from './physics/engine-async.ts';
 import { TrajectoryInputError } from './physics/errors.ts';
 import { _setSimulationError } from './prefs.js';
@@ -171,6 +172,7 @@ export async function runSweep({
     sightHeightMm:        readMetricInputValue(document.getElementById('sightHeight'), 'sightHeight', sys),
     shootingAngleDegrees: +document.getElementById('shootingAngle').value,
     dragModel:            document.getElementById('dragModel').value,
+    mvSensMps:            readMetricInputValue(document.getElementById('mvSens'), 'mvSens', sys, 0),
   };
 
   const requests = buildSweepRequests(base, sweepParam, bulletId);
@@ -187,7 +189,7 @@ export async function runSweep({
   try {
     results = await Promise.all(
       requests.map(r => simulateAsync(
-        bulletForDragModel(bullet, r.dragModel),
+        applyMvSensitivity(bulletForDragModel(bullet, r.dragModel), r.mvSensMps, r.temperatureC),
         r,
         signal ? { signal } : undefined,
       )),

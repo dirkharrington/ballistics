@@ -22,6 +22,7 @@ export const UNIT_LABELS = Object.freeze({
   diameter:    Object.freeze({ metric: 'mm',   imperial: 'in'    }),
   pressure:    Object.freeze({ metric: 'hPa',  imperial: 'inHg'  }),
   vitalZone:   Object.freeze({ metric: 'cm',   imperial: 'in'    }),
+  mvSens:      Object.freeze({ metric: 'm/s/°C', imperial: 'fps/°F' }),
 });
 
 const M_PER_YARD   = 0.9144;
@@ -32,6 +33,8 @@ const J_PER_FTLB   = 1.35582;
 const G_PER_GRAIN  = 0.06479891;
 const MM_PER_INCH  = 25.4;
 const HPA_PER_INHG = 33.8638866667;
+// 1 fps/°F = 0.3048 m/s per (5/9)°C = 0.54864 m/s/°C
+const MPS_PER_C_PER_FPS_PER_F = M_PER_FOOT * 9 / 5;
 
 function roundN(val, dp) {
   const factor = 10 ** dp;
@@ -90,6 +93,10 @@ const CONVERTERS = {
   diameter: {
     toImperial: v => roundN(v / MM_PER_INCH, 3),
     toMetric:   v => roundN(v * MM_PER_INCH, 2),
+  },
+  mvSens: {
+    toImperial: v => roundN(v / MPS_PER_C_PER_FPS_PER_F, 3),
+    toMetric:   v => roundN(v * MPS_PER_C_PER_FPS_PER_F, 4),
   },
   pressure: {
     toImperial: v => roundN(v / HPA_PER_INHG, 2),
