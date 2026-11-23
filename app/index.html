@@ -444,6 +444,31 @@
           <div class="tool-results" id="bcCalcResult"></div>
         </div>
 
+        <!-- MV Truing -->
+        <section class="tool-card" id="mvTruingCard">
+          <h3 class="tool-title">MV TRUING</h3>
+          <div class="tool-row">
+            <label for="truingRange">Observed range (<span data-unit-kind="range">m</span>)</label>
+            <input type="number" id="truingRange" min="1" step="1" placeholder="500">
+          </div>
+          <div class="tool-row">
+            <label for="truingDrop">Observed drop (below line of sight)</label>
+            <input type="number" id="truingDrop" step="0.1" placeholder="45.0">
+            <select id="truingDropUnit" aria-label="Observed drop unit">
+              <option value="cm" data-unit-kind="drop">cm</option>
+              <option value="moa">MOA</option>
+            </select>
+          </div>
+          <button class="tool-calc-btn" id="truingCalc" type="button">Calculate</button>
+          <small class="field-error" id="truingError" role="alert"></small>
+          <div class="tool-results" id="truingResult" style="display:none">
+            <span class="tool-label">Trued MV</span>
+            <span class="tool-value" id="truingMV"></span> (<span id="truingDelta"></span>)
+            <button class="tool-calc-btn" id="truingApply" type="button">Apply to bullet</button>
+            <span id="truingApplyMsg" aria-live="polite"></span>
+          </div>
+        </section>
+
         <!-- MPBR Calculator -->
         <div class="tool-card" id="mpbrCard">
           <h3 class="tool-title">MPBR CALCULATOR</h3>

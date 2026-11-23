@@ -247,6 +247,37 @@ async function _withSweep(fn) {
   return fn(sweepMod);
 }
 
+/** First selected bullet + the last simulation request, for MV truing (S23-4). */
+function _getTruingContext() {
+  const id = [...selectedIds][0];
+  const baseBullet = id ? _bulletById.get(id) : null;
+  if (!baseBullet || !lastReq) return null;
+  const req = baseBullet.customDragTable?.length
+    ? { ...lastReq, customDragTable: baseBullet.customDragTable }
+    : lastReq;
+  return { baseBullet, bullet: bulletForDragModel(baseBullet, lastReq.dragModel), req };
+}
+
+/** Save (or refresh) the "<name> (trued)" custom bullet; never touches catalog bullets. */
+function _saveTruedBullet(fields, baseBullet) {
+  const existing = customRecords.find(r => r.name.toLowerCase() === fields.name.toLowerCase());
+  const result = validateCustomBulletInput(fields, {
+    records:      customRecords,
+    builtInNames: getBuiltInBullets().map(b => b.name),
+    editingId:    existing ? existing.id : null,
+  });
+  if (!result.ok) return { ok: false, message: result.errors[0].message };
+  const payload = { ...result.value, customDragTable: baseBullet.customDragTable ?? null };
+  const next = upsertCustomBullet(customRecords, payload, existing ? existing.id : null);
+  if (!saveCustomBullets(next).ok) return { ok: false, message: "Couldn't save: browser storage is full or unavailable." };
+  customRecords = next;
+  bullets       = mergeCatalog(getBuiltInBullets(), customRecords);
+  _syncBulletIndex(bullets);
+  renderBulletList();
+  showToast(existing ? 'Trued bullet updated' : 'Trued bullet added');
+  return { ok: true, name: result.value.name };
+}
+
 async function _ensureToolsLoaded() {
   const toolsMod = await _loadTools();
   if (!_toolsInitialized) {
@@ -255,6 +286,11 @@ async function _ensureToolsLoaded() {
     toolsMod.initDopeCard();
     toolsMod.initBcSolver(solveBCAsync);
     toolsMod.initMpbrTool();
+    toolsMod.initMvTruing({
+      getContext: _getTruingContext,
+      loadSimulate: () => import('./physics/engine.ts').then(m => m.simulate),
+      saveTrued: (baseBullet, mvMps) => _saveTruedBullet(toolsMod.truedBulletFields(baseBullet, mvMps), baseBullet),
+    });
   }
   toolsMod.setToolsUnitSystem(unitSystem);
   return toolsMod;
