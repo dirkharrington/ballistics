@@ -14,6 +14,8 @@ export const PREF_KEYS = {
   sightHeight:   'bv_sightHeight',
   angle:         'bv_angle',
   dragModel:     'bv_dragModel',
+  clickValue:    'bv_clickValue',
+  clickValueCustom: 'bv_clickValueCustom',
   recentCombos:  'bv_recentCombos',
 };
 
@@ -30,6 +32,8 @@ export const PREF_DEFAULTS = {
   sightHeight: 38.1,
   angle:       0,
   dragModel:   'G1',  // G1 = standard flat-base/spitzer; G7 = boat-tail long-range
+  clickValue:  '0.25moa', // scope click size preset (DOPE card)
+  clickValueCustom: 0.25, // custom click size in MOA
 };
 
 /** Maps PREF_DEFAULTS keys to their DOM input element IDs (selectedIds has no input). */
@@ -44,6 +48,8 @@ export const DOM_ID_FOR_PREF = {
   sightHeight: 'sightHeight',
   angle:       'shootingAngle',
   dragModel:   'dragModel',
+  clickValue:  'clickValue',
+  clickValueCustom: 'clickValueCustom',
 };
 
 /** Maps unit-dependent preference keys to their unit kinds in app/units.js. */

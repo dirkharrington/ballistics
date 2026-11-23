@@ -2970,3 +2970,13 @@ gh api repos/dirkharrington/ballistics/branches/main/protection/required_status_
 ```
 
 ---
+
+---
+
+## Sprint 23 — Field Realism: Temperature, Transonic & Truing
+
+---
+
+### S23-3 — Scope click values in DOPE ✅ Done (PR #PLACEHOLDER)
+
+Adds a click-value selector (`#clickValue`: ¼/½/1 MOA, 0.1/0.05 MRAD, Custom… with `#clickValueCustom` in MOA) to the DOPE card. New `app/clicks.js` exports the pure `toClicks(angleMOA, clickMOA)` (1 MRAD = 3.43775 MOA). Every DOPE row gains **Elev Clicks** (`+N U` / `N D` / `0`) and, when wind is present, **Wind Clicks** (`N R` / `N L` / `0`, the dial correction — drift right is corrected by dialling left). A "¼ MOA clicks"-style note appears under the table and is included in COPY TEXT and print. Persisted as `bv_clickValue` / `bv_clickValueCustom` and included in profile save/load. 100% Jest coverage maintained.
