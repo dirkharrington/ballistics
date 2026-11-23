@@ -2970,3 +2970,13 @@ gh api repos/dirkharrington/ballistics/branches/main/protection/required_status_
 ```
 
 ---
+
+---
+
+## Sprint 23 — Field Realism: Temperature, Transonic & Truing
+
+---
+
+### S23-1 — MV temp sensitivity ✅ Done (PR #211)
+
+Adds an **MV Temp Sensitivity** input (`#mvSens`, fps/°F imperial · m/s/°C metric) beside the temperature input. Effective MV = nominal MV + sensitivity × (ambient − 15 °C) via the exported pure `effectiveMV()` in `app/mv-sens.js`, applied for catalog and custom bullets and in sweep mode (each sweep temperature uses its own effective MV). Validated to ±10 fps/°F (±3 m/s/°C) with an inline `#mvSens-error`; the stat card shows an "Effective MV" line when it differs from nominal. Persisted as `bv_mvSens` (canonical metric), included in profiles and the share URL (`mvSens`), and converted on the unit toggle. 100% Jest coverage maintained.

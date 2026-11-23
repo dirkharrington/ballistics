@@ -23,12 +23,12 @@ beforeEach(() => {
 });
 
 describe('constants & unit labels', () => {
-  test('exports expected UNIT_SYSTEMS, storage key, and all 14 UNIT_LABELS kinds', () => {
+  test('exports expected UNIT_SYSTEMS, storage key, and all 15 UNIT_LABELS kinds', () => {
     expect(UNIT_SYSTEMS).toEqual({ METRIC: 'metric', IMPERIAL: 'imperial' });
     expect(UNITS_STORAGE_KEY).toBe('ballistics_units');
     expect(Object.keys(UNIT_LABELS)).toEqual([
       'range', 'drop', 'drift', 'velocity', 'windSpeed', 'energy', 'weight',
-      'altitude', 'temp', 'step', 'sightHeight', 'diameter', 'pressure', 'vitalZone',
+      'altitude', 'temp', 'step', 'sightHeight', 'diameter', 'pressure', 'vitalZone', 'mvSens',
     ]);
     expect(unitLabel('range')).toBe('m');
     expect(unitLabel('range', 'imperial')).toBe('yd');
