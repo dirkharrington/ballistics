@@ -2989,7 +2989,7 @@ Adds `app/mach.js` with exported pure `speedOfSound()` and `findMachCrossing()`.
 
 ---
 
-### TECH-1 / S24-1 — Align engine sound speed with ambient temperature ✅ Done (PR #PRNUM)
+### TECH-1 / S24-1 — Align engine sound speed with ambient temperature ✅ Done (PR #216)
 
 The engine's fixed `SOUND_FPS = 1125` is gone. `simulate()` now derives `soundFps = 331.3 × √(1 + T/273.15) × 3.28084` from the request's ambient temperature (exported helper `soundSpeedFps()`), used for the supersonic-limit threshold, custom drag-table Mach→fps conversion and its monotonicity validation. The engine and the UI Mach column now agree. 100% Jest coverage maintained.
 
