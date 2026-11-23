@@ -2861,7 +2861,7 @@ Fixed six devsecops BLOCK findings from PR #198:
 
 ---
 
-### SEC-LAT-URL · Remove latitude/azimuth from share URL · FE · Size S
+### ~~SEC-LAT-URL · Remove latitude/azimuth from share URL · FE · Size S~~ ✅ Done (PR #201)
 
 **Problem:** `url-state.js` lists `latitudeDeg` and `azimuthDeg` in its serialized key arrays (lines 4 and 21). These values reach the browser history, clipboard, and any shared link, leaking the shooter's approximate geographic location — a privacy exposure flagged in devsecops review of PR #78 (WA-13).
 
@@ -2874,7 +2874,7 @@ Fixed six devsecops BLOCK findings from PR #198:
 
 ---
 
-### CHART-DIFF-L2 · `_detectUpdateMode` missing `rangeMeters` check · FE · Size XS
+### ~~CHART-DIFF-L2 · `_detectUpdateMode` missing `rangeMeters` check · FE · Size XS~~ ✅ Done (PR #201)
 
 **Problem:** `_detectUpdateMode` in `charts.js` compares terminal-point fields (`dropCm`, `windDriftCm`, etc.) but not `points[last].rangeMeters`. A change in max-range or step size produces a different `points` length which is already caught, but an identical length with different final `rangeMeters` (e.g. two bullets at the same range step but one trimmed earlier) would return `noop` while the charts are stale. Flagged as L2 in devsecops review of PR #199.
 
@@ -2885,7 +2885,7 @@ Fixed six devsecops BLOCK findings from PR #198:
 
 ---
 
-### CHART-DIFF-L3 · Tests: verify bulletId values and wind-chart order after incremental add · FE · Size S
+### ~~CHART-DIFF-L3 · Tests: verify bulletId values and wind-chart order after incremental add · FE · Size S~~ ✅ Done (PR #201)
 
 **Problem:** The incremental-add test in `tests/charts.test.js` asserts dataset counts and removal but does not:
 1. Verify that surviving datasets carry their original `bulletId` and new datasets carry the new bullet's id.

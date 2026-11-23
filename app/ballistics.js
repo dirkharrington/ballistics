@@ -1018,8 +1018,6 @@ function init() {
   _setMetricInputVal('sightHeight', 'sightHeight', merged.sightHeight);
   _setInputVal('shootingAngle',     merged.angle);
   _setInputVal('dragModel',         merged.dragModel);
-  if (fromUrl.params.latitudeDeg     != null) _setInputVal('latitudeDeg', fromUrl.params.latitudeDeg);
-  if (fromUrl.params.azimuthDeg      != null) _setInputVal('azimuthDeg',  fromUrl.params.azimuthDeg);
   if (fromUrl.params.pressureHpa     != null) _setMetricInputVal('pressureHpa', 'pressure', fromUrl.params.pressureHpa);
   if (fromUrl.params.humidityPercent != null) _setInputVal('humidityPercent', fromUrl.params.humidityPercent);
   const eotvosEl = document.getElementById('includeEotvos');

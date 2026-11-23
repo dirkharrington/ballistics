@@ -27,17 +27,17 @@ const STATE_20 = { ...BASE_STATE, bulletIds: make20Bullets() };
 
 // ── URL_PARAM_KEYS ─────────────────────────────────────────────────────────────
 describe('URL_PARAM_KEYS', () => {
-  test('contains exactly 16 keys', () => {
-    expect(URL_PARAM_KEYS).toHaveLength(16);
+  test('contains exactly 14 keys', () => {
+    expect(URL_PARAM_KEYS).toHaveLength(14);
   });
   test('is frozen', () => {
     expect(Object.isFrozen(URL_PARAM_KEYS)).toBe(true);
   });
-  test('contains all expected keys including WA-13, ENH-2, and ENH-3 optional keys', () => {
+  test('contains all expected keys and excludes lat/az (SEC-LAT-URL)', () => {
     expect(URL_PARAM_KEYS).toContain('zero');
     expect(URL_PARAM_KEYS).toContain('dragModel');
-    expect(URL_PARAM_KEYS).toContain('latitudeDeg');
-    expect(URL_PARAM_KEYS).toContain('azimuthDeg');
+    expect(URL_PARAM_KEYS).not.toContain('latitudeDeg');
+    expect(URL_PARAM_KEYS).not.toContain('azimuthDeg');
     expect(URL_PARAM_KEYS).toContain('pressureHpa');
     expect(URL_PARAM_KEYS).toContain('humidityPercent');
     expect(URL_PARAM_KEYS).toContain('includeEotvos');
@@ -64,7 +64,7 @@ describe('encodeState', () => {
   test('always emits all required keys; optional keys absent when null', () => {
     const qs = encodeState(BASE_STATE);
     const params = new URLSearchParams(qs);
-    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos', 'units']);
+    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);
@@ -111,11 +111,11 @@ describe('encodeState', () => {
     expect(new URLSearchParams(qs).get('dragModel')).toBe('G7');
   });
 
-  test('emits latitudeDeg and azimuthDeg when provided', () => {
+  test('never emits latitudeDeg or azimuthDeg (SEC-LAT-URL)', () => {
     const qs = encodeState({ ...BASE_STATE, latitudeDeg: 45, azimuthDeg: 180 });
     const params = new URLSearchParams(qs);
-    expect(params.get('latitudeDeg')).toBe('45');
-    expect(params.get('azimuthDeg')).toBe('180');
+    expect(params.has('latitudeDeg')).toBe(false);
+    expect(params.has('azimuthDeg')).toBe(false);
   });
 
   test('omits latitudeDeg when null', () => {
@@ -124,7 +124,7 @@ describe('encodeState', () => {
     expect(params.has('latitudeDeg')).toBe(false);
   });
 
-  test('b keys come before 12 param keys in output order', () => {
+  test('b keys come before 10 param keys in output order', () => {
     const qs = encodeState(STATE_ONE);
     const keys = [...new URLSearchParams(qs).keys()];
     const bIndex    = keys.indexOf('b');
@@ -389,7 +389,7 @@ describe('mergeIntoSearch', () => {
   test('all required owned keys are always emitted; optional keys absent when null', () => {
     const result = mergeIntoSearch('', BASE_STATE);
     const params = new URLSearchParams(result);
-    const OPTIONAL = new Set(['latitudeDeg', 'azimuthDeg', 'pressureHpa', 'humidityPercent', 'includeEotvos', 'units']);
+    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);
@@ -398,43 +398,35 @@ describe('mergeIntoSearch', () => {
     expect(params.has('includeEotvos')).toBe(false);
   });
 
-  test('mergeIntoSearch emits latitudeDeg and azimuthDeg when provided', () => {
+  test('mergeIntoSearch never emits latitudeDeg or azimuthDeg (SEC-LAT-URL)', () => {
     const result = mergeIntoSearch('', { ...BASE_STATE, latitudeDeg: -33.9, azimuthDeg: 270 });
     const params = new URLSearchParams(result);
-    expect(params.has('latitudeDeg')).toBe(true);
-    expect(params.has('azimuthDeg')).toBe(true);
+    expect(params.has('latitudeDeg')).toBe(false);
+    expect(params.has('azimuthDeg')).toBe(false);
   });
 });
 
-// ── decodeState – WA-13 optional keys ─────────────────────────────────────────
-describe('decodeState – latitudeDeg and azimuthDeg', () => {
-  test('accepts latitudeDeg within [-90, 90]', () => {
-    expect(decodeState('?latitudeDeg=45').params.latitudeDeg).toBe(45);
-    expect(decodeState('?latitudeDeg=-90').params.latitudeDeg).toBe(-90);
-    expect(decodeState('?latitudeDeg=90').params.latitudeDeg).toBe(90);
-  });
-
-  test('rejects latitudeDeg outside range', () => {
+// ── decodeState – SEC-LAT-URL: lat/az always ignored ──────────────────────────
+describe('decodeState – latitudeDeg and azimuthDeg (SEC-LAT-URL)', () => {
+  test('ignores latitudeDeg in URL regardless of value', () => {
+    expect(decodeState('?latitudeDeg=45').params.latitudeDeg).toBeUndefined();
+    expect(decodeState('?latitudeDeg=-90').params.latitudeDeg).toBeUndefined();
     expect(decodeState('?latitudeDeg=91').params.latitudeDeg).toBeUndefined();
-    expect(decodeState('?latitudeDeg=-91').params.latitudeDeg).toBeUndefined();
   });
 
-  test('accepts azimuthDeg within [0, 360]', () => {
-    expect(decodeState('?azimuthDeg=0').params.azimuthDeg).toBe(0);
-    expect(decodeState('?azimuthDeg=180').params.azimuthDeg).toBe(180);
-    expect(decodeState('?azimuthDeg=360').params.azimuthDeg).toBe(360);
-  });
-
-  test('rejects azimuthDeg outside range', () => {
+  test('ignores azimuthDeg in URL regardless of value', () => {
+    expect(decodeState('?azimuthDeg=0').params.azimuthDeg).toBeUndefined();
+    expect(decodeState('?azimuthDeg=180').params.azimuthDeg).toBeUndefined();
     expect(decodeState('?azimuthDeg=361').params.azimuthDeg).toBeUndefined();
-    expect(decodeState('?azimuthDeg=-1').params.azimuthDeg).toBeUndefined();
   });
 
-  test('round-trips latitudeDeg and azimuthDeg', () => {
-    const qs = encodeState({ ...BASE_STATE, latitudeDeg: 51.5, azimuthDeg: 90 });
-    const { params } = decodeState('?' + qs);
-    expect(params.latitudeDeg).toBe(51.5);
-    expect(params.azimuthDeg).toBe(90);
+  test('old URLs with lat/az are silently ignored; other params still decode', () => {
+    const { params, recognized } = decodeState('?zero=100&maxRange=1000&latitudeDeg=45&azimuthDeg=90&dragModel=G1');
+    expect(params.latitudeDeg).toBeUndefined();
+    expect(params.azimuthDeg).toBeUndefined();
+    expect(params.zero).toBe(100);
+    expect(params.maxRange).toBe(1000);
+    expect(recognized).toBe(true);
   });
 });
 
