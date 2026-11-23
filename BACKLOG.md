@@ -2906,7 +2906,7 @@ Flagged as L3 in devsecops review of PR #199.
 
 ---
 
-### HIST-1 · Recent bullet combinations (last 10, localStorage) · FE · Size M
+### ~~HIST-1 · Recent bullet combinations (last 10, localStorage) · FE · Size M~~ ✅ Done (PR #204)
 
 **Problem:** Every session starts from scratch. Users who frequently compare the same two or three bullet sets must manually re-select them from the catalog each time. The app already persists the *current* selection via `bv_selectedIds`, but there is no history of past combinations.
 
