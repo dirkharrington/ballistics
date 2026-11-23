@@ -2989,7 +2989,11 @@ Adds `app/mach.js` with exported pure `speedOfSound()` and `findMachCrossing()`.
 
 ---
 
-### TECH-1 · Align engine fixed sound speed with ambient-temperature model · Engineering · Size S
+### TECH-1 / S24-1 — Align engine sound speed with ambient temperature ✅ Done (PR #216)
+
+The engine's fixed `SOUND_FPS = 1125` is gone. `simulate()` now derives `soundFps = 331.3 × √(1 + T/273.15) × 3.28084` from the request's ambient temperature (exported helper `soundSpeedFps()`), used for the supersonic-limit threshold, custom drag-table Mach→fps conversion and its monotonicity validation. The engine and the UI Mach column now agree. 100% Jest coverage maintained.
+
+<details><summary>Original ticket</summary>
 
 **Context:** `app/physics/engine.ts` uses a fixed `SOUND_FPS = 1125` (≈ 342.9 m/s) for drag-regime boundaries and custom-drag-table Mach→velocity conversion. `app/mach.js` uses the temperature-dependent formula `331.3 × √(1 + T/273.15)` m/s (≈ 340.3 m/s at 15 °C, ≈ 331.3 m/s at 0 °C). The discrepancy is ~0.8% at 15 °C and ~3.5% at 0 °C, meaning the engine's supersonic limit and the stat-card/table Mach values are computed against different sound speeds.
 
@@ -2999,6 +3003,8 @@ Adds `app/mach.js` with exported pure `speedOfSound()` and `findMachCrossing()`.
 - `engine.ts` derives its sound-speed constant from `speedOfSound(15) * FPS_PER_MPS` (or a shared constant) rather than a bare magic number.
 - At 15 °C, the engine's supersonic threshold and `mach.js` Mach 1.0 crossings agree to within floating-point precision.
 - All existing physics engine tests continue to pass; 100% Jest/JaCoCo coverage maintained.
+
+</details>
 
 ---
 

@@ -977,7 +977,7 @@ describe('FEAT-2 test 14: integrateTrajectoryFps with coriolisK', () => {
 // FEAT-3: Custom drag table
 // ─────────────────────────────────────────────────────────────────────────────
 
-const { toDragTable } = require('../app/physics/engine.ts');
+const { toDragTable, soundSpeedFps } = require('../app/physics/engine.ts');
 
 const FLAT_TABLE    = [{mach:0,cd:0.28},{mach:1,cd:0.28},{mach:3,cd:0.28}];
 const HEAVY_TABLE   = [{mach:0,cd:2.0},{mach:1,cd:2.0},{mach:3,cd:2.0}];
@@ -1077,7 +1077,7 @@ describe('FEAT-3 test 6: custom table + spin drift + Coriolis', () => {
 // Test 7: toDragTable
 describe('FEAT-3 test 7: toDragTable', () => {
   test('converts [{mach:0,cd:0.1},{mach:2,cd:0.3}] to [[0,0.1],[2250,0.3]]', () => {
-    const result = toDragTable([{mach:0,cd:0.1},{mach:2,cd:0.3}]);
+    const result = toDragTable([{mach:0,cd:0.1},{mach:2,cd:0.3}], 1125);
     expect(result[0][0]).toBe(0);
     expect(result[0][1]).toBeCloseTo(0.1);
     expect(result[1][0]).toBe(2250);
@@ -1663,5 +1663,17 @@ describe('ENH-2: opt-in Eotvos vertical Coriolis (coriolisVerticalCm)', () => {
       expect('coriolisVerticalCm' in p).toBe(true);
       expect(Object.is(p.coriolisVerticalCm, 0)).toBe(true);
     });
+  });
+});
+
+// S24-1 / TECH-1: temperature-dependent sound speed
+describe('S24-1: soundSpeedFps', () => {
+  test('at 0 °C differs from the old fixed 1125 fps by more than 1%', () => {
+    const f = soundSpeedFps(0);
+    expect(Math.abs(f - 1125) / 1125).toBeGreaterThan(0.01);
+    expect(f).toBeCloseTo(331.3 * 3.28084, 6);
+  });
+  test('at 15 °C matches the Mach module formula (~340.3 m/s)', () => {
+    expect(soundSpeedFps(15) / 3.28084).toBeCloseTo(340.3, 1);
   });
 });
