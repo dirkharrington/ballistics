@@ -12,11 +12,6 @@ export function speedOfSound(tempCelsius) {
   return 331.3 * Math.sqrt(1 + tempCelsius / 273.15);
 }
 
-/** Speed of sound in fps. */
-export function speedOfSoundFps(tempCelsius) {
-  return speedOfSound(tempCelsius) * FPS_PER_MPS;
-}
-
 /**
  * Interpolated range at which velocity first drops to `machThreshold * sos`.
  * @param {{range:number, velocity:number}[]} rows  consistent units

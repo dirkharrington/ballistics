@@ -1,5 +1,5 @@
 import {
-  speedOfSound, speedOfSoundFps, findMachCrossing, resultSpeedOfSound,
+  speedOfSound, findMachCrossing, resultSpeedOfSound,
   formatMach, machRangeText, TRANSONIC_MACH, SUBSONIC_MACH,
 } from '../app/mach.js';
 import { renderStatCards } from '../app/charts.js';
@@ -20,7 +20,6 @@ describe('speedOfSound', () => {
   test('0 °C', () => expect(speedOfSound(0)).toBeCloseTo(331.3, 5));
   test('15 °C', () => expect(speedOfSound(15)).toBeCloseTo(340.3, 0));
   test('20 °C', () => expect(speedOfSound(20)).toBeCloseTo(343.2, 0));
-  test('fps conversion', () => expect(speedOfSoundFps(15)).toBeCloseTo(speedOfSound(15) * 3.28084, 6));
 });
 
 describe('findMachCrossing', () => {
@@ -83,8 +82,8 @@ describe('stat cards, table, exports include Mach', () => {
   test('stat card shows transonic and subsonic', () => {
     const wrap = document.createElement('div');
     renderStatCards(results, wrap);
-    expect(wrap.textContent).toMatch(/transonic \(Mach 1\.2\)/);
-    expect(wrap.textContent).toMatch(/subsonic \(Mach 1\.0\)/);
+    expect(wrap.textContent).toMatch(/transonic \(Mach 1\.2, ambient\)/);
+    expect(wrap.textContent).toMatch(/subsonic \(Mach 1\.0, ambient\)/);
     expect(wrap.textContent).toMatch(/\d+ m\s+subsonic/);
   });
   test('table row has Mach cell', () => {

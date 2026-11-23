@@ -2980,3 +2980,16 @@ gh api repos/dirkharrington/ballistics/branches/main/protection/required_status_
 ### S23-2 — Transonic / subsonic range markers ✅ Done (PR #212)
 
 Adds `app/mach.js` with exported pure `speedOfSound()` and `findMachCrossing()`. Each bullet's stat card now shows the range at which it drops to Mach 1.2 (transonic) and Mach 1.0 (subsonic) — "Beyond max range" if not reached, "At muzzle" if already below. The data table gains a **Mach** column, also included in the CSV, JSON (per-point `mach`) and Markdown exports. The velocity chart draws a dashed "Mach 1.2" line at 1.2 × speed of sound, in the existing supersonic annotation colour. Speed of sound uses each result's own ambient temperature. 100% Jest coverage maintained.
+
+---
+
+### TECH-1 · Align engine fixed sound speed with ambient-temperature model · Engineering · Size S
+
+**Context:** `app/physics/engine.ts` uses a fixed `SOUND_FPS = 1125` (≈ 342.9 m/s) for drag-regime boundaries and custom-drag-table Mach→velocity conversion. `app/mach.js` uses the temperature-dependent formula `331.3 × √(1 + T/273.15)` m/s (≈ 340.3 m/s at 15 °C, ≈ 331.3 m/s at 0 °C). The discrepancy is ~0.8% at 15 °C and ~3.5% at 0 °C, meaning the engine's supersonic limit and the stat-card/table Mach values are computed against different sound speeds.
+
+**Goal:** Replace the engine's hardcoded `SOUND_FPS` with a value derived from the same formula (at the standard ISA 15 °C baseline, or ideally accept temperature as an input), so the drag model and the UI Mach column agree.
+
+**Acceptance criteria:**
+- `engine.ts` derives its sound-speed constant from `speedOfSound(15) * FPS_PER_MPS` (or a shared constant) rather than a bare magic number.
+- At 15 °C, the engine's supersonic threshold and `mach.js` Mach 1.0 crossings agree to within floating-point precision.
+- All existing physics engine tests continue to pass; 100% Jest/JaCoCo coverage maintained.

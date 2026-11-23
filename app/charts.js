@@ -487,8 +487,8 @@ function _statCardsHtml(results, unitSystem) {
             <span style="color:var(--text)">⚡ ${formatNumber(meDisp)}</span> ${eUnit} muzzle energy<br>
             <span style="color:var(--text)">${supDisp}</span> ${rUnit} supersonic${daLine}<br>
             <span style="color:var(--text)">${maxOrdDisp}</span> ${dUnit} max ordinate @ ${maxOrdRangeDisp} ${rUnit}<br>
-            <span style="color:var(--text)">${machRangeText(r, TRANSONIC_MACH, sys)}</span> transonic (Mach ${TRANSONIC_MACH})<br>
-            <span style="color:var(--text)">${machRangeText(r, SUBSONIC_MACH, sys)}</span> subsonic (Mach ${SUBSONIC_MACH.toFixed(1)})
+            <span style="color:var(--text)">${machRangeText(r, TRANSONIC_MACH, sys)}</span> transonic (Mach ${TRANSONIC_MACH}, ambient)<br>
+            <span style="color:var(--text)">${machRangeText(r, SUBSONIC_MACH, sys)}</span> subsonic (Mach ${SUBSONIC_MACH.toFixed(1)}, ambient)
           </div>
         </div>`;
       }).join('')}
