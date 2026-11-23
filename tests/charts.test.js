@@ -466,6 +466,21 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     expect(windChartSubtitle({ windSpeedKph: 20, windDirectionDeg: 270 })).toBe('20 km/h from W');
   });
 
+  test('S23-1: stat card shows Effective MV only when it differs from nominal', () => {
+    const withBullet = extra => {
+      const r = makeResult(2);
+      r.bullet = { ...r.bullet, ...extra };
+      return r;
+    };
+    const wrap = document.createElement('div');
+    renderStatCards([withBullet({ muzzleVelocityMps: 810, nominalMuzzleVelocityMps: 800 })], wrap);
+    expect(wrap.textContent).toContain('Effective MV');
+    expect(wrap.textContent).toContain('810');
+    const same = document.createElement('div');
+    renderStatCards([withBullet({ nominalMuzzleVelocityMps: 800, muzzleVelocityMps: 800 }), makeResult(2)], same);
+    expect(same.textContent).not.toContain('Effective MV');
+  });
+
   test('buildChartConfig callbacks read _chartMeta or fallback results and handle empty click', () => {
     const res = [makeResult(3)];
     const cfg = buildChartConfig({ id: 'dropChart', yLabel: 'Drop' }, [{ data: [] }], res);

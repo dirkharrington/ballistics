@@ -26,6 +26,7 @@ const OPTIONAL_NUMERIC_RULES = Object.freeze([
   ['azimuthDeg',      0,   360 ],
   ['pressureHpa',     500, 1100],
   ['humidityPercent', 0,   100 ],
+  ['mvSens',          -6,  6   ],
 ]);
 
 function _isPlainObject(v) {
