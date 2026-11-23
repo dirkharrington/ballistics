@@ -1,6 +1,7 @@
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { escapeHtml, formatNumber, computeAdjustments, _setSimulationError } from './prefs.js';
 import { normalizeUnitSystem, toDisplay, unitLabel } from './units.js';
+import { TRANSONIC_MACH, SUBSONIC_MACH, resultSpeedOfSound, machRangeText } from './mach.js';
 
 // ── Constants & colour helpers ────────────────────────────────────────────────
 
@@ -491,7 +492,9 @@ function _statCardsHtml(results, unitSystem) {
             <span style="color:var(--text)">⚡ ${formatNumber(meDisp)}</span> ${eUnit} muzzle energy<br>
             ${effMvLine}
             <span style="color:var(--text)">${supDisp}</span> ${rUnit} supersonic${daLine}<br>
-            <span style="color:var(--text)">${maxOrdDisp}</span> ${dUnit} max ordinate @ ${maxOrdRangeDisp} ${rUnit}
+            <span style="color:var(--text)">${maxOrdDisp}</span> ${dUnit} max ordinate @ ${maxOrdRangeDisp} ${rUnit}<br>
+            <span style="color:var(--text)">${machRangeText(r, TRANSONIC_MACH, sys)}</span> transonic (Mach ${TRANSONIC_MACH}, ambient)<br>
+            <span style="color:var(--text)">${machRangeText(r, SUBSONIC_MACH, sys)}</span> subsonic (Mach ${SUBSONIC_MACH.toFixed(1)}, ambient)
           </div>
         </div>`;
       }).join('')}
@@ -760,6 +763,9 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
   const sonicAnn = first
     ? [{ type: 'vertical',   value: toDisplay('range', first.supersonicLimitMeters, sys),  label: 'SUPERSONIC ←', color: SONIC_COLOR }]
     : [];
+  const machAnn = first
+    ? [{ type: 'horizontal', value: toDisplay('velocity', TRANSONIC_MACH * resultSpeedOfSound(first), sys), label: `Mach ${TRANSONIC_MACH}`, color: SONIC_COLOR }]
+    : [];
   const dropAnns = first
     ? [
         ...sonicAnn,
@@ -771,7 +777,7 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
   const zeroDisp = toDisplay('range', req.zeroRangeMeters, sys);
   const chartDefs = [
     { id: 'dropChart',     title: 'BULLET DROP',         subtitle: `zeroed at ${zeroDisp} ${rUnit}`,     yLabel: `Drop (${dUnit})`,      key: 'dropCm',       unitKind: 'drop',     annotations: [...dropAnns] },
-    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: `${vUnit} downrange`,                 yLabel: `Velocity (${vUnit})`,  key: 'velocityMps',  unitKind: 'velocity', annotations: [...sonicAnn] },
+    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: `${vUnit} downrange`,                 yLabel: `Velocity (${vUnit})`,  key: 'velocityMps',  unitKind: 'velocity', annotations: [...sonicAnn, ...machAnn] },
     { id: 'energyChart',   title: 'KINETIC ENERGY',      subtitle: `${sys === 'imperial' ? 'ft·lb' : 'joules'} downrange`, yLabel: `Energy (${eUnit})`, key: 'energyJoules', unitKind: 'energy', annotations: [...sonicAnn] },
     { id: 'windChart',     title: 'WIND DRIFT',          subtitle: windChartSubtitle(req, sys),          yLabel: `Drift (${drUnit})`,    key: 'windDriftCm',  unitKind: 'drift',    annotations: [...sonicAnn] },
   ];

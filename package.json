@@ -27,6 +27,7 @@
       "app/sw.js",
       "app/drag-csv.js",
       "app/ballistics.js",
+      "app/mach.js",
       "app/mv-sens.js",
       "app/prefs.js",
       "app/charts.js",

@@ -1,6 +1,7 @@
 import { escapeHtml, formatNumber, computeAdjustments } from './prefs.js';
 import { colorFor } from './charts.js';
 import { normalizeUnitSystem, toDisplay, unitLabel } from './units.js';
+import { resultSpeedOfSound, formatMach } from './mach.js';
 
 export const TABLE_CHUNK_THRESHOLD = 500;
 export const TABLE_CHUNK_SIZE      = 250;
@@ -40,7 +41,7 @@ function _updateTableHeaders(unitSystem) {
   });
 }
 
-function _formatTableRow({ p, adj, color, escapedName }, showSpinDrift, showCoriolis, showEotvos, unitSystem) {
+function _formatTableRow({ p, adj, color, escapedName, sos }, showSpinDrift, showCoriolis, showEotvos, unitSystem) {
   const dUnit  = unitLabel('drop', unitSystem);
   const drUnit = unitLabel('drift', unitSystem);
   const rangeVal = toDisplay('range', p.rangeMeters, unitSystem);
@@ -62,6 +63,7 @@ function _formatTableRow({ p, adj, color, escapedName }, showSpinDrift, showCori
           <td>${p.timeOfFlightSec}s</td>
           <td>${adj.moa > 0 ? '+' : ''}${adj.moa}</td>
           <td>${adj.mrad > 0 ? '+' : ''}${adj.mrad}</td>
+          <td>${formatMach(p.velocityMps, sos)}</td>
           ${showSpinDrift ? `<td>${spinVal.toFixed(1)} ${drUnit}</td>` : ''}
           ${showCoriolis ? `<td>${corVal >= 0 ? '+' : ''}${corVal.toFixed(1)} ${drUnit}</td>` : ''}
           ${showEotvos ? `<td>${eotVal >= 0 ? '+' : ''}${eotVal.toFixed(1)} ${dUnit}</td>` : ''}
@@ -98,9 +100,10 @@ export function renderTable(results, unitSystem = _tableUnitSystem) {
     results.forEach(r => {
       const color       = colorFor(r.bullet);
       const escapedName = escapeHtml(r.bullet.name);
+      const sos         = resultSpeedOfSound(r);
       r.points.forEach(p => {
         const adj = computeAdjustments(p.dropCm, p.rangeMeters);
-        _cachedTableRows.push({ r, p, adj, color, escapedName });
+        _cachedTableRows.push({ r, p, adj, color, escapedName, sos });
       });
     });
   }
