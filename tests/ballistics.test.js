@@ -168,6 +168,13 @@ function buildDOM() {
       <input id="mpbrVitalCm" value="20" />
       <div id="mpbrResults"></div>
     </div>
+    <section id="mvTruingCard">
+      <input type="number" id="truingRange"><input type="number" id="truingDrop">
+      <select id="truingDropUnit"><option value="cm">cm</option><option value="moa">MOA</option></select>
+      <button id="truingCalc">Calculate</button><small id="truingError"></small>
+      <div id="truingResult" style="display:none"><span id="truingMV"></span> (<span id="truingDelta"></span>)
+        <button id="truingApply">Apply</button><span id="truingApplyMsg"></span></div>
+    </section>
     <div id="bcCalcCard">
       <input id="bcCalcWeightG" value="" />
       <input id="bcCalcMvMps"   value="" />
@@ -456,6 +463,126 @@ describe('syncSelectionMeta', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // switchTab
 // ─────────────────────────────────────────────────────────────────────────────
+describe('S23-4: MV truing wiring', () => {
+  const { simulate: realSimulate } = require('../app/physics/engine.ts');
+  const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+  const tick = () => new Promise(r => { jest.useRealTimers(); setTimeout(r, 0); });
+
+  async function setup() {
+    mod._setBullets(mod.getBuiltInBullets());
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    await mod.runSimulation();
+    jest.runAllTimers();
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    await flush();
+  }
+  const dropAt = (mv, range) => {
+    const b = mod.getBuiltInBullets().find(x => x.id === '308-win-168gr');
+    const req = mod._getState().lastReq;
+    const res = realSimulate({ ...b, muzzleVelocityMps: mv }, { ...req, maxRangeMeters: range, stepMeters: range });
+    return -res.points[res.points.length - 1].dropCm;
+  };
+
+  test('shows an error when no simulation has been run', async () => {
+    mod._setBullets(mod.getBuiltInBullets());
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = '50';
+    document.getElementById('truingCalc').click();
+    await flush();
+    expect(document.getElementById('truingError').textContent).toMatch(/run a simulation/i);
+  });
+
+  test('shows guidance when nothing is selected even after a simulation', async () => {
+    await setup();
+    mod._setSelectedIds(new Set());
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = '50';
+    document.getElementById('truingCalc').click();
+    await flush();
+    expect(document.getElementById('truingError').textContent).toMatch(/run a simulation/i);
+  });
+
+  test('solves MV for a known drop, then saves a "(trued)" custom bullet without touching the catalog', async () => {
+    await setup();
+    const target = dropAt(790, 300);
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = String(target);
+    document.getElementById('truingCalc').click();
+    await tick();
+    jest.useFakeTimers();
+    expect(document.getElementById('truingError').textContent).toBe('');
+    expect(document.getElementById('truingResult').style.display).toBe('');
+    const mv = parseFloat(document.getElementById('truingMV').textContent);
+    expect(mv).toBeGreaterThan(780);
+    expect(mv).toBeLessThan(800);
+    expect(document.getElementById('truingDelta').textContent).toMatch(/vs nominal/);
+
+    const catalogBefore = mod.getBuiltInBullets().map(b => b.muzzleVelocityMps);
+    document.getElementById('truingApply').click();
+    const st = mod._getState();
+    expect(st.customRecords).toHaveLength(1);
+    expect(st.customRecords[0].name).toBe('.308 Win 168gr BTHP (trued)');
+    expect(document.getElementById('truingApplyMsg').textContent).toMatch(/Saved/);
+    expect(mod.getBuiltInBullets().map(b => b.muzzleVelocityMps)).toEqual(catalogBefore);
+
+    // Applying again refreshes the same record instead of failing as a duplicate
+    document.getElementById('truingApply').click();
+    expect(mod._getState().customRecords).toHaveLength(1);
+    expect(document.getElementById('toast').textContent).toBe('Trued bullet updated');
+  });
+
+  test('reports a storage failure when saving the trued bullet', async () => {
+    await setup();
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = String(dropAt(790, 300));
+    document.getElementById('truingCalc').click();
+    await tick();
+    jest.useFakeTimers();
+    const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('full'); });
+    document.getElementById('truingApply').click();
+    spy.mockRestore();
+    expect(document.getElementById('truingApplyMsg').textContent).toMatch(/storage/i);
+  });
+
+  test('reports a validation failure from the custom-bullet rules', async () => {
+    await setup();
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = String(dropAt(790, 300));
+    document.getElementById('truingCalc').click();
+    await tick();
+    jest.useFakeTimers();
+    // Fill the custom list so the form-level limit error fires
+    mod._setCustomRecords(Array.from({ length: 50 }, (_, i) => ({
+      id: `usr-${String(i).padStart(8, '0')}`, name: `X${i}`, shortName: `X${i}`, bulletWeightGrains: 100,
+      ballisticCoefficientG1: 0.4, ballisticCoefficientG7: null, bulletDiameterInches: 0.3, muzzleVelocityFps: 2500,
+    })));
+    document.getElementById('truingApply').click();
+    expect(document.getElementById('truingApplyMsg').textContent).toMatch(/limit/i);
+  });
+
+  test('uses a custom drag table and G7 BC from the selected bullet', async () => {
+    mod._setBullets([
+      ...mod.getBuiltInBullets(),
+      { id: 'usr-aaaaaaaa', name: 'Mine', shortName: 'Mine', bulletWeightGrams: 10, muzzleVelocityMps: 800,
+        ballisticCoefficient: 0.4, ballisticCoefficientG7: 0.2, bulletDiameterMm: 7.8, muzzleEnergyJoules: 1,
+        customDragTable: [{ mach: 0.5, cd: 0.3 }, { mach: 1, cd: 0.4 }, { mach: 2, cd: 0.3 }] },
+    ]);
+    mod._setSelectedIds(new Set(['usr-aaaaaaaa']));
+    await mod.runSimulation();
+    jest.runAllTimers();
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    await flush();
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = '40';
+    document.getElementById('truingCalc').click();
+    await tick();
+    jest.useFakeTimers();
+    expect(document.getElementById('truingError').textContent).toBe('');
+  });
+});
+
 describe('switchTab', () => {
   test('switching to charts activates chartsPanel', () => {
     const el = document.getElementById('tab-charts');

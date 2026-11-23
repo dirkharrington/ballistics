@@ -3005,3 +3005,9 @@ Adds `app/mach.js` with exported pure `speedOfSound()` and `findMachCrossing()`.
 ### S23-3 — Scope click values in DOPE ✅ Done (PR #213)
 
 Adds a click-value selector (`#clickValue`: ¼/½/1 MOA, 0.1/0.05 MRAD, Custom… with `#clickValueCustom` in MOA) to the DOPE card. New `app/clicks.js` exports the pure `toClicks(angleMOA, clickMOA)` (1 MRAD = 3.43775 MOA). Every DOPE row gains **Elev Clicks** (`+N U` / `N D` / `0`) and, when wind is present, **Wind Clicks** (`N R` / `N L` / `0`, the dial correction — drift right is corrected by dialling left). A "¼ MOA clicks"-style note appears under the table and is included in COPY TEXT and print. Persisted as `bv_clickValue` / `bv_clickValueCustom` and included in profile save/load. 100% Jest coverage maintained.
+
+---
+
+### S23-4 — MV truing tool ✅ Done (PR #214)
+
+Adds an **MV Truing** card to the Tools tab. Enter an observed range and drop (cm/in, or MOA; positive = below line of sight); `solveMV()` (exported from `app/tools.js`, bisection over 50–9999 m/s) finds the muzzle velocity that reproduces it using the selected bullet and the last simulation's atmosphere, zero range and sight height. The result shows the trued MV and its delta vs nominal; **Apply to bullet** saves a `<name> (trued)` custom bullet (re-applying refreshes it). Catalog bullets are never mutated. Errors surface from the engine and appear in `#truingError`; implausible solved MV values are rejected with an error message. 100% Jest coverage maintained.
