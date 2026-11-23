@@ -32,6 +32,7 @@ import {
   writeMetricInputValue, readMetricInputValue,
 } from './units.js';
 import { loadProfiles, saveProfile, deleteProfile } from './profiles.js';
+import { syncClickCustomVisibility } from './clicks.js';
 import { validateMvSens, applyMvSensitivity, showMvSensError } from './mv-sens.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -968,6 +969,12 @@ async function _applyProfile(profile) {
   _setMetricInputVal('sightHeight', 'sightHeight', p.sightHeight);
   _setInputVal('shootingAngle',     String(p.angle));
   _setInputVal('dragModel',         p.dragModel);
+  if (p.clickValue != null) {
+    _setInputVal('clickValue',       p.clickValue);
+    _setInputVal('clickValueCustom', String(p.clickValueCustom ?? 0.25));
+    syncClickCustomVisibility();
+    document.getElementById('clickValue')?.dispatchEvent(new Event('change'));
+  }
   _setInputVal('twistRate',         p.twistRate != null ? String(p.twistRate) : '');
   _setInputVal('latitudeDeg',       p.latitudeDeg != null ? String(p.latitudeDeg) : '');
   _setInputVal('azimuthDeg',        p.azimuthDeg != null ? String(p.azimuthDeg) : '');
@@ -1066,6 +1073,9 @@ function init() {
   _setMetricInputVal('sightHeight', 'sightHeight', merged.sightHeight);
   _setInputVal('shootingAngle',     merged.angle);
   _setInputVal('dragModel',         merged.dragModel);
+  _setInputVal('clickValue',        merged.clickValue);
+  _setInputVal('clickValueCustom',  merged.clickValueCustom);
+  syncClickCustomVisibility();
   _setMetricInputVal('mvSens',      'mvSens',      merged.mvSens);
   if (fromUrl.params.pressureHpa     != null) _setMetricInputVal('pressureHpa', 'pressure', fromUrl.params.pressureHpa);
   if (fromUrl.params.humidityPercent != null) _setInputVal('humidityPercent', fromUrl.params.humidityPercent);
@@ -1139,6 +1149,14 @@ function init() {
     'zeroRange','maxRange','windSpeed','windDir','altitude','pressureHpa','temperature','humidityPercent',
     'step','sightHeight','mvSens','shootingAngle','dragModel','twistRate','latitudeDeg','azimuthDeg','includeEotvos',
   ];
+  // Click-size changes persist but never trigger a recompute (DOPE re-renders itself)
+  ['clickValue', 'clickValueCustom'].forEach(id => {
+    const el = document.getElementById(id);
+    /* istanbul ignore next -- both click inputs are always present in the app shell */
+    if (!el) return;
+    el.addEventListener('input', _persistInputs, { signal });
+    el.addEventListener('change', _persistInputs, { signal });
+  });
   autoParamIds.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -1254,8 +1272,11 @@ function init() {
     const select    = document.getElementById('profileSelect');
     const name      = (nameInput?.value ?? '').trim() || select?.value || '';
     const twistRaw  = document.getElementById('twistRate')?.value;
+    const clickValue = document.getElementById('clickValue')?.value;
+    const clickCustom = Number(document.getElementById('clickValueCustom')?.value);
     const params    = {
       ...currentState(),
+      ...(clickValue ? { clickValue, clickValueCustom: clickCustom > 0 ? clickCustom : 0.25 } : {}),
       ...(twistRaw ? { twistRate: +twistRaw } : {}),
     };
     const res = saveProfile(name, params);

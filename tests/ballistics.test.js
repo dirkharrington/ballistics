@@ -137,6 +137,11 @@ function buildDOM() {
     <button type="button" id="importJsonBtn" class="copy-link-btn" aria-label="Import previously exported trajectory JSON">⬆ IMPORT JSON</button>
     <input type="file" id="importJsonFile" accept=".json,application/json" style="display:none" />
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
+    <select id="clickValue">
+      <option value="0.25moa">¼ MOA</option><option value="0.5moa">½ MOA</option><option value="1moa">1 MOA</option>
+      <option value="0.1mrad">0.1 MRAD</option><option value="0.05mrad">0.05 MRAD</option><option value="custom">Custom…</option>
+    </select>
+    <input type="number" id="clickValueCustom" style="display:none" value="0.25">
     <input type="number" id="mvSens" value="0" /><small id="mvSens-error" class="field-error"></small>
     <input id="twistRate" value="" />
     <input id="latitudeDeg" value="" />
@@ -4778,6 +4783,74 @@ describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CS
     expect(document.getElementById('pressureHpa').value).toBe('990');
     expect(document.getElementById('humidityPercent').value).toBe('40');
     expect(document.getElementById('includeEotvos').checked).toBe(true);
+  });
+
+  test('S23-3: click value persists to prefs, restores on init, and round-trips through a profile', async () => {
+    mod.init();
+    const sel = document.getElementById('clickValue');
+    sel.value = 'custom';
+    document.getElementById('clickValueCustom').value = '0.3';
+    sel.dispatchEvent(new Event('change'));
+    jest.runAllTimers();
+    expect(localStorage.getItem('bv_clickValue')).toBe('custom');
+    expect(localStorage.getItem('bv_clickValueCustom')).toBe('0.3');
+
+    document.getElementById('profileNameInput').value = 'Clicky';
+    document.getElementById('saveProfileBtn').click();
+    expect(document.getElementById('toast').textContent).toBe('Profile saved');
+
+    // Change away, then load the profile to restore click value
+    sel.value = '1moa';
+    document.getElementById('clickValueCustom').value = '0.5';
+    const select = document.getElementById('profileSelect');
+    select.value = 'Clicky';
+    select.dispatchEvent(new Event('change'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(sel.value).toBe('custom');
+    expect(document.getElementById('clickValueCustom').value).toBe('0.3');
+    expect(document.getElementById('clickValueCustom').style.display).toBe('');
+
+    // Re-init restores from prefs
+    buildDOM();
+    mod._resetState();
+    mod.init();
+    expect(document.getElementById('clickValue').value).toBe('custom');
+    expect(document.getElementById('clickValueCustom').value).toBe('0.3');
+  });
+
+  test('S23-3: profile saved without a click select falls back and loads without click fields', async () => {
+    mod.init();
+    document.getElementById('clickValue').remove();
+    document.getElementById('profileNameInput').value = 'NoClick';
+    document.getElementById('saveProfileBtn').click();
+    expect(document.getElementById('toast').textContent).toBe('Profile saved');
+    const select = document.getElementById('profileSelect');
+    select.value = 'NoClick';
+    select.dispatchEvent(new Event('change'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(document.getElementById('toast').textContent).toBe('Profile loaded');
+  });
+
+  test('S23-3: profile with clickValue but no custom value loads with 0.25', async () => {
+    mod.init();
+    localStorage.setItem('ballistics_profiles', JSON.stringify([{
+      name: 'Legacy', params: { bulletIds: [], dragModel: 'G1', zero: 100, maxRange: 1000, wind: 0, windDir: 90,
+        altitude: 0, temp: 15, step: 25, sightHeight: 38.1, angle: 0, clickValue: '0.5moa' } }]));
+    mod.init();
+    const select = document.getElementById('profileSelect');
+    select.value = 'Legacy';
+    select.dispatchEvent(new Event('change'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(document.getElementById('clickValue').value).toBe('0.5moa');
+    expect(document.getElementById('clickValueCustom').value).toBe('0.25');
+  });
+
+  test('S23-3: invalid custom value is saved as 0.25 default', () => {
+    mod.init();
+    document.getElementById('clickValueCustom').value = '';
+    document.getElementById('profileNameInput').value = 'BadCustom';
+    document.getElementById('saveProfileBtn').click();
+    expect(JSON.parse(localStorage.getItem('ballistics_profiles'))[0].params.clickValueCustom).toBe(0.25);
   });
 
   test('saves, updates, loads (across units & optional fields), and deletes named rifle profiles', async () => {

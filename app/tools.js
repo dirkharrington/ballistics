@@ -1,5 +1,6 @@
 import { normalizeUnitSystem, toDisplay, fromDisplay, unitLabel } from './units.js';
 import { escapeHtml, computeAdjustments } from './prefs.js';
+import { toClicks, formatElevClicks, formatWindClicks, readClickValue, syncClickCustomVisibility } from './clicks.js';
 
 // ── MOA / MRAD ────────────────────────────────────────────────────────────────
 
@@ -106,11 +107,12 @@ function _buildDopeTable(results, unitSystem) {
   const hasWind = results.some(r => r.points.some(p => p.windDriftCm != null && p.windDriftCm !== 0));
   const hasCoriolis = results.some(r => r.points.some(p => p.coriolisDeflectionCm !== undefined && p.coriolisDeflectionCm !== 0));
   const hasEotvos = results.some(r => r.points.some(p => p.coriolisVerticalCm !== undefined));
-  const colSpan = 2 + (hasWind ? 2 : 0) + (hasCoriolis ? 1 : 0) + (hasEotvos ? 1 : 0);
+  const click = readClickValue();
+  const colSpan = 3 + (hasWind ? 3 : 0) + (hasCoriolis ? 1 : 0) + (hasEotvos ? 1 : 0);
 
   const thCols = results.map(r => `<th colspan="${colSpan}">${escapeHtml(r.bullet.name)}</th>`).join('');
   const thSub  = results.map(() =>
-    `<th>MOA↑</th><th>MRAD↑</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th>' : ''}${hasCoriolis ? `<th>Cor. (${drUnit})</th>` : ''}${hasEotvos ? `<th>Eötvös (${dUnit})</th>` : ''}`
+    `<th>MOA↑</th><th>MRAD↑</th><th>Elev Clicks</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th><th>Wind Clicks</th>' : ''}${hasCoriolis ? `<th>Cor. (${drUnit})</th>` : ''}${hasEotvos ? `<th>Eötvös (${dUnit})</th>` : ''}`
   ).join('');
 
   const bodyRows = dists.map(dist => {
@@ -119,16 +121,20 @@ function _buildDopeTable(results, unitSystem) {
       const drop = interpolateAt(r.points, distMeters, 'dropCm');
       if (drop == null) return '<td>–</td>'.repeat(colSpan);
       const { moa, mrad } = computeAdjustments(drop, distMeters);
+      const elevSign   = drop < 0 ? 1 : (drop > 0 ? -1 : 0);
+      const rawElevMoa = elevSign * Math.atan2(Math.abs(drop) / 100, distMeters) * (180 / Math.PI) * 60;
       let windCells = '';
       if (hasWind) {
         const wind = interpolateAt(r.points, distMeters, 'windDriftCm');
         if (wind == null) {
-          windCells = '<td>–</td><td>–</td>';
+          windCells = '<td>–</td><td>–</td><td>–</td>';
         } else {
-          const wRad  = Math.atan2(wind / 100, distMeters);
-          const wMoa  = Math.round(wRad * (180 / Math.PI) * 60 * 10) / 10 + 0;
-          const wMrad = Math.round(wRad * 1000 * 10) / 10 + 0;
-          windCells = `<td>${wMoa > 0 ? '+' : ''}${wMoa}</td><td>${wMrad > 0 ? '+' : ''}${wMrad}</td>`;
+          const wRad    = Math.atan2(wind / 100, distMeters);
+          const rawWMoa = wRad * (180 / Math.PI) * 60;
+          const wMoa    = Math.round(rawWMoa * 10) / 10 + 0;
+          const wMrad   = Math.round(wRad * 1000 * 10) / 10 + 0;
+          // Wind clicks are the dial correction: drift right (+) is corrected by dialling left.
+          windCells = `<td>${wMoa > 0 ? '+' : ''}${wMoa}</td><td>${wMrad > 0 ? '+' : ''}${wMrad}</td><td>${formatWindClicks(-toClicks(rawWMoa, click.moa))}</td>`;
         }
       }
       let corCell = '';
@@ -147,7 +153,7 @@ function _buildDopeTable(results, unitSystem) {
           ? `<td>${eotDisp >= 0 ? '+' : ''}${eotDisp.toFixed(1)}</td>`
           : '<td>–</td>';
       }
-      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td>${windCells}${corCell}${eotCell}`;
+      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td><td>${formatElevClicks(toClicks(rawElevMoa, click.moa))}</td>${windCells}${corCell}${eotCell}`;
     }).join('');
     return `<tr><td><strong>${dist}</strong></td>${tds}</tr>`;
   }).join('');
@@ -159,6 +165,8 @@ function _buildDopeTable(results, unitSystem) {
     </thead>
     <tbody>${bodyRows}</tbody>
   `;
+  const note = document.getElementById('dopeClickNote');
+  if (note) note.textContent = `${click.label} clicks`;
 }
 
 function _renderDopeDistanceInputs() {
@@ -184,9 +192,10 @@ function _renderDopeDistanceInputs() {
 function _copyDopeText() {
   const table = document.getElementById('dopeTable');
   if (!table) return;
+  const note = document.getElementById('dopeClickNote')?.textContent;
   const text = Array.from(table.querySelectorAll('tr'))
     .map(tr => Array.from(tr.querySelectorAll('th,td')).map(c => c.textContent.trim()).join('\t'))
-    .join('\n');
+    .join('\n') + (note ? `\n${note}` : '');
   navigator.clipboard?.writeText(text).catch(() => {});
 }
 
@@ -213,6 +222,14 @@ function initDopeCard() {
     _saveDopeDistances();
     if (_lastDopeResults) _buildDopeTable(_lastDopeResults, _toolsUnitSystem);
   });
+
+  const onClickValueChange = () => {
+    syncClickCustomVisibility();
+    _buildDopeTable(_lastDopeResults, _toolsUnitSystem); // no-ops until results exist
+  };
+  document.getElementById('clickValue')?.addEventListener('change', onClickValueChange);
+  document.getElementById('clickValueCustom')?.addEventListener('input', onClickValueChange);
+  syncClickCustomVisibility();
 
   document.getElementById('dopeCopyBtn')?.addEventListener('click', _copyDopeText);
   document.getElementById('dopePrintBtn')?.addEventListener('click', () => window.print());
