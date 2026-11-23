@@ -43,22 +43,22 @@ describe('validateMvSens', () => {
   });
   test('accepts values inside and on the metric limit', () => {
     expect(validateMvSens('0.5', 'metric')).toEqual({ ok: true, value: 0.5 });
-    expect(validateMvSens('3', 'metric').ok).toBe(true);
-    expect(validateMvSens('-3', 'metric').ok).toBe(true);
+    expect(validateMvSens('5.5', 'metric').ok).toBe(true);
+    expect(validateMvSens('-5.5', 'metric').ok).toBe(true);
   });
   test('rejects values beyond the metric limit', () => {
-    const r = validateMvSens('3.01', 'metric');
+    const r = validateMvSens('5.51', 'metric');
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/m\/s\/°C/);
-    expect(validateMvSens('-3.01').ok).toBe(false);
+    expect(validateMvSens('-5.51').ok).toBe(false);
   });
-  test('imperial limit is ±10 fps/°F', () => {
+  test('imperial limit is ±10.025 fps/°F', () => {
     expect(validateMvSens('10', 'imperial').ok).toBe(true);
     expect(validateMvSens('-10', 'imperial').ok).toBe(true);
     const r = validateMvSens('10.1', 'imperial');
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/fps\/°F/);
-    expect(MV_SENS_LIMITS).toEqual({ metric: 3, imperial: 10 });
+    expect(MV_SENS_LIMITS).toEqual({ metric: 5.5, imperial: 10.025 });
   });
   test('rejects non-numeric and non-finite input', () => {
     expect(validateMvSens('abc').ok).toBe(false);
@@ -66,7 +66,7 @@ describe('validateMvSens', () => {
     expect(validateMvSens('NaN').ok).toBe(false);
   });
   test('unknown unit system falls back to metric', () => {
-    expect(validateMvSens('4', 'bogus').ok).toBe(false);
+    expect(validateMvSens('5.6', 'bogus').ok).toBe(false);
   });
 });
 

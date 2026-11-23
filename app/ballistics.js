@@ -103,7 +103,7 @@ const UNIT_INPUT_CONFIG = Object.freeze({
   temperature:  { kind: 'temp',        metric: { min: '-30', max: '50',   step: '1'    }, imperial: { min: '-22',   max: '122',   step: '0.1'   } },
   step:         { kind: 'step',        metric: { min: '10',  max: '100',  step: '10'   }, imperial: { min: '10',    max: '110',   step: '1'     } },
   sightHeight:  { kind: 'sightHeight', metric: { min: '10',  max: '100',  step: '0.1'  }, imperial: { min: '0.4',   max: '4',     step: '0.01'  } },
-  mvSens:       { kind: 'mvSens',      metric: { min: '-3',  max: '3',    step: '0.05' }, imperial: { min: '-10',   max: '10',    step: '0.1'   } },
+  mvSens:       { kind: 'mvSens',      metric: { min: '-5.5', max: '5.5',  step: '0.05' }, imperial: { min: '-10.025', max: '10.025', step: '0.1'   } },
   mpbrVitalCm:  { kind: 'vitalZone',   metric: { min: '2',   max: '100',  step: '1'    }, imperial: { min: '0.8',   max: '40',    step: '0.1'   } },
 });
 

@@ -35,7 +35,7 @@ const VALIDATORS = {
   pressureHpa:     v => v >= 500 && v <= 1100,
   humidityPercent: v => v >= 0 && v <= 100,
   units:           v => v === 'metric' || v === 'imperial',
-  mvSens:          v => v >= -6 && v <= 6,
+  mvSens:          v => v >= -5.5 && v <= 5.5,
 };
 
 /**

@@ -5,7 +5,7 @@
 export const MV_REF_TEMP_C = 15;
 
 /** Absolute limits on the *displayed* value, per unit system. */
-export const MV_SENS_LIMITS = Object.freeze({ metric: 3, imperial: 10 });
+export const MV_SENS_LIMITS = Object.freeze({ metric: 5.5, imperial: 10.025 });
 
 /**
  * MV at ambient temperature given a linear sensitivity.
