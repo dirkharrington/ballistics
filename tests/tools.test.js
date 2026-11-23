@@ -304,6 +304,12 @@ describe('interpolateAt', () => {
 function buildDopeDOM() {
   document.body.innerHTML = `
     <div id="dopeCard">
+      <select id="clickValue">
+        <option value="0.25moa">¼ MOA</option><option value="0.5moa">½ MOA</option><option value="1moa">1 MOA</option>
+        <option value="0.1mrad">0.1 MRAD</option><option value="0.05mrad">0.05 MRAD</option><option value="custom">Custom…</option>
+      </select>
+      <input type="number" id="clickValueCustom" style="display:none" value="0.25">
+      <div id="dopeClickNote"></div>
       <div id="dopeDistanceRow"></div>
       <button id="dopeAddDistBtn">+ Add distance</button>
       <table id="dopeTable"></table>
@@ -637,8 +643,8 @@ describe('renderDopeCard', () => {
   test('renders two dash cells when bullet has empty points and Coriolis is absent', () => {
     renderDopeCard([{ bullet: { id: 'b', name: 'Empty' }, points: [] }], {});
     const html = document.getElementById('dopeTable').innerHTML;
-    expect(html).toContain('<td>–</td><td>–</td>');
-    expect(html).not.toContain('<td>–</td><td>–</td><td>–</td>');
+    expect(html).toContain('<td>–</td><td>–</td><td>–</td>');
+    expect(html).not.toContain('<td>–</td><td>–</td><td>–</td><td>–</td>');
   });
 
   test('omits Wind MOA / Wind MRAD columns when all windDriftCm values are 0', () => {
@@ -652,8 +658,9 @@ describe('renderDopeCard', () => {
       ],
     }], {});
     const html = document.getElementById('dopeTable').innerHTML;
-    expect(html).toContain('colspan="2"');
+    expect(html).toContain('colspan="3"');
     expect(html).not.toContain('Wind MOA');
+    expect(html).not.toContain('Wind Clicks');
     expect(html).not.toContain('Wind MRAD');
   });
 
@@ -673,11 +680,14 @@ describe('renderDopeCard', () => {
       ],
     }], {});
     const html = document.getElementById('dopeTable').innerHTML;
-    expect(html).toContain('colspan="4"');
-    expect(html).toContain('<th>Wind MOA</th><th>Wind MRAD</th>');
+    expect(html).toContain('colspan="6"');
+    expect(html).toContain('<th>Wind MOA</th><th>Wind MRAD</th><th>Wind Clicks</th>');
     expect(html).toContain('<td>+3.4</td><td>+1</td>');
     expect(html).toContain('<td>-3.4</td><td>-1</td>');
     expect(html).toContain('<td>0</td><td>0</td>');
+    // positive drift (right) is corrected by dialling left, and vice-versa
+    expect(html).toContain('<td>14 L</td>');
+    expect(html).toContain('<td>14 R</td>');
   });
 
   test('renders dynamic colSpan=5 with both wind and Coriolis, and pads null drop with 5 dashes', () => {
@@ -698,11 +708,11 @@ describe('renderDopeCard', () => {
       },
     ], {});
     const html = document.getElementById('dopeTable').innerHTML;
-    expect(html).toContain('colspan="5"');
-    expect(html).toContain('<th>MOA↑</th><th>MRAD↑</th><th>Wind MOA</th><th>Wind MRAD</th><th>Cor. (cm)</th>');
-    expect(html).toContain('<td>+3.4</td><td>+1</td><td>+3.4</td><td>+1</td><td>+2.5</td>');
-    expect(html).toContain('<td>+3.4</td><td>+1</td><td>-3.4</td><td>-1</td><td>-1.5</td>');
-    expect(html).toContain('<td>–</td><td>–</td><td>–</td><td>–</td><td>–</td>');
+    expect(html).toContain('colspan="7"');
+    expect(html).toContain('<th>MOA↑</th><th>MRAD↑</th><th>Elev Clicks</th><th>Wind MOA</th><th>Wind MRAD</th><th>Wind Clicks</th><th>Cor. (cm)</th>');
+    expect(html).toContain('<td>+3.4</td><td>+1</td><td>+14 U</td><td>+3.4</td><td>+1</td><td>14 L</td><td>+2.5</td>');
+    expect(html).toContain('<td>+3.4</td><td>+1</td><td>+14 U</td><td>-3.4</td><td>-1</td><td>14 R</td><td>-1.5</td>');
+    expect(html).toContain('<td>–</td>'.repeat(7));
   });
 
   test('renders dash cells for Wind MOA / Wind MRAD when wind interpolation is null but drop is valid', () => {
@@ -726,8 +736,89 @@ describe('renderDopeCard', () => {
     ], {});
     const rows = document.querySelectorAll('#dopeTable tbody tr');
     const cells = Array.from(rows[0].querySelectorAll('td')).map(td => td.textContent);
-    // Bullet b drop at 50m = -5cm -> +3.4 MOA, +1 MRAD, then – and – for wind
-    expect(cells.slice(5)).toEqual(['+3.4', '+1', '–', '–']);
+    // Bullet b drop at 50m = -5cm -> +3.4 MOA, +1 MRAD, +14 U, then –, –, – for wind
+    expect(cells.slice(7)).toEqual(['+3.4', '+1', '+14 U', '–', '–', '–']);
+  });
+
+  describe('S23-3: scope click values', () => {
+    const results = [{
+      bullet: { id: 'a', name: 'A' },
+      points: [
+        { rangeMeters: 0, dropCm: 0, windDriftCm: 0 },
+        { rangeMeters: 100, dropCm: -10, windDriftCm: 10 },
+      ],
+    }];
+    beforeEach(() => {
+      history.replaceState(null, '', '/?dopeDistances=[100]');
+      initDopeCard();
+    });
+    const lastCells = () => Array.from(document.querySelectorAll('#dopeTable tbody td')).map(td => td.textContent);
+
+    test('default ¼ MOA: headers, click cells and note', () => {
+      renderDopeCard(results, {});
+      expect(document.getElementById('dopeTable').textContent).toContain('Elev Clicks');
+      expect(document.getElementById('dopeTable').textContent).toContain('Wind Clicks');
+      expect(lastCells()).toContain('+14 U');
+      expect(lastCells()).toContain('14 L');
+      expect(document.getElementById('dopeClickNote').textContent).toBe('¼ MOA clicks');
+    });
+
+    test('changing the select rebuilds the table with new click size', () => {
+      renderDopeCard(results, {});
+      const sel = document.getElementById('clickValue');
+      sel.value = '1moa';
+      sel.dispatchEvent(new Event('change'));
+      expect(lastCells()).toContain('+3 U');
+      expect(document.getElementById('dopeClickNote').textContent).toBe('1 MOA clicks');
+      sel.value = '0.1mrad';
+      sel.dispatchEvent(new Event('change'));
+      expect(document.getElementById('dopeClickNote').textContent).toBe('0.1 MRAD clicks');
+      expect(lastCells()).toContain('+10 U');
+    });
+
+    test('custom shows the input, rebuilds on input, and handles invalid values', () => {
+      renderDopeCard(results, {});
+      const sel = document.getElementById('clickValue');
+      const custom = document.getElementById('clickValueCustom');
+      sel.value = 'custom';
+      sel.dispatchEvent(new Event('change'));
+      expect(custom.style.display).toBe('');
+      custom.value = '0.5';
+      custom.dispatchEvent(new Event('input'));
+      expect(lastCells()).toContain('+7 U');
+      expect(document.getElementById('dopeClickNote').textContent).toBe('0.5 MOA (custom) clicks');
+      custom.value = '';
+      custom.dispatchEvent(new Event('input'));
+      expect(document.getElementById('dopeClickNote').textContent).toBe('0.25 MOA (custom) clicks');
+      sel.value = '1moa';
+      sel.dispatchEvent(new Event('change'));
+      expect(custom.style.display).toBe('none');
+    });
+
+    test('changing click value before any results is a no-op', () => {
+      const sel = document.getElementById('clickValue');
+      sel.value = '0.5moa';
+      expect(() => sel.dispatchEvent(new Event('change'))).not.toThrow();
+    });
+
+    test('copy text omits the note line when #dopeClickNote is absent', () => {
+      const writeText = jest.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      renderDopeCard(results, {});
+      document.getElementById('dopeClickNote').remove();
+      document.getElementById('dopeCopyBtn').click();
+      expect(writeText.mock.calls[0][0]).not.toContain('clicks');
+    });
+
+    test('copy text includes click columns and the click-value note', () => {
+      const writeText = jest.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      renderDopeCard(results, {});
+      document.getElementById('dopeCopyBtn').click();
+      const text = writeText.mock.calls[0][0];
+      expect(text).toContain('Elev Clicks');
+      expect(text.split('\n').pop()).toBe('¼ MOA clicks');
+    });
   });
 
   test('dopePrintBtn invokes window.print()', () => {

@@ -2971,6 +2971,49 @@ gh api repos/dirkharrington/ballistics/branches/main/protection/required_status_
 
 ---
 
+---
+
+## Sprint 23 — Field Realism: Temperature, Transonic & Truing
+
+---
+
+### S23-1 — MV temp sensitivity ✅ Done (PR #211)
+
+Adds an **MV Temp Sensitivity** input (`#mvSens`, fps/°F imperial · m/s/°C metric) beside the temperature input. Effective MV = nominal MV + sensitivity × (ambient − 15 °C) via the exported pure `effectiveMV()` in `app/mv-sens.js`, applied for catalog and custom bullets and in sweep mode (each sweep temperature uses its own effective MV). Validated to ±10 fps/°F (±3 m/s/°C) with an inline `#mvSens-error`; the stat card shows an "Effective MV" line when it differs from nominal. Persisted as `bv_mvSens` (canonical metric), included in profiles and the share URL (`mvSens`), and converted on the unit toggle. 100% Jest coverage maintained.
+
+---
+
+### S23-2 — Transonic / subsonic range markers ✅ Done (PR #212)
+
+Adds `app/mach.js` with exported pure `speedOfSound()` and `findMachCrossing()`. Each bullet's stat card now shows the range at which it drops to Mach 1.2 (transonic) and Mach 1.0 (subsonic) — "Beyond max range" if not reached, "At muzzle" if already below. The data table gains a **Mach (ambient)** column, also included in the CSV, JSON (per-point `mach`) and Markdown exports. The velocity chart draws a dashed "Mach 1.2" line at 1.2 × speed of sound, in the existing supersonic annotation colour. Speed of sound uses each result's own ambient temperature. 100% Jest coverage maintained.
+
+---
+
+### TECH-1 · Align engine fixed sound speed with ambient-temperature model · Engineering · Size S
+
+**Context:** `app/physics/engine.ts` uses a fixed `SOUND_FPS = 1125` (≈ 342.9 m/s) for drag-regime boundaries and custom-drag-table Mach→velocity conversion. `app/mach.js` uses the temperature-dependent formula `331.3 × √(1 + T/273.15)` m/s (≈ 340.3 m/s at 15 °C, ≈ 331.3 m/s at 0 °C). The discrepancy is ~0.8% at 15 °C and ~3.5% at 0 °C, meaning the engine's supersonic limit and the stat-card/table Mach values are computed against different sound speeds.
+
+**Goal:** Replace the engine's hardcoded `SOUND_FPS` with a value derived from the same formula (at the standard ISA 15 °C baseline, or ideally accept temperature as an input), so the drag model and the UI Mach column agree.
+
+**Acceptance criteria:**
+- `engine.ts` derives its sound-speed constant from `speedOfSound(15) * FPS_PER_MPS` (or a shared constant) rather than a bare magic number.
+- At 15 °C, the engine's supersonic threshold and `mach.js` Mach 1.0 crossings agree to within floating-point precision.
+- All existing physics engine tests continue to pass; 100% Jest/JaCoCo coverage maintained.
+
+---
+
+### S23-3 — Scope click values in DOPE ✅ Done (PR #213)
+
+Adds a click-value selector (`#clickValue`: ¼/½/1 MOA, 0.1/0.05 MRAD, Custom… with `#clickValueCustom` in MOA) to the DOPE card. New `app/clicks.js` exports the pure `toClicks(angleMOA, clickMOA)` (1 MRAD = 3.43775 MOA). Every DOPE row gains **Elev Clicks** (`+N U` / `N D` / `0`) and, when wind is present, **Wind Clicks** (`N R` / `N L` / `0`, the dial correction — drift right is corrected by dialling left). A "¼ MOA clicks"-style note appears under the table and is included in COPY TEXT and print. Persisted as `bv_clickValue` / `bv_clickValueCustom` and included in profile save/load. 100% Jest coverage maintained.
+
+---
+
+### S23-4 — MV truing tool ✅ Done (PR #214)
+
+Adds an **MV Truing** card to the Tools tab. Enter an observed range and drop (cm/in, or MOA; positive = below line of sight); `solveMV()` (exported from `app/tools.js`, bisection over 50–9999 m/s) finds the muzzle velocity that reproduces it using the selected bullet and the last simulation's atmosphere, zero range and sight height. The result shows the trued MV and its delta vs nominal; **Apply to bullet** saves a `<name> (trued)` custom bullet (re-applying refreshes it). Catalog bullets are never mutated. Errors surface from the engine and appear in `#truingError`; implausible solved MV values are rejected with an error message. 100% Jest coverage maintained.
+
+---
+
 ### S23-5 — E2E: custom bullet, export/import, theme ✅ Done (PR #215)
 
 Adds five Puppeteer tests to `tests/e2e/app.e2e.test.js`: custom bullet creation + simulation, empty-name save blocked, JSON export produces a `blob:` download link, JSON export → clean reload → import restores the custom bullet's results, and theme persistence across reload (theme is `<html data-theme>` + `bv_theme`, not a body class). Verified locally against the built `dist/` with Chromium (17/17 E2E tests pass).

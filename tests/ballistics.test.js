@@ -137,6 +137,12 @@ function buildDOM() {
     <button type="button" id="importJsonBtn" class="copy-link-btn" aria-label="Import previously exported trajectory JSON">⬆ IMPORT JSON</button>
     <input type="file" id="importJsonFile" accept=".json,application/json" style="display:none" />
     <button type="button" id="copyLinkBtn" class="copy-link-btn" aria-label="Copy a link to this setup">🔗 COPY LINK</button>
+    <select id="clickValue">
+      <option value="0.25moa">¼ MOA</option><option value="0.5moa">½ MOA</option><option value="1moa">1 MOA</option>
+      <option value="0.1mrad">0.1 MRAD</option><option value="0.05mrad">0.05 MRAD</option><option value="custom">Custom…</option>
+    </select>
+    <input type="number" id="clickValueCustom" style="display:none" value="0.25">
+    <input type="number" id="mvSens" value="0" /><small id="mvSens-error" class="field-error"></small>
     <input id="twistRate" value="" />
     <input id="latitudeDeg" value="" />
     <input id="azimuthDeg"  value="" />
@@ -162,6 +168,13 @@ function buildDOM() {
       <input id="mpbrVitalCm" value="20" />
       <div id="mpbrResults"></div>
     </div>
+    <section id="mvTruingCard">
+      <input type="number" id="truingRange"><input type="number" id="truingDrop">
+      <select id="truingDropUnit"><option value="cm">cm</option><option value="moa">MOA</option></select>
+      <button id="truingCalc">Calculate</button><small id="truingError"></small>
+      <div id="truingResult" style="display:none"><span id="truingMV"></span> (<span id="truingDelta"></span>)
+        <button id="truingApply">Apply</button><span id="truingApplyMsg"></span></div>
+    </section>
     <div id="bcCalcCard">
       <input id="bcCalcWeightG" value="" />
       <input id="bcCalcMvMps"   value="" />
@@ -270,6 +283,18 @@ describe('computeClientSide', () => {
     const results = await mod.computeClientSide({ ...req, bulletIds: ['a', 'unknown'] });
     expect(results).toHaveLength(1);
     expect(results[0].bullet.id).toBe('a');
+  });
+
+  test('applies MV temperature sensitivity to the bullet passed to the engine', async () => {
+    await mod.computeClientSide({ ...req, bulletIds: ['a'], mvSensMps: 1, temperatureC: 25 });
+    const passed = simulateAsync.mock.calls[0][0];
+    expect(passed.muzzleVelocityMps).toBe(817);
+    expect(passed.nominalMuzzleVelocityMps).toBe(807);
+  });
+
+  test('leaves bullet untouched when sensitivity is absent', async () => {
+    await mod.computeClientSide({ ...req, bulletIds: ['a'] });
+    expect(simulateAsync.mock.calls[0][0].muzzleVelocityMps).toBe(807);
   });
 
   test('returns empty array for all unknown IDs', async () => {
@@ -438,6 +463,126 @@ describe('syncSelectionMeta', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // switchTab
 // ─────────────────────────────────────────────────────────────────────────────
+describe('S23-4: MV truing wiring', () => {
+  const { simulate: realSimulate } = require('../app/physics/engine.ts');
+  const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+  const tick = () => new Promise(r => { jest.useRealTimers(); setTimeout(r, 0); });
+
+  async function setup() {
+    mod._setBullets(mod.getBuiltInBullets());
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    await mod.runSimulation();
+    jest.runAllTimers();
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    await flush();
+  }
+  const dropAt = (mv, range) => {
+    const b = mod.getBuiltInBullets().find(x => x.id === '308-win-168gr');
+    const req = mod._getState().lastReq;
+    const res = realSimulate({ ...b, muzzleVelocityMps: mv }, { ...req, maxRangeMeters: range, stepMeters: range });
+    return -res.points[res.points.length - 1].dropCm;
+  };
+
+  test('shows an error when no simulation has been run', async () => {
+    mod._setBullets(mod.getBuiltInBullets());
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = '50';
+    document.getElementById('truingCalc').click();
+    await flush();
+    expect(document.getElementById('truingError').textContent).toMatch(/run a simulation/i);
+  });
+
+  test('shows guidance when nothing is selected even after a simulation', async () => {
+    await setup();
+    mod._setSelectedIds(new Set());
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = '50';
+    document.getElementById('truingCalc').click();
+    await flush();
+    expect(document.getElementById('truingError').textContent).toMatch(/run a simulation/i);
+  });
+
+  test('solves MV for a known drop, then saves a "(trued)" custom bullet without touching the catalog', async () => {
+    await setup();
+    const target = dropAt(790, 300);
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = String(target);
+    document.getElementById('truingCalc').click();
+    await tick();
+    jest.useFakeTimers();
+    expect(document.getElementById('truingError').textContent).toBe('');
+    expect(document.getElementById('truingResult').style.display).toBe('');
+    const mv = parseFloat(document.getElementById('truingMV').textContent);
+    expect(mv).toBeGreaterThan(780);
+    expect(mv).toBeLessThan(800);
+    expect(document.getElementById('truingDelta').textContent).toMatch(/vs nominal/);
+
+    const catalogBefore = mod.getBuiltInBullets().map(b => b.muzzleVelocityMps);
+    document.getElementById('truingApply').click();
+    const st = mod._getState();
+    expect(st.customRecords).toHaveLength(1);
+    expect(st.customRecords[0].name).toBe('.308 Win 168gr BTHP (trued)');
+    expect(document.getElementById('truingApplyMsg').textContent).toMatch(/Saved/);
+    expect(mod.getBuiltInBullets().map(b => b.muzzleVelocityMps)).toEqual(catalogBefore);
+
+    // Applying again refreshes the same record instead of failing as a duplicate
+    document.getElementById('truingApply').click();
+    expect(mod._getState().customRecords).toHaveLength(1);
+    expect(document.getElementById('toast').textContent).toBe('Trued bullet updated');
+  });
+
+  test('reports a storage failure when saving the trued bullet', async () => {
+    await setup();
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = String(dropAt(790, 300));
+    document.getElementById('truingCalc').click();
+    await tick();
+    jest.useFakeTimers();
+    const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('full'); });
+    document.getElementById('truingApply').click();
+    spy.mockRestore();
+    expect(document.getElementById('truingApplyMsg').textContent).toMatch(/storage/i);
+  });
+
+  test('reports a validation failure from the custom-bullet rules', async () => {
+    await setup();
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = String(dropAt(790, 300));
+    document.getElementById('truingCalc').click();
+    await tick();
+    jest.useFakeTimers();
+    // Fill the custom list so the form-level limit error fires
+    mod._setCustomRecords(Array.from({ length: 50 }, (_, i) => ({
+      id: `usr-${String(i).padStart(8, '0')}`, name: `X${i}`, shortName: `X${i}`, bulletWeightGrains: 100,
+      ballisticCoefficientG1: 0.4, ballisticCoefficientG7: null, bulletDiameterInches: 0.3, muzzleVelocityFps: 2500,
+    })));
+    document.getElementById('truingApply').click();
+    expect(document.getElementById('truingApplyMsg').textContent).toMatch(/limit/i);
+  });
+
+  test('uses a custom drag table and G7 BC from the selected bullet', async () => {
+    mod._setBullets([
+      ...mod.getBuiltInBullets(),
+      { id: 'usr-aaaaaaaa', name: 'Mine', shortName: 'Mine', bulletWeightGrams: 10, muzzleVelocityMps: 800,
+        ballisticCoefficient: 0.4, ballisticCoefficientG7: 0.2, bulletDiameterMm: 7.8, muzzleEnergyJoules: 1,
+        customDragTable: [{ mach: 0.5, cd: 0.3 }, { mach: 1, cd: 0.4 }, { mach: 2, cd: 0.3 }] },
+    ]);
+    mod._setSelectedIds(new Set(['usr-aaaaaaaa']));
+    await mod.runSimulation();
+    jest.runAllTimers();
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    await flush();
+    document.getElementById('truingRange').value = '300';
+    document.getElementById('truingDrop').value = '40';
+    document.getElementById('truingCalc').click();
+    await tick();
+    jest.useFakeTimers();
+    expect(document.getElementById('truingError').textContent).toBe('');
+  });
+});
+
 describe('switchTab', () => {
   test('switching to charts activates chartsPanel', () => {
     const el = document.getElementById('tab-charts');
@@ -891,6 +1036,35 @@ describe('runSimulation', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // runSimulation input validation
 // ─────────────────────────────────────────────────────────────────────────────
+describe('runSimulation — MV sensitivity (S23-1)', () => {
+  beforeEach(() => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getBuiltInBullets());
+  });
+
+  test('invalid sensitivity shows inline error and does not compute', () => {
+    document.getElementById('mvSens').value = '9';
+    mod.runSimulation();
+    expect(document.getElementById('mvSens-error').textContent).toMatch(/between/);
+    expect(simulateAsync).not.toHaveBeenCalled();
+  });
+
+  test('valid sensitivity clears the error and reaches the engine as m/s/°C', async () => {
+    document.getElementById('mvSens').value = '9';
+    mod.runSimulation();
+    document.getElementById('mvSens').value = '1.5';
+    await mod.runSimulation();
+    expect(document.getElementById('mvSens-error').textContent).toBe('');
+    expect(simulateAsync.mock.calls[0][1].mvSensMps).toBe(1.5);
+  });
+
+  test('zero / empty sensitivity sends 0', async () => {
+    document.getElementById('mvSens').value = '';
+    await mod.runSimulation();
+    expect(simulateAsync.mock.calls[0][1].mvSensMps).toBe(0);
+  });
+});
+
 describe('runSimulation — input validation', () => {
   test('shows error and returns early when latitudeDeg is out of range', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));
@@ -4736,6 +4910,74 @@ describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CS
     expect(document.getElementById('pressureHpa').value).toBe('990');
     expect(document.getElementById('humidityPercent').value).toBe('40');
     expect(document.getElementById('includeEotvos').checked).toBe(true);
+  });
+
+  test('S23-3: click value persists to prefs, restores on init, and round-trips through a profile', async () => {
+    mod.init();
+    const sel = document.getElementById('clickValue');
+    sel.value = 'custom';
+    document.getElementById('clickValueCustom').value = '0.3';
+    sel.dispatchEvent(new Event('change'));
+    jest.runAllTimers();
+    expect(localStorage.getItem('bv_clickValue')).toBe('custom');
+    expect(localStorage.getItem('bv_clickValueCustom')).toBe('0.3');
+
+    document.getElementById('profileNameInput').value = 'Clicky';
+    document.getElementById('saveProfileBtn').click();
+    expect(document.getElementById('toast').textContent).toBe('Profile saved');
+
+    // Change away, then load the profile to restore click value
+    sel.value = '1moa';
+    document.getElementById('clickValueCustom').value = '0.5';
+    const select = document.getElementById('profileSelect');
+    select.value = 'Clicky';
+    select.dispatchEvent(new Event('change'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(sel.value).toBe('custom');
+    expect(document.getElementById('clickValueCustom').value).toBe('0.3');
+    expect(document.getElementById('clickValueCustom').style.display).toBe('');
+
+    // Re-init restores from prefs
+    buildDOM();
+    mod._resetState();
+    mod.init();
+    expect(document.getElementById('clickValue').value).toBe('custom');
+    expect(document.getElementById('clickValueCustom').value).toBe('0.3');
+  });
+
+  test('S23-3: profile saved without a click select falls back and loads without click fields', async () => {
+    mod.init();
+    document.getElementById('clickValue').remove();
+    document.getElementById('profileNameInput').value = 'NoClick';
+    document.getElementById('saveProfileBtn').click();
+    expect(document.getElementById('toast').textContent).toBe('Profile saved');
+    const select = document.getElementById('profileSelect');
+    select.value = 'NoClick';
+    select.dispatchEvent(new Event('change'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(document.getElementById('toast').textContent).toBe('Profile loaded');
+  });
+
+  test('S23-3: profile with clickValue but no custom value loads with 0.25', async () => {
+    mod.init();
+    localStorage.setItem('ballistics_profiles', JSON.stringify([{
+      name: 'Legacy', params: { bulletIds: [], dragModel: 'G1', zero: 100, maxRange: 1000, wind: 0, windDir: 90,
+        altitude: 0, temp: 15, step: 25, sightHeight: 38.1, angle: 0, clickValue: '0.5moa' } }]));
+    mod.init();
+    const select = document.getElementById('profileSelect');
+    select.value = 'Legacy';
+    select.dispatchEvent(new Event('change'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(document.getElementById('clickValue').value).toBe('0.5moa');
+    expect(document.getElementById('clickValueCustom').value).toBe('0.25');
+  });
+
+  test('S23-3: invalid custom value is saved as 0.25 default', () => {
+    mod.init();
+    document.getElementById('clickValueCustom').value = '';
+    document.getElementById('profileNameInput').value = 'BadCustom';
+    document.getElementById('saveProfileBtn').click();
+    expect(JSON.parse(localStorage.getItem('ballistics_profiles'))[0].params.clickValueCustom).toBe(0.25);
   });
 
   test('saves, updates, loads (across units & optional fields), and deletes named rifle profiles', async () => {

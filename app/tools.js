@@ -1,5 +1,6 @@
 import { normalizeUnitSystem, toDisplay, fromDisplay, unitLabel } from './units.js';
 import { escapeHtml, computeAdjustments } from './prefs.js';
+import { toClicks, formatElevClicks, formatWindClicks, readClickValue, syncClickCustomVisibility } from './clicks.js';
 
 // ── MOA / MRAD ────────────────────────────────────────────────────────────────
 
@@ -106,11 +107,12 @@ function _buildDopeTable(results, unitSystem) {
   const hasWind = results.some(r => r.points.some(p => p.windDriftCm != null && p.windDriftCm !== 0));
   const hasCoriolis = results.some(r => r.points.some(p => p.coriolisDeflectionCm !== undefined && p.coriolisDeflectionCm !== 0));
   const hasEotvos = results.some(r => r.points.some(p => p.coriolisVerticalCm !== undefined));
-  const colSpan = 2 + (hasWind ? 2 : 0) + (hasCoriolis ? 1 : 0) + (hasEotvos ? 1 : 0);
+  const click = readClickValue();
+  const colSpan = 3 + (hasWind ? 3 : 0) + (hasCoriolis ? 1 : 0) + (hasEotvos ? 1 : 0);
 
   const thCols = results.map(r => `<th colspan="${colSpan}">${escapeHtml(r.bullet.name)}</th>`).join('');
   const thSub  = results.map(() =>
-    `<th>MOA↑</th><th>MRAD↑</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th>' : ''}${hasCoriolis ? `<th>Cor. (${drUnit})</th>` : ''}${hasEotvos ? `<th>Eötvös (${dUnit})</th>` : ''}`
+    `<th>MOA↑</th><th>MRAD↑</th><th>Elev Clicks</th>${hasWind ? '<th>Wind MOA</th><th>Wind MRAD</th><th>Wind Clicks</th>' : ''}${hasCoriolis ? `<th>Cor. (${drUnit})</th>` : ''}${hasEotvos ? `<th>Eötvös (${dUnit})</th>` : ''}`
   ).join('');
 
   const bodyRows = dists.map(dist => {
@@ -119,16 +121,20 @@ function _buildDopeTable(results, unitSystem) {
       const drop = interpolateAt(r.points, distMeters, 'dropCm');
       if (drop == null) return '<td>–</td>'.repeat(colSpan);
       const { moa, mrad } = computeAdjustments(drop, distMeters);
+      const elevSign   = drop < 0 ? 1 : (drop > 0 ? -1 : 0);
+      const rawElevMoa = elevSign * Math.atan2(Math.abs(drop) / 100, distMeters) * (180 / Math.PI) * 60;
       let windCells = '';
       if (hasWind) {
         const wind = interpolateAt(r.points, distMeters, 'windDriftCm');
         if (wind == null) {
-          windCells = '<td>–</td><td>–</td>';
+          windCells = '<td>–</td><td>–</td><td>–</td>';
         } else {
-          const wRad  = Math.atan2(wind / 100, distMeters);
-          const wMoa  = Math.round(wRad * (180 / Math.PI) * 60 * 10) / 10 + 0;
-          const wMrad = Math.round(wRad * 1000 * 10) / 10 + 0;
-          windCells = `<td>${wMoa > 0 ? '+' : ''}${wMoa}</td><td>${wMrad > 0 ? '+' : ''}${wMrad}</td>`;
+          const wRad    = Math.atan2(wind / 100, distMeters);
+          const rawWMoa = wRad * (180 / Math.PI) * 60;
+          const wMoa    = Math.round(rawWMoa * 10) / 10 + 0;
+          const wMrad   = Math.round(wRad * 1000 * 10) / 10 + 0;
+          // Wind clicks are the dial correction: drift right (+) is corrected by dialling left.
+          windCells = `<td>${wMoa > 0 ? '+' : ''}${wMoa}</td><td>${wMrad > 0 ? '+' : ''}${wMrad}</td><td>${formatWindClicks(-toClicks(rawWMoa, click.moa))}</td>`;
         }
       }
       let corCell = '';
@@ -147,7 +153,7 @@ function _buildDopeTable(results, unitSystem) {
           ? `<td>${eotDisp >= 0 ? '+' : ''}${eotDisp.toFixed(1)}</td>`
           : '<td>–</td>';
       }
-      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td>${windCells}${corCell}${eotCell}`;
+      return `<td>${moa > 0 ? '+' : ''}${moa}</td><td>${mrad > 0 ? '+' : ''}${mrad}</td><td>${formatElevClicks(toClicks(rawElevMoa, click.moa))}</td>${windCells}${corCell}${eotCell}`;
     }).join('');
     return `<tr><td><strong>${dist}</strong></td>${tds}</tr>`;
   }).join('');
@@ -159,6 +165,8 @@ function _buildDopeTable(results, unitSystem) {
     </thead>
     <tbody>${bodyRows}</tbody>
   `;
+  const note = document.getElementById('dopeClickNote');
+  if (note) note.textContent = `${click.label} clicks`;
 }
 
 function _renderDopeDistanceInputs() {
@@ -184,9 +192,10 @@ function _renderDopeDistanceInputs() {
 function _copyDopeText() {
   const table = document.getElementById('dopeTable');
   if (!table) return;
+  const note = document.getElementById('dopeClickNote')?.textContent;
   const text = Array.from(table.querySelectorAll('tr'))
     .map(tr => Array.from(tr.querySelectorAll('th,td')).map(c => c.textContent.trim()).join('\t'))
-    .join('\n');
+    .join('\n') + (note ? `\n${note}` : '');
   navigator.clipboard?.writeText(text).catch(() => {});
 }
 
@@ -213,6 +222,14 @@ function initDopeCard() {
     _saveDopeDistances();
     if (_lastDopeResults) _buildDopeTable(_lastDopeResults, _toolsUnitSystem);
   });
+
+  const onClickValueChange = () => {
+    syncClickCustomVisibility();
+    _buildDopeTable(_lastDopeResults, _toolsUnitSystem); // no-ops until results exist
+  };
+  document.getElementById('clickValue')?.addEventListener('change', onClickValueChange);
+  document.getElementById('clickValueCustom')?.addEventListener('input', onClickValueChange);
+  syncClickCustomVisibility();
 
   document.getElementById('dopeCopyBtn')?.addEventListener('click', _copyDopeText);
   document.getElementById('dopePrintBtn')?.addEventListener('click', () => window.print());
@@ -439,4 +456,154 @@ function initMpbrTool() {
   inp.addEventListener('change', onUpdate);
 }
 
+// ── MV Truing (S23-4) ─────────────────────────────────────────────────────────
+
+const TRUED_SUFFIX = ' (trued)';
+const CUSTOM_NAME_MAX = 64;
+const CUSTOM_SHORT_NAME_MAX = 16;
+const MAX_TRUING_RANGE_M = 5000;
+const MPS_PER_FPS = 0.3048;
+const G_PER_GRAIN = 0.06479891;
+const MM_PER_INCH = 25.4;
+/** Drop-matching tolerance (cm); engine drops are rounded to 0.1 cm so 0.05 is the tightest reachable. */
+const TRUING_TOL_CM = 0.05;
+/** Stand-in drop (cm) when the bullet cannot be simulated at the observed range. */
+const UNREACHABLE_DROP_CM = Infinity;
+/** Upper bound for a physically plausible solved MV (matches custom-bullet MV max: 5000 fps). */
+const MAX_SOLVED_MV_MPS = 5000 * MPS_PER_FPS;
+
+/**
+ * Bisect for the muzzle velocity whose drop at the observed range matches `observedDropCm`.
+ * @param {(mv:number)=>number} computeDropFn  drop (cm, positive = below line of sight) at the observed range
+ * @returns {number|null} solved MV, or null when the target is not bracketed
+ */
+function solveMV(computeDropFn, observedDropCm, mvLow = 50, mvHigh = 9999, tol = 0.01, maxIter = 100) {
+  const dLow = computeDropFn(mvLow) - observedDropCm;
+  const dHigh = computeDropFn(mvHigh) - observedDropCm;
+  if (dLow * dHigh > 0) return null; // no bracket
+  for (let i = 0; i < maxIter; i++) {
+    const mid = (mvLow + mvHigh) / 2;
+    const dMid = computeDropFn(mid) - observedDropCm;
+    if (Math.abs(dMid) <= tol) return mid;
+    if (dLow * dMid <= 0) { mvHigh = mid; } else { mvLow = mid; }
+  }
+  return (mvLow + mvHigh) / 2;
+}
+
+/**
+ * Validate the truing form. Drop is positive when the bullet impacts below the line of sight.
+ * @returns {{ ok: true, rangeM: number, dropCm: number } | { ok: false, error: string }}
+ */
+function validateTruingInput(rangeRaw, dropRaw, dropUnit, unitSystem = 'metric') {
+  const sys = normalizeUnitSystem(unitSystem);
+  const range = rangeRaw === '' || rangeRaw == null ? NaN : Number(rangeRaw);
+  if (!Number.isFinite(range) || !(range > 0)) return { ok: false, error: 'Observed range must be greater than 0.' };
+  const rangeM = fromDisplay('range', range, sys);
+  if (rangeM > MAX_TRUING_RANGE_M) return { ok: false, error: `Observed range must be at most ${MAX_TRUING_RANGE_M} m.` };
+  const drop = dropRaw === '' || dropRaw == null ? NaN : Number(dropRaw);
+  if (!Number.isFinite(drop)) return { ok: false, error: 'Observed drop must be a number.' };
+  const dropCm = dropUnit === 'moa'
+    ? Math.tan((drop / 60) * Math.PI / 180) * rangeM * 100
+    : fromDisplay('drop', drop, sys);
+  return { ok: true, rangeM, dropCm };
+}
+
+/** Name for a trued copy, truncated so it always fits the custom-bullet name limit. */
+function truedBulletName(originalName) {
+  const base = String(originalName).replace(/ \(trued\)$/, '');
+  return base.slice(0, CUSTOM_NAME_MAX - TRUED_SUFFIX.length) + TRUED_SUFFIX;
+}
+
+/** Custom-bullet form fields (strings) for a copy of `bullet` at the solved MV. */
+function truedBulletFields(bullet, mvMps) {
+  const base = String(bullet.shortName ?? bullet.name);
+  return {
+    name:                   truedBulletName(bullet.name),
+    shortName:              base.slice(0, CUSTOM_SHORT_NAME_MAX - 1) + '*',
+    bulletWeightGrains:     String(Math.round(bullet.bulletWeightGrams / G_PER_GRAIN * 100) / 100),
+    ballisticCoefficientG1: String(bullet.ballisticCoefficient),
+    ballisticCoefficientG7: bullet.ballisticCoefficientG7 == null ? '' : String(bullet.ballisticCoefficientG7),
+    bulletDiameterInches:   String(Math.round(bullet.bulletDiameterMm / MM_PER_INCH * 1000) / 1000),
+    muzzleVelocityFps:      String(Math.round(mvMps / MPS_PER_FPS * 10) / 10),
+  };
+}
+
+let _truing = null; // { bullet, mvMps }
+
+/**
+ * Wire the MV Truing card.
+ * @param {{ getContext: () => ({bullet:object, baseBullet:object, req:object}|null),
+ *           loadSimulate: () => Promise<Function>,
+ *           saveTrued: (baseBullet:object, mvMps:number) => ({ok:boolean, name?:string, message?:string}) }} deps
+ */
+function initMvTruing({ getContext, loadSimulate, saveTrued }) {
+  _truing = null;
+  const $ = id => document.getElementById(id);
+  const setError = msg => { $('truingError').textContent = msg; };
+
+  $('truingCalc')?.addEventListener('click', async () => {
+    setError('');
+    $('truingResult').style.display = 'none';
+    $('truingApplyMsg').textContent = '';
+    _truing = null;
+
+    const sys = _toolsUnitSystem;
+    const parsed = validateTruingInput($('truingRange').value, $('truingDrop').value, $('truingDropUnit').value, sys);
+    if (!parsed.ok) { setError(parsed.error); return; }
+    const ctx = getContext();
+    if (!ctx) { setError('Select a bullet and run a simulation first.'); return; }
+
+    const { rangeM, dropCm } = parsed;
+    const steps = Math.ceil(rangeM / 500);
+    let simulate;
+    try {
+      simulate = await loadSimulate();
+    } catch (_) {
+      setError('Could not load the physics engine.');
+      return;
+    }
+    const params = {
+      ...ctx.req,
+      maxRangeMeters: rangeM,
+      stepMeters: rangeM / steps,
+    };
+    let lastEngineError = null;
+    const computeDropFn = mv => {
+      try {
+        const res = simulate({ ...ctx.bullet, muzzleVelocityMps: mv }, params);
+        const last = res.points[res.points.length - 1];
+        if (!last || last.rangeMeters < rangeM - 1e-6) return UNREACHABLE_DROP_CM;
+        return -interpolateAt(res.points, rangeM, 'dropCm');
+      } catch (e) {
+        lastEngineError = e;
+        return UNREACHABLE_DROP_CM;
+      }
+    };
+    const mv = solveMV(computeDropFn, dropCm, 50, 9999, TRUING_TOL_CM);
+    if (mv === null) {
+      setError(lastEngineError
+        ? (lastEngineError.message || 'Engine error — check your inputs.')
+        : 'No muzzle velocity reproduces that drop. Check range, drop and units.');
+      return;
+    }
+    if (mv > MAX_SOLVED_MV_MPS) { setError('Solved MV is out of range — check your inputs.'); return; }
+
+    _truing = { baseBullet: ctx.baseBullet, mvMps: mv };
+    const vUnit = unitLabel('velocity', sys);
+    const mvDisp = Math.round(toDisplay('velocity', mv, sys) * 10) / 10;
+    const delta = Math.round(toDisplay('velocity', mv - ctx.bullet.muzzleVelocityMps, sys) * 10) / 10;
+    $('truingMV').textContent = `${mvDisp} ${vUnit}`;
+    $('truingDelta').textContent = `${delta > 0 ? '+' : ''}${delta} ${vUnit} vs nominal`;
+    $('truingResult').style.display = '';
+  });
+
+  $('truingApply')?.addEventListener('click', () => {
+    const msg = $('truingApplyMsg');
+    if (!_truing) return;
+    const res = saveTrued(_truing.baseBullet, _truing.mvMps);
+    msg.textContent = res.ok ? `Saved “${res.name}”.` : (res.message ?? 'Could not save bullet.');
+  });
+}
+
+export { solveMV, validateTruingInput, truedBulletName, truedBulletFields, initMvTruing };
 export { calcMoaMrad, convertUnit, initTools, CONVERSIONS, interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcMpbr, initMpbrTool, renderMpbrTool, setToolsUnitSystem };

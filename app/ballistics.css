@@ -1634,6 +1634,7 @@ tr:hover td { background: var(--bg3); }
   #chartsPanel,
   #dataPanel,
   #dopeDistanceRow,
+  #dopeClickControls,
   #dopeAddDistBtn,
   #dopeCopyBtn,
   #dopePrintBtn,
