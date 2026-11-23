@@ -3011,3 +3011,9 @@ Adds a click-value selector (`#clickValue`: ¼/½/1 MOA, 0.1/0.05 MRAD, Custom�
 ### S23-4 — MV truing tool ✅ Done (PR #214)
 
 Adds an **MV Truing** card to the Tools tab. Enter an observed range and drop (cm/in, or MOA; positive = below line of sight); `solveMV()` (exported from `app/tools.js`, bisection over 50–9999 m/s) finds the muzzle velocity that reproduces it using the selected bullet and the last simulation's atmosphere, zero range and sight height. The result shows the trued MV and its delta vs nominal; **Apply to bullet** saves a `<name> (trued)` custom bullet (re-applying refreshes it). Catalog bullets are never mutated. Errors surface from the engine and appear in `#truingError`; implausible solved MV values are rejected with an error message. 100% Jest coverage maintained.
+
+---
+
+### S23-5 — E2E: custom bullet, export/import, theme ✅ Done (PR #215)
+
+Adds five Puppeteer tests to `tests/e2e/app.e2e.test.js`: custom bullet creation + simulation, empty-name save blocked, JSON export produces a `blob:` download link, JSON export → clean reload → import restores the custom bullet's results, and theme persistence across reload (theme is `<html data-theme>` + `bv_theme`, not a body class). Verified locally against the built `dist/` with Chromium (17/17 E2E tests pass).
