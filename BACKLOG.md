@@ -2899,3 +2899,48 @@ Flagged as L3 in devsecops review of PR #199.
 - 100% coverage maintained.
 
 ---
+
+## Sprint 21 — Recent Bullet Combinations
+
+**Sprint Goal:** Let users instantly restore any of their last 10 bullet combinations. After every successful simulation the active set of bullets is recorded in `localStorage`; a "Recent" panel near the bullet selector lists them by name. One click restores the selection.
+
+---
+
+### HIST-1 · Recent bullet combinations (last 10, localStorage) · FE · Size M
+
+**Problem:** Every session starts from scratch. Users who frequently compare the same two or three bullet sets must manually re-select them from the catalog each time. The app already persists the *current* selection via `bv_selectedIds`, but there is no history of past combinations.
+
+**Work items:**
+
+1. **`app/prefs.js`** — add `bv_recentCombos` to `PREF_KEYS`. Write two new exports:
+   - `pushRecentCombo(ids, bulletMap)` — receives the active bullet ID array and a `Map<id, Bullet>` (i.e. `_bulletById`); extract each bullet's display name via `bulletMap.get(id)?.name ?? id`. Serialises each entry as `{ ids: string[], names: string[] }`. Deduplicates: a combination is equal to an existing entry if their sorted ID arrays are identical (regardless of selection order); a matching entry is promoted to position 0. Prepends the new entry and trims the array to 10 before writing to `localStorage`.
+   - `loadRecentCombos()` — reads `bv_recentCombos` from `localStorage`, validates that the value is a JSON array of objects each carrying non-empty `ids` and `names` string arrays of equal length with at most 5 IDs per entry, and returns the valid subset (silently drops malformed entries). Returns `[]` when the key is absent or the read fails.
+   Both functions must guard against `localStorage` unavailability and throw nothing.
+
+2. **`app/ballistics.js`** — inside the compute rAF callback (~line 671), after `renderResults(results, req)` and `lastResults = results`, call `pushRecentCombo([...selectedIds], _bulletById)` and `_renderRecentPanel()`. Do not call these from inside `renderResults` — that function also fires on import and unit-system toggle. Import both prefs helpers at the top of the file.
+
+3. **`app/index.html`** — add a `<details id="recentCombos" hidden>` / `<summary>Recent (0)</summary>` / `<ul class="recent-combo-list"></ul>` block directly below the `#bulletList` container. Each stored entry renders as a `<button class="recent-combo-btn">` built with `document.createElement` + `button.textContent = ...` (never `innerHTML`). Button text is the bullet names joined by " · "; the IDs array is stored in `button.dataset.ids` as JSON. Clicking the button: clears the current selection, filters the stored IDs to those still present in `_bulletById`, and re-selects them one at a time via `toggleBullet(id)` so the counter and limit guards fire normally. The `<details>` element is hidden (`hidden` attribute) when `loadRecentCombos()` returns an empty array; shown and updated after every `pushRecentCombo` call.
+
+4. **`tests/prefs.test.js`** — unit-test `pushRecentCombo` and `loadRecentCombos`:
+   - `pushRecentCombo` deduplicates by sorted IDs (re-run of same combo promotes to top, no duplicate).
+   - `pushRecentCombo` caps at 10 (11th entry drops the oldest).
+   - `pushRecentCombo` handles `localStorage` throwing without propagating.
+   - `loadRecentCombos` returns `[]` when key absent, when JSON is invalid, and when entries are malformed.
+   - `loadRecentCombos` drops malformed entries but keeps valid siblings.
+   - `loadRecentCombos` rejects entries with more than 5 IDs.
+
+5. **`tests/ballistics.test.js`** — add:
+   - Integration test: after a successful `runSimulation`, `bv_recentCombos` in `localStorage` contains a matching entry for the active bullet IDs.
+   - XSS safety test: a bullet name containing `<img onerror=...>` stored via `pushRecentCombo` and rendered by `_renderRecentPanel` appears as `button.textContent` (plain text), not as parsed HTML.
+   - Negative: calling `renderResults` directly (the import/unit-toggle path) does NOT write `bv_recentCombos`.
+
+**Acceptance criteria:**
+- After running a simulation with 1–5 bullets, `localStorage['bv_recentCombos']` contains a JSON array with the most-recent entry at index 0, each entry holding `{ ids: string[], names: string[] }`.
+- Running the same combination twice does not add a duplicate — the existing entry moves to the top.
+- The history is capped at 10 entries; the 11th run drops the oldest.
+- A "Recent" `<details>` panel appears below the bullet list, hidden when history is empty and showing N entries in the summary count when non-empty.
+- Clicking a recent entry restores that selection (IDs absent from the catalog are silently dropped; the combination is re-run if auto-compute is on).
+- `localStorage` unavailability degrades silently: the UI shows no recent panel and no error is thrown.
+- 100% Jest coverage maintained.
+
+---
