@@ -2,6 +2,7 @@
 export const URL_PARAM_KEYS = Object.freeze([
   'zero', 'maxRange', 'wind', 'windDir', 'altitude', 'temp', 'step', 'sightHeight', 'angle', 'dragModel',
   'pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens',
+  'clickValue', 'clickValueCustom',
 ]);
 export const URL_BULLET_KEY = 'b';
 export const MAX_URL_BULLETS = 20;
@@ -19,7 +20,10 @@ function parseNum(raw) {
 
 const OPTIONAL_URL_KEYS = new Set([
   'pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens',
+  'clickValue', 'clickValueCustom',
 ]);
+
+const CLICK_VALUES = new Set(['0.25moa', '0.5moa', '1moa', '0.1mrad', '0.05mrad', 'custom']);
 
 const VALIDATORS = {
   zero:            v => v > 0 && v <= 3000,
@@ -36,6 +40,8 @@ const VALIDATORS = {
   humidityPercent: v => v >= 0 && v <= 100,
   units:           v => v === 'metric' || v === 'imperial',
   mvSens:          v => v >= -5.5 && v <= 5.5,
+  clickValue:      v => CLICK_VALUES.has(v),
+  clickValueCustom: v => v > 0 && v <= 100,
 };
 
 /**
@@ -58,7 +64,7 @@ export function encodeState(state) {
       continue;
     }
     if (OPTIONAL_URL_KEYS.has(key) && val == null) continue;
-    if (key === 'dragModel') {
+    if (key === 'dragModel' || key === 'clickValue') {
       params.set(key, String(val));
     } else {
       params.set(key, String(Number(val)));
@@ -99,6 +105,8 @@ export function decodeState(search) {
     const raw = params.get(key);
     if (key === 'dragModel') {
       if (VALIDATORS.dragModel(raw)) result.params[key] = raw;
+    } else if (key === 'clickValue') {
+      if (VALIDATORS.clickValue(raw)) result.params[key] = raw;
     } else if (key === 'units') {
       if (VALIDATORS.units(raw)) result.params[key] = raw;
     } else if (key === 'includeEotvos') {
