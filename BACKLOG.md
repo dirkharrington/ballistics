@@ -2977,6 +2977,6 @@ gh api repos/dirkharrington/ballistics/branches/main/protection/required_status_
 
 ---
 
-### S23-5 — E2E: custom bullet, export/import, theme ✅ Done (PR #PLACEHOLDER)
+### S23-5 — E2E: custom bullet, export/import, theme ✅ Done (PR #215)
 
 Adds five Puppeteer tests to `tests/e2e/app.e2e.test.js`: custom bullet creation + simulation, empty-name save blocked, JSON export produces a `blob:` download link, JSON export → clean reload → import restores the custom bullet's results, and theme persistence across reload (theme is `<html data-theme>` + `bv_theme`, not a body class). Verified locally against the built `dist/` with Chromium (17/17 E2E tests pass).
