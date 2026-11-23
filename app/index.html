@@ -490,6 +490,33 @@
           </div>
         </section>
 
+        <!-- BC Truing -->
+        <section class="tool-card" id="bcTruingCard">
+          <h3 class="tool-title">BC TRUING</h3>
+          <div class="tool-row">
+            <label for="bcTruingRange">Observed range (<span data-unit-kind="range">m</span>)</label>
+            <input type="number" id="bcTruingRange" min="1" step="1" placeholder="500">
+          </div>
+          <div class="tool-row">
+            <label for="bcTruingDrop">Observed drop (below line of sight)</label>
+            <input type="number" id="bcTruingDrop" step="0.1" placeholder="45.0">
+            <select id="bcTruingDropUnit" aria-label="Observed drop unit">
+              <option value="cm" data-unit-kind="drop">cm</option>
+              <option value="moa">MOA</option>
+            </select>
+          </div>
+          <button class="tool-calc-btn" id="solveBcBtn" type="button" disabled>Solve</button>
+          <small class="field-error" id="bcTruingError" role="alert"></small>
+          <div class="tool-results" id="bcTruingResult" style="display:none">
+            <span class="tool-label">Trued BC</span>
+            <span class="tool-value" id="bcTruingValue"></span>
+            <span class="tool-label">Catalog BC</span>
+            <span class="tool-value" id="bcTruingCatalog"></span> (<span id="bcTruingDelta"></span>)
+            <button class="tool-calc-btn" id="applyBcBtn" type="button" disabled>Apply to bullet</button>
+            <span id="bcTruingApplyMsg" aria-live="polite"></span>
+          </div>
+        </section>
+
         <!-- MPBR Calculator -->
         <div class="tool-card" id="mpbrCard">
           <h3 class="tool-title">MPBR CALCULATOR</h3>

@@ -4,7 +4,9 @@ const {
   calcMoaMrad, convertUnit, initTools, CONVERSIONS,
   interpolateAt, initDopeCard, renderDopeCard, initBcSolver,
   calcMpbr, initMpbrTool, renderMpbrTool, setToolsUnitSystem,
+  solveBC, truedBcBulletName, truedBcBulletFields, initBcTruing, refreshBcTruing,
 } = require('../app/tools.js');
+const { simulate: engineSimulate } = require('../app/physics/engine.ts');
 
 function flushPromises() {
   return new Promise(r => setTimeout(r, 0));
@@ -1269,5 +1271,195 @@ describe('initMpbrTool and renderMpbrTool', () => {
     expect(html).toContain('+0.9');
     expect(html).toContain('-0.9');
     expect(html).toContain('<td>–</td>');
+  });
+});
+
+// ── S24-4: BC truing ──────────────────────────────────────────────────────────
+describe('solveBC', () => {
+  const bullet = {
+    id: 'b', name: 'Test 168gr', bulletWeightGrams: 10.89, muzzleVelocityMps: 807,
+    ballisticCoefficient: 0.475, bulletDiameterMm: 7.82,
+  };
+  const req = {
+    zeroRangeMeters: 100, maxRangeMeters: 600, stepMeters: 50, windSpeedKph: 0,
+    altitudeMeters: 0, temperatureC: 15, dragModel: 'G1',
+  };
+  const dropAt = (bc, rangeM, extra = {}, b = bullet) => {
+    const r = engineSimulate({ ...b, ballisticCoefficient: bc }, { ...req, ...extra, maxRangeMeters: rangeM, stepMeters: rangeM });
+    return -r.points[r.points.length - 1].dropCm;
+  };
+
+  test('recovers a known BC within 1%', () => {
+    const target = dropAt(0.475, 500);
+    const bc = solveBC(target, 500, { simulate: engineSimulate, bullet, req });
+    expect(Math.abs(bc - 0.475) / 0.475).toBeLessThan(0.01);
+  });
+
+  test('recovers a different BC (0.30) within 1%', () => {
+    const target = dropAt(0.30, 400);
+    const bc = solveBC(target, 400, { simulate: engineSimulate, bullet, req });
+    expect(Math.abs(bc - 0.30) / 0.30).toBeLessThan(0.01);
+  });
+
+  test('holds the temperature-adjusted MV fixed', () => {
+    const r2 = { ...req, mvSensMps: 1, temperatureC: 35 };
+    const effBullet = { ...bullet, muzzleVelocityMps: 807 + 20 };
+    const target = dropAt(0.40, 500, { temperatureC: 35 }, effBullet);
+    const bc = solveBC(target, 500, { simulate: engineSimulate, bullet, req: r2 });
+    expect(Math.abs(bc - 0.40) / 0.40).toBeLessThan(0.01);
+  });
+
+  test('returns null when the drop is outside the achievable envelope', () => {
+    expect(solveBC(5000, 500, { simulate: engineSimulate, bullet, req })).toBeNull();
+    expect(solveBC(-5000, 500, { simulate: engineSimulate, bullet, req })).toBeNull();
+  });
+
+  test('returns null when the engine throws or cannot reach the range', () => {
+    const boom = () => { throw new Error('bad'); };
+    expect(solveBC(10, 500, { simulate: boom, bullet, req })).toBeNull();
+    const short = () => ({ points: [{ rangeMeters: 0, dropCm: 0 }] });
+    expect(solveBC(10, 500, { simulate: short, bullet, req })).toBeNull();
+    const empty = () => ({ points: [] });
+    expect(solveBC(10, 500, { simulate: empty, bullet, req })).toBeNull();
+  });
+});
+
+describe('BC truing naming and fields', () => {
+  const base = {
+    name: 'Base', shortName: 'B', bulletWeightGrams: 10.89, ballisticCoefficient: 0.475,
+    ballisticCoefficientG7: 0.24, bulletDiameterMm: 7.82, muzzleVelocityMps: 807,
+  };
+  test('appends (trued-BC) without stacking and truncates to 64 chars', () => {
+    expect(truedBcBulletName('Foo')).toBe('Foo (trued-BC)');
+    expect(truedBcBulletName('Foo (trued-BC)')).toBe('Foo (trued-BC)');
+    const n = truedBcBulletName('x'.repeat(100));
+    expect(n.length).toBe(64);
+    expect(n.endsWith(' (trued-BC)')).toBe(true);
+  });
+  test('G1 solve replaces the G1 column; G7 solve replaces the G7 column; MV stays nominal', () => {
+    const g1 = truedBcBulletFields(base, 0.51234, false);
+    expect(g1.ballisticCoefficientG1).toBe('0.5123');
+    expect(g1.ballisticCoefficientG7).toBe('0.24');
+    expect(g1.muzzleVelocityFps).toBe('2647.6');
+    const g7 = truedBcBulletFields(base, 0.26, true);
+    expect(g7.ballisticCoefficientG1).toBe('0.475');
+    expect(g7.ballisticCoefficientG7).toBe('0.26');
+    expect(g7.name).toBe('Base (trued-BC)');
+  });
+});
+
+describe('initBcTruing UI', () => {
+  const baseBullet = { id: 'b', name: 'Base', ballisticCoefficient: 0.4, ballisticCoefficientG7: 0.2 };
+  // drop (cm, positive below LOS) = 100 / bc → decreasing in BC
+  const fakeSim = (b, params) => ({ points: [
+    { rangeMeters: 0, dropCm: 0 },
+    { rangeMeters: params.maxRangeMeters, dropCm: -(100 / b.ballisticCoefficient) },
+  ] });
+  let deps;
+  let ctx;
+  const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+  const fill = (range, drop, unit = 'cm') => {
+    document.getElementById('bcTruingRange').value = range;
+    document.getElementById('bcTruingDrop').value = drop;
+    document.getElementById('bcTruingDropUnit').value = unit;
+  };
+  const solve = async () => { document.getElementById('solveBcBtn').click(); await flush(); };
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <section id="bcTruingCard">
+        <input id="bcTruingRange"><input id="bcTruingDrop">
+        <select id="bcTruingDropUnit"><option value="cm">cm</option><option value="moa">MOA</option></select>
+        <button id="solveBcBtn" disabled></button><small id="bcTruingError"></small>
+        <div id="bcTruingResult" style="display:none"><span id="bcTruingValue"></span><span id="bcTruingCatalog"></span>
+          <span id="bcTruingDelta"></span><button id="applyBcBtn"></button><span id="bcTruingApplyMsg"></span></div>
+      </section>`;
+    setToolsUnitSystem('metric');
+    ctx = { baseBullet, bullet: baseBullet, req: { dragModel: 'G1' } };
+    deps = {
+      getContext: jest.fn(() => ctx),
+      loadSimulate: jest.fn(() => Promise.resolve(fakeSim)),
+      saveTrued: jest.fn(() => ({ ok: true, name: 'Base (trued-BC)' })),
+    };
+    initBcTruing(deps);
+  });
+
+  test('Solve is disabled until a context exists, and refreshBcTruing re-enables it', () => {
+    ctx = null;
+    refreshBcTruing();
+    expect(document.getElementById('solveBcBtn').disabled).toBe(true);
+    ctx = { baseBullet, bullet: baseBullet, req: { dragModel: 'G1' } };
+    refreshBcTruing();
+    expect(document.getElementById('solveBcBtn').disabled).toBe(false);
+  });
+
+  test('refreshBcTruing is a no-op without the button', () => {
+    document.body.innerHTML = '';
+    expect(() => refreshBcTruing()).not.toThrow();
+  });
+
+  test('validation errors are shown', async () => {
+    fill('', '10');
+    await solve();
+    expect(document.getElementById('bcTruingError').textContent).toMatch(/range/i);
+    expect(deps.getContext).toHaveBeenCalledTimes(1); // only from initial refresh
+  });
+
+  test('requires a simulation context', async () => {
+    fill('500', '250');
+    ctx = null;
+    await solve();
+    expect(document.getElementById('bcTruingError').textContent).toMatch(/run a simulation/i);
+  });
+
+  test('reports an engine load failure', async () => {
+    fill('500', '250');
+    deps.loadSimulate.mockRejectedValueOnce(new Error('x'));
+    await solve();
+    expect(document.getElementById('bcTruingError').textContent).toMatch(/physics engine/i);
+  });
+
+  test('reports when no BC reproduces the drop', async () => {
+    fill('500', '99999');
+    await solve();
+    expect(document.getElementById('bcTruingError').textContent).toMatch(/No ballistic coefficient/);
+    expect(document.getElementById('applyBcBtn').disabled).toBe(true);
+  });
+
+  test('renders trued BC, catalog BC and delta, then applies', async () => {
+    fill('500', String(100 / 0.5)); // true BC 0.5 vs catalog 0.4
+    await solve();
+    expect(document.getElementById('bcTruingError').textContent).toBe('');
+    expect(document.getElementById('bcTruingResult').style.display).toBe('');
+    expect(document.getElementById('bcTruingValue').textContent).toBe('G1 0.500');
+    expect(document.getElementById('bcTruingCatalog').textContent).toBe('0.400');
+    expect(document.getElementById('bcTruingDelta').textContent).toBe('+25%');
+    expect(document.getElementById('applyBcBtn').disabled).toBe(false);
+    document.getElementById('applyBcBtn').click();
+    expect(deps.saveTrued).toHaveBeenCalledWith(baseBullet, expect.closeTo(0.5, 3), false);
+    expect(document.getElementById('bcTruingApplyMsg').textContent).toMatch(/Saved/);
+  });
+
+  test('G7 model uses the G7 column and shows a negative delta without a plus sign', async () => {
+    ctx = { baseBullet, bullet: { ...baseBullet, ballisticCoefficient: 0.2 }, req: { dragModel: 'G7' } };
+    fill('500', String(100 / 0.15));
+    await solve();
+    expect(document.getElementById('bcTruingValue').textContent).toBe('G7 0.150');
+    expect(document.getElementById('bcTruingDelta').textContent).toBe('-25%');
+    document.getElementById('applyBcBtn').click();
+    expect(deps.saveTrued).toHaveBeenCalledWith(baseBullet, expect.closeTo(0.15, 3), true);
+  });
+
+  test('apply surfaces save failures, falls back to a default message, and is inert before a solve', async () => {
+    document.getElementById('applyBcBtn').click();
+    expect(deps.saveTrued).not.toHaveBeenCalled();
+    fill('500', '200');
+    await solve();
+    deps.saveTrued.mockReturnValueOnce({ ok: false, message: 'Custom bullet limit reached' });
+    document.getElementById('applyBcBtn').click();
+    expect(document.getElementById('bcTruingApplyMsg').textContent).toBe('Custom bullet limit reached');
+    deps.saveTrued.mockReturnValueOnce({ ok: false });
+    document.getElementById('applyBcBtn').click();
+    expect(document.getElementById('bcTruingApplyMsg').textContent).toBe('Could not save bullet.');
   });
 });

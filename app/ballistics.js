@@ -295,6 +295,11 @@ async function _ensureToolsLoaded() {
       loadSimulate: () => import('./physics/engine.ts').then(m => m.simulate),
       saveTrued: (baseBullet, mvMps) => _saveTruedBullet(toolsMod.truedBulletFields(baseBullet, mvMps), baseBullet),
     });
+    toolsMod.initBcTruing({
+      getContext: _getTruingContext,
+      loadSimulate: () => import('./physics/engine.ts').then(m => m.simulate),
+      saveTrued: (baseBullet, bc, useG7) => _saveTruedBullet(toolsMod.truedBcBulletFields(baseBullet, bc, useG7), baseBullet),
+    });
   }
   toolsMod.setToolsUnitSystem(unitSystem);
   return toolsMod;
@@ -820,6 +825,7 @@ async function renderResults(rawResults, req, activeUnits = unitSystem) {
       _dopeDirty = false;
       toolsMod.renderDopeCard(results, req, sys);
       toolsMod.renderMpbrTool(results, sys);
+      toolsMod.refreshBcTruing();
     } catch (_) {
       _setSimulationError(TOOLS_LOAD_ERROR_MSG);
     }
@@ -843,6 +849,7 @@ async function switchTab(name, el) {
         toolsMod.renderDopeCard(pendingResults, _pendingDopeReq, unitSystem);
         toolsMod.renderMpbrTool(pendingResults, unitSystem);
       }
+      toolsMod.refreshBcTruing();
     } catch (_) {
       _setSimulationError(TOOLS_LOAD_ERROR_MSG);
     }
