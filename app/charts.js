@@ -1,6 +1,7 @@
 import BULLET_CATALOG from 'virtual:bullet-catalog';
 import { escapeHtml, formatNumber, computeAdjustments, _setSimulationError } from './prefs.js';
 import { normalizeUnitSystem, toDisplay, unitLabel } from './units.js';
+import { TRANSONIC_MACH, SUBSONIC_MACH, resultSpeedOfSound, machRangeText } from './mach.js';
 
 // ── Constants & colour helpers ────────────────────────────────────────────────
 
@@ -471,7 +472,12 @@ function _statCardsHtml(results, unitSystem) {
         const daLine = r.densityAltitudeMeters !== undefined
           ? `<br><span style="color:var(--text)">${toDisplay('altitude', Number(r.densityAltitudeMeters), sys)}</span> ${aUnit} density alt`
           : '';
-        const mvDisp = toDisplay('velocity', Number(r.bullet.muzzleVelocityMps), sys);
+        const nominalMv = r.bullet.nominalMuzzleVelocityMps ?? r.bullet.muzzleVelocityMps;
+        const mvDisp = toDisplay('velocity', Number(nominalMv), sys);
+        const effMvLine = r.bullet.nominalMuzzleVelocityMps !== undefined
+          && r.bullet.nominalMuzzleVelocityMps !== r.bullet.muzzleVelocityMps
+          ? `<span style="color:var(--text)">${formatNumber(toDisplay('velocity', Number(r.bullet.muzzleVelocityMps), sys))}</span> ${vUnit} Effective MV<br>`
+          : '';
         const wtDisp = toDisplay('weight', Number(r.bullet.bulletWeightGrams), sys);
         const meDisp = toDisplay('energy', Number(r.bullet.muzzleEnergyJoules), sys);
         const supDisp = toDisplay('range', Number(r.supersonicLimitMeters), sys);
@@ -484,8 +490,11 @@ function _statCardsHtml(results, unitSystem) {
           <div class="stat-unit">MV ${vUnit} &nbsp;·&nbsp; BC ${Number(r.bullet.ballisticCoefficient)} &nbsp;·&nbsp; ${wtDisp}${wUnit}</div>
           <div style="margin-top:8px; font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--text-dim); letter-spacing:1px; line-height:1.8">
             <span style="color:var(--text)">⚡ ${formatNumber(meDisp)}</span> ${eUnit} muzzle energy<br>
+            ${effMvLine}
             <span style="color:var(--text)">${supDisp}</span> ${rUnit} supersonic${daLine}<br>
-            <span style="color:var(--text)">${maxOrdDisp}</span> ${dUnit} max ordinate @ ${maxOrdRangeDisp} ${rUnit}
+            <span style="color:var(--text)">${maxOrdDisp}</span> ${dUnit} max ordinate @ ${maxOrdRangeDisp} ${rUnit}<br>
+            <span style="color:var(--text)">${machRangeText(r, TRANSONIC_MACH, sys)}</span> transonic (Mach ${TRANSONIC_MACH}, ambient)<br>
+            <span style="color:var(--text)">${machRangeText(r, SUBSONIC_MACH, sys)}</span> subsonic (Mach ${SUBSONIC_MACH.toFixed(1)}, ambient)
           </div>
         </div>`;
       }).join('')}
@@ -754,6 +763,9 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
   const sonicAnn = first
     ? [{ type: 'vertical',   value: toDisplay('range', first.supersonicLimitMeters, sys),  label: 'SUPERSONIC ←', color: SONIC_COLOR }]
     : [];
+  const machAnn = first
+    ? [{ type: 'horizontal', value: toDisplay('velocity', TRANSONIC_MACH * resultSpeedOfSound(first), sys), label: `Mach ${TRANSONIC_MACH}`, color: SONIC_COLOR }]
+    : [];
   const dropAnns = first
     ? [
         ...sonicAnn,
@@ -765,7 +777,7 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
   const zeroDisp = toDisplay('range', req.zeroRangeMeters, sys);
   const chartDefs = [
     { id: 'dropChart',     title: 'BULLET DROP',         subtitle: `zeroed at ${zeroDisp} ${rUnit}`,     yLabel: `Drop (${dUnit})`,      key: 'dropCm',       unitKind: 'drop',     annotations: [...dropAnns] },
-    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: `${vUnit} downrange`,                 yLabel: `Velocity (${vUnit})`,  key: 'velocityMps',  unitKind: 'velocity', annotations: [...sonicAnn] },
+    { id: 'velocityChart', title: 'VELOCITY RETENTION',  subtitle: `${vUnit} downrange`,                 yLabel: `Velocity (${vUnit})`,  key: 'velocityMps',  unitKind: 'velocity', annotations: [...sonicAnn, ...machAnn] },
     { id: 'energyChart',   title: 'KINETIC ENERGY',      subtitle: `${sys === 'imperial' ? 'ft·lb' : 'joules'} downrange`, yLabel: `Energy (${eUnit})`, key: 'energyJoules', unitKind: 'energy', annotations: [...sonicAnn] },
     { id: 'windChart',     title: 'WIND DRIFT',          subtitle: windChartSubtitle(req, sys),          yLabel: `Drift (${drUnit})`,    key: 'windDriftCm',  unitKind: 'drift',    annotations: [...sonicAnn] },
   ];

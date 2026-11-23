@@ -1,7 +1,7 @@
 /** URL key for each state field. Order = canonical serialization order. */
 export const URL_PARAM_KEYS = Object.freeze([
   'zero', 'maxRange', 'wind', 'windDir', 'altitude', 'temp', 'step', 'sightHeight', 'angle', 'dragModel',
-  'pressureHpa', 'humidityPercent', 'includeEotvos', 'units',
+  'pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens',
 ]);
 export const URL_BULLET_KEY = 'b';
 export const MAX_URL_BULLETS = 20;
@@ -18,7 +18,7 @@ function parseNum(raw) {
 }
 
 const OPTIONAL_URL_KEYS = new Set([
-  'pressureHpa', 'humidityPercent', 'includeEotvos', 'units',
+  'pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens',
 ]);
 
 const VALIDATORS = {
@@ -35,6 +35,7 @@ const VALIDATORS = {
   pressureHpa:     v => v >= 500 && v <= 1100,
   humidityPercent: v => v >= 0 && v <= 100,
   units:           v => v === 'metric' || v === 'imperial',
+  mvSens:          v => v >= -5.5 && v <= 5.5,
 };
 
 /**

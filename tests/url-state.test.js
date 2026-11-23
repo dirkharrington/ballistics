@@ -27,8 +27,8 @@ const STATE_20 = { ...BASE_STATE, bulletIds: make20Bullets() };
 
 // ── URL_PARAM_KEYS ─────────────────────────────────────────────────────────────
 describe('URL_PARAM_KEYS', () => {
-  test('contains exactly 14 keys', () => {
-    expect(URL_PARAM_KEYS).toHaveLength(14);
+  test('contains exactly 15 keys', () => {
+    expect(URL_PARAM_KEYS).toHaveLength(15);
   });
   test('is frozen', () => {
     expect(Object.isFrozen(URL_PARAM_KEYS)).toBe(true);
@@ -64,7 +64,7 @@ describe('encodeState', () => {
   test('always emits all required keys; optional keys absent when null', () => {
     const qs = encodeState(BASE_STATE);
     const params = new URLSearchParams(qs);
-    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units']);
+    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);
@@ -389,7 +389,7 @@ describe('mergeIntoSearch', () => {
   test('all required owned keys are always emitted; optional keys absent when null', () => {
     const result = mergeIntoSearch('', BASE_STATE);
     const params = new URLSearchParams(result);
-    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units']);
+    const OPTIONAL = new Set(['pressureHpa', 'humidityPercent', 'includeEotvos', 'units', 'mvSens']);
     URL_PARAM_KEYS.filter(k => !OPTIONAL.has(k)).forEach(k => expect(params.has(k)).toBe(true));
     expect(params.has('latitudeDeg')).toBe(false);
     expect(params.has('azimuthDeg')).toBe(false);

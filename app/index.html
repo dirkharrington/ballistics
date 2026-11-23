@@ -134,6 +134,13 @@
           <input type="number" id="temperature" value="15" min="-30" max="50" step="1">
         </div>
         <div class="param-group">
+          <label for="mvSens">MV Temp Sensitivity (<span data-unit-kind="mvSens">m/s/°C</span>)</label>
+          <input type="number" id="mvSens" value="0" min="-5.5" max="5.5" step="0.05" aria-describedby="mvSens-error">
+          <small class="field-error" id="mvSens-error"></small>
+        </div>
+      </div>
+      <div class="param-row">
+        <div class="param-group">
           <label for="humidityPercent">Humidity (%)</label>
           <input type="number" id="humidityPercent" placeholder="auto" min="0" max="100" step="1">
         </div>
@@ -386,6 +393,7 @@
               <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th id="machColHeader">Mach (ambient)</th>
               <th id="spinDriftColHeader" style="display:none">Spin Drift (<span data-unit-kind="drift">cm</span>)</th>
               <th id="coriolisColHeader" style="display:none">Coriolis (<span data-unit-kind="drift">cm</span>)</th>
               <th id="eotvosColHeader" style="display:none">Eötvös (<span data-unit-kind="drop">cm</span>)</th>
@@ -404,11 +412,24 @@
         <!-- DOPE Card -->
         <div class="tool-card" id="dopeCard">
           <h3 class="tool-title">COME-UPS / DOPE</h3>
+          <div id="dopeClickControls" class="tool-row" style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+            <label for="clickValue">Click value</label>
+            <select id="clickValue">
+              <option value="0.25moa">¼ MOA</option>
+              <option value="0.5moa">½ MOA</option>
+              <option value="1moa">1 MOA</option>
+              <option value="0.1mrad">0.1 MRAD</option>
+              <option value="0.05mrad">0.05 MRAD</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input type="number" id="clickValueCustom" style="display:none" min="0.001" step="0.001" value="0.25" aria-label="Custom click value (MOA)">
+          </div>
           <div id="dopeDistanceRow" style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;"></div>
           <button class="tool-calc-btn" id="dopeAddDistBtn" style="margin-bottom:8px;">+ Add distance</button>
           <div id="dopeTableWrap" style="overflow-x:auto">
             <table id="dopeTable"></table>
           </div>
+          <div id="dopeClickNote" class="tool-note"></div>
           <button class="tool-calc-btn" id="dopeCopyBtn" style="margin-top:8px;">COPY TEXT</button>
           <button class="tool-calc-btn" id="dopePrintBtn" type="button" style="margin-top:8px;">PRINT DOPE</button>
         </div>

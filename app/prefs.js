@@ -14,6 +14,9 @@ export const PREF_KEYS = {
   sightHeight:   'bv_sightHeight',
   angle:         'bv_angle',
   dragModel:     'bv_dragModel',
+  clickValue:    'bv_clickValue',
+  clickValueCustom: 'bv_clickValueCustom',
+  mvSens:        'bv_mvSens',
   recentCombos:  'bv_recentCombos',
 };
 
@@ -30,6 +33,9 @@ export const PREF_DEFAULTS = {
   sightHeight: 38.1,
   angle:       0,
   dragModel:   'G1',  // G1 = standard flat-base/spitzer; G7 = boat-tail long-range
+  clickValue:  '0.25moa', // scope click size preset (DOPE card)
+  clickValueCustom: 0.25, // custom click size in MOA
+  mvSens:      0,     // MV temperature sensitivity, m/s per °C (canonical metric)
 };
 
 /** Maps PREF_DEFAULTS keys to their DOM input element IDs (selectedIds has no input). */
@@ -44,6 +50,9 @@ export const DOM_ID_FOR_PREF = {
   sightHeight: 'sightHeight',
   angle:       'shootingAngle',
   dragModel:   'dragModel',
+  clickValue:  'clickValue',
+  clickValueCustom: 'clickValueCustom',
+  mvSens:      'mvSens',
 };
 
 /** Maps unit-dependent preference keys to their unit kinds in app/units.js. */
@@ -55,6 +64,7 @@ const UNIT_KIND_FOR_PREF = Object.freeze({
   temp:        'temp',
   step:        'step',
   sightHeight: 'sightHeight',
+  mvSens:      'mvSens',
 });
 
 export const AUTO_COMPUTE_KEY = 'ballistics_auto_compute';

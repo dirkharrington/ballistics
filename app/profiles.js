@@ -1,5 +1,7 @@
 // ── Named Rifle / Load Profiles (ENH-5 / DX-2) ────────────────────────────────
 
+import { CLICK_VALUE_IDS } from './clicks.js';
+
 export const PROFILES_STORAGE_KEY = 'ballistics_profiles';
 export const MAX_PROFILES         = 20;
 export const PROFILE_NAME_MAX     = 64;
@@ -26,6 +28,8 @@ const OPTIONAL_NUMERIC_RULES = Object.freeze([
   ['azimuthDeg',      0,   360 ],
   ['pressureHpa',     500, 1100],
   ['humidityPercent', 0,   100 ],
+  ['clickValueCustom', 0.001, 100],
+  ['mvSens',          -5.5, 5.5 ],
 ]);
 
 function _isPlainObject(v) {
@@ -74,6 +78,11 @@ function _sanitizeParams(raw) {
   if (raw.includeEotvos != null) {
     if (typeof raw.includeEotvos !== 'boolean') return null;
     clean.includeEotvos = raw.includeEotvos;
+  }
+
+  if (raw.clickValue != null) {
+    if (!CLICK_VALUE_IDS.includes(raw.clickValue)) return null;
+    clean.clickValue = raw.clickValue;
   }
 
   if (raw.units != null) {
