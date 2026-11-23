@@ -2949,19 +2949,24 @@ Flagged as L3 in devsecops review of PR #199.
 
 ---
 
-### INFRA-TRIVY-1 · Consolidate duplicate Trivy checks in CI · DevSecOps · Size XS
+### ~~INFRA-TRIVY-1 · Consolidate duplicate Trivy checks in CI · DevSecOps · Size XS~~ ✅ Done (PR #208)
 
-**Problem:** The CI pipeline runs Trivy twice on every PR: once as the `Trivy Filesystem Scan` job in the GitHub Actions workflow and once as a standalone Trivy status check. This double-runs the same scan, adds ~30 s to every CI run, and clutters the checks list on PRs.
+**Finding:** The two Trivy check entries (`Trivy Filesystem Scan` and `Trivy`) are **not** duplicate scans. Both come from the single `trivy` workflow job in `ci.yml`:
 
-**Work items:**
+- **`Trivy Filesystem Scan`** — the CI job status (exit code from `aquasecurity/trivy-action` with `exit-code: '1'`)
+- **`Trivy`** — a code-scanning check created by the `github/codeql-action/upload-sarif` step in the same job; this feeds GitHub's Security tab with SARIF findings
 
-1. Identify which of the two Trivy invocations is authoritative (the workflow job or the standalone check) and remove the redundant one.
-2. Confirm the remaining check is still required by the branch protection ruleset so the gate is preserved.
-3. Update any documentation or comments that reference both checks.
+The SARIF upload is kept: it populates GitHub Advanced Security with structured findings across PRs. The `~30 s` estimated overhead was wrong — the `Trivy` GitHub Advanced Security check takes ~5 s to process the uploaded SARIF; no second scan runs.
 
-**Acceptance criteria:**
-- Trivy runs exactly once per CI invocation.
-- The branch protection rule still requires the Trivy check to pass before merge.
-- No other CI behaviour changes.
+**What changed:** `Trivy Filesystem Scan` was not a required status check (only `frontend-build` and `CodeQL SAST (javascript)` were). To complete the gate, add it to branch protection:
+
+```bash
+gh api repos/dirkharrington/ballistics/branches/main/protection/required_status_checks \
+  -X PATCH \
+  --field strict=true \
+  --field 'contexts[]=frontend-build' \
+  --field 'contexts[]=CodeQL SAST (javascript)' \
+  --field 'contexts[]=Trivy Filesystem Scan'
+```
 
 ---
