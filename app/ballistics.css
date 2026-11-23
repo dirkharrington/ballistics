@@ -486,6 +486,75 @@ header {
   letter-spacing: 1px;
 }
 
+/* ── recent combos panel ── */
+#recentCombos {
+  border-top: 1px solid var(--border);
+  padding: 0;
+}
+
+#recentCombos > summary {
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: var(--font-xs);
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  padding: 10px 20px;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+  transition: color 0.15s;
+}
+#recentCombos > summary::-webkit-details-marker { display: none; }
+#recentCombos > summary::before {
+  content: '▶';
+  font-size: 7px;
+  color: var(--dim);
+  transition: transform 0.15s, color 0.15s;
+  display: inline-block;
+}
+#recentCombos[open] > summary::before { transform: rotate(90deg); color: var(--accent); }
+#recentCombos > summary:hover { color: var(--text); }
+#recentCombos > summary:hover::before { color: var(--text-dim); }
+
+.recent-combo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recent-combo-btn {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: 'Share Tech Mono', 'Share Tech Mono Fallback', monospace;
+  font-size: var(--font-sm);
+  letter-spacing: 0.5px;
+  padding: 7px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-combo-btn:hover {
+  border-color: var(--accent);
+  background: var(--panel);
+  color: var(--accent);
+}
+.recent-combo-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ── params ── */
 .params { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 
