@@ -609,7 +609,7 @@ describe('S23-5a custom bullet form', () => {
     await submitCustomBullet({ name: '' });
 
     const err = await page.$eval('#cbName-error', el => ({
-      text: el.textContent, visible: el.offsetParent !== null || getComputedStyle(el).display !== 'none',
+      text: el.textContent, visible: el.offsetParent !== null && getComputedStyle(el).display !== 'none',
     }));
     expect(err.text).toMatch(/required/i);
     expect(err.visible).toBe(true);
