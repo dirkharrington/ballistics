@@ -3023,3 +3023,9 @@ Adds an **MV Truing** card to the Tools tab. Enter an observed range and drop (c
 ### S23-5 — E2E: custom bullet, export/import, theme ✅ Done (PR #215)
 
 Adds five Puppeteer tests to `tests/e2e/app.e2e.test.js`: custom bullet creation + simulation, empty-name save blocked, JSON export produces a `blob:` download link, JSON export → clean reload → import restores the custom bullet's results, and theme persistence across reload (theme is `<html data-theme>` + `bv_theme`, not a body class). Verified locally against the built `dist/` with Chromium (17/17 E2E tests pass).
+
+---
+
+### S24-3 — E2E coverage for Sprint 23 features ✅ Done (PR #PRNUM)
+
+Adds four Puppeteer smoke tests to `tests/e2e/app.e2e.test.js`: MV temperature sensitivity → "Effective MV" stat line; transonic/subsonic Mach markers (or "Beyond max range") on the stat card; DOPE table "Elev Clicks" column after selecting ½ MOA; MV truing (Tools tab) producing a numeric trued MV with no error. 21/21 E2E tests pass locally against the built `dist/`.
