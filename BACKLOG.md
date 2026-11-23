@@ -1158,7 +1158,7 @@ The "COMPUTE TRAJECTORIES" button (`#runBtn`) sits below the entire parameter fo
 ### Icebox (future sprints)
 
 - **~~ACC-3 · Arrow-key roving tabindex in bullet list~~** — Follow-on to ACC-1; Up/Down arrows navigate within the bullet list. 2 pts. ✅ Done (delivered via ENH-6, PR #172)
-- **FEAT-4 · G7 BC on custom bullets** — Custom bullets with `dragModel: 'G7'` currently use the G1 reference table. Add optional `bcG7` to the custom bullet form. 3 pts.
+- **~~FEAT-4 · G7 BC on custom bullets~~** — Delivered in UX-1 (PR #113) and ENH-5. The optional `cbBcG7` field exists in the custom bullet form; `bulletForDragModel` swaps in the G7 BC when the drag model is G7. ✅ Done
 - **~~UX-7 · Print-friendly DOPE card~~** — `@media print` stylesheet + "Print DOPE" button formatted for A5 paper. 3 pts. ✅ Done (delivered via ENH-4, PR #174)
 - **~~DX-2 · Named session saves~~** — Extend URL state module to let users name and persist sessions in `localStorage`. 5 pts. ✅ Done / Superseded by ENH-5 (`app/profiles.js`, PR #176)
 - **~~SEC-3 · Content Security Policy header audit~~** — GitHub Pages does not support custom headers; evaluate `<meta http-equiv="Content-Security-Policy">` or Cloudflare Pages migration. 3 pts. ✅ Done / Superseded by ENH-9 (`<meta http-equiv="Content-Security-Policy">` in `app/index.html`, PR #177)
