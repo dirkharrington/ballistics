@@ -2944,3 +2944,24 @@ Flagged as L3 in devsecops review of PR #199.
 - 100% Jest coverage maintained.
 
 ---
+
+## Sprint 22 — CI Hygiene
+
+---
+
+### INFRA-TRIVY-1 · Consolidate duplicate Trivy checks in CI · DevSecOps · Size XS
+
+**Problem:** The CI pipeline runs Trivy twice on every PR: once as the `Trivy Filesystem Scan` job in the GitHub Actions workflow and once as a standalone Trivy status check. This double-runs the same scan, adds ~30 s to every CI run, and clutters the checks list on PRs.
+
+**Work items:**
+
+1. Identify which of the two Trivy invocations is authoritative (the workflow job or the standalone check) and remove the redundant one.
+2. Confirm the remaining check is still required by the branch protection ruleset so the gate is preserved.
+3. Update any documentation or comments that reference both checks.
+
+**Acceptance criteria:**
+- Trivy runs exactly once per CI invocation.
+- The branch protection rule still requires the Trivy check to pass before merge.
+- No other CI behaviour changes.
+
+---
