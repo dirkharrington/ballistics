@@ -452,6 +452,8 @@ const MM_PER_INCH = 25.4;
 const TRUING_TOL_CM = 0.05;
 /** Stand-in drop (cm) when the bullet cannot be simulated at the observed range. */
 const UNREACHABLE_DROP_CM = Infinity;
+/** Upper bound for a physically plausible solved MV (matches custom-bullet MV max: 5000 fps). */
+const MAX_SOLVED_MV_MPS = 5000 * MPS_PER_FPS;
 
 /**
  * Bisect for the muzzle velocity whose drop at the observed range matches `observedDropCm`.
@@ -548,18 +550,26 @@ function initMvTruing({ getContext, loadSimulate, saveTrued }) {
       maxRangeMeters: rangeM,
       stepMeters: rangeM / steps,
     };
+    let lastEngineError = null;
     const computeDropFn = mv => {
       try {
         const res = simulate({ ...ctx.bullet, muzzleVelocityMps: mv }, params);
         const last = res.points[res.points.length - 1];
         if (!last || last.rangeMeters < rangeM - 1e-6) return UNREACHABLE_DROP_CM;
         return -interpolateAt(res.points, rangeM, 'dropCm');
-      } catch (_) {
+      } catch (e) {
+        lastEngineError = e;
         return UNREACHABLE_DROP_CM;
       }
     };
     const mv = solveMV(computeDropFn, dropCm, 50, 9999, TRUING_TOL_CM);
-    if (mv === null) { setError('No muzzle velocity reproduces that drop. Check range, drop and units.'); return; }
+    if (mv === null) {
+      setError(lastEngineError
+        ? (lastEngineError.message || 'Engine error — check your inputs.')
+        : 'No muzzle velocity reproduces that drop. Check range, drop and units.');
+      return;
+    }
+    if (mv > MAX_SOLVED_MV_MPS) { setError('Solved MV is out of range — check your inputs.'); return; }
 
     _truing = { baseBullet: ctx.baseBullet, mvMps: mv };
     const vUnit = unitLabel('velocity', sys);

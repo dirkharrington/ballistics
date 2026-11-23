@@ -224,6 +224,40 @@ describe('initMvTruing UI', () => {
     expect(document.getElementById('truingApplyMsg').textContent).toBe('Could not save bullet.');
   });
 
+  test('engine error from simulate is surfaced when no MV can be bracketed', async () => {
+    const { TrajectoryInputError } = require('../app/physics/engine.ts');
+    deps.loadSimulate.mockResolvedValue(() => {
+      throw new TrajectoryInputError('bullet.ballisticCoefficient', 'a finite number greater than 0');
+    });
+    fill('300', '25');
+    document.getElementById('truingCalc').click();
+    await flush();
+    expect(document.getElementById('truingError').textContent)
+      .toMatch(/ballisticCoefficient/);
+    expect(document.getElementById('truingResult').style.display).toBe('none');
+  });
+
+  test('engine error without a message falls back to generic error text', async () => {
+    const noMsgErr = new Error();
+    noMsgErr.message = '';
+    deps.loadSimulate.mockResolvedValue(() => { throw noMsgErr; });
+    fill('300', '25');
+    document.getElementById('truingCalc').click();
+    await flush();
+    expect(document.getElementById('truingError').textContent)
+      .toMatch(/Engine error/i);
+    expect(document.getElementById('truingResult').style.display).toBe('none');
+  });
+
+  test('solved MV above 5000 fps is rejected with an out-of-range error', async () => {
+    // fakeSim: drop(mv) = (1000 - mv) / 10 → observed -55 cm → solved mv ~1550 m/s > 1524 m/s (5000 fps)
+    fill('300', '-55');
+    document.getElementById('truingCalc').click();
+    await flush();
+    expect(document.getElementById('truingError').textContent).toMatch(/out of range/i);
+    expect(document.getElementById('truingResult').style.display).toBe('none');
+  });
+
   test('a new calculation clears a previous result', async () => {
     fill('300', '25');
     document.getElementById('truingCalc').click();
