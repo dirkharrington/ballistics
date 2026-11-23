@@ -8,7 +8,6 @@ export { TrajectoryInputError } from './errors.ts';
 // ── Physics constants (imperial unit system used by the RK4 engine) ───────────
 const G_FPS2      = 32.174;
 const DT_S        = 0.0005;
-const SOUND_FPS   = 1125;
 const MIN_VEL_FPS = 100;
 const MPH_TO_FPS  = 1.46667;
 const G_PER_LB    = 453.592;
@@ -24,6 +23,11 @@ const LENGTH_CAL   = 4.5;   // fixed bullet length in calibers (SH-1 judgement c
 
 // ── Conversion constants ──────────────────────────────────────────────────────
 const FPS_PER_MPS = 3.28084;
+
+/** Speed of sound (fps) at ambient temperature — same formula as app/mach.js speedOfSound(). */
+export function soundSpeedFps(tempC: number): number {
+  return 331.3 * Math.sqrt(1 + tempC / 273.15) * FPS_PER_MPS;
+}
 const FT_PER_M    = 3.28084;
 const M_PER_YARD  = 0.9144;
 const CM_PER_INCH = 2.54;
@@ -112,8 +116,9 @@ function validate(bullet: Bullet, params: TrajectoryParams): void {
           throw new TrajectoryInputError('customDragTable', 'cd values between 0.001 and 2');
       }
       // Rule 5: strictly increasing fps values (guards against ULP-collapse divide-by-zero)
+      const soundFps = soundSpeedFps(params.temperatureC);
       for (let i = 1; i < table.length; i++) {
-        if (!(table[i]!.mach * SOUND_FPS > table[i - 1]!.mach * SOUND_FPS))
+        if (!(table[i]!.mach * soundFps > table[i - 1]!.mach * soundFps))
           throw new TrajectoryInputError('customDragTable', 'strictly increasing mach values');
       }
       // Rule 6: at least one mach <= 0.5
@@ -136,8 +141,8 @@ function validate(bullet: Bullet, params: TrajectoryParams): void {
  * due to the engine's near-vacuum drag behaviour. See contracts/feat3-custom-drag-ts.md for details.
  * @internal
  */
-export function toDragTable(points: readonly DragPoint[]): DragTable {
-  return points.map(p => [p.mach * SOUND_FPS, p.cd] as const);
+export function toDragTable(points: readonly DragPoint[], soundFps: number): DragTable {
+  return points.map(p => [p.mach * soundFps, p.cd] as const);
 }
 
 /**
@@ -403,7 +408,8 @@ export function integrateTrajectoryFps(
   mvFps: number, angle: number, bc: number, rho: number,
   wLbs: number, windMph: number, maxRangeYd: number, stepYd: number,
   cosAngle: number = 1, dragTable: DragTable = G1_TABLE,
-  extras: PointExtras = {}
+  extras: PointExtras = {},
+  soundFps: number = soundSpeedFps(15)
 ): { points: TrajectoryPoint[]; maxOrdIn: number; maxOrdRangeYd: number; supersonicLimYd: number } {
   const ct    = getCompiledDragTable(dragTable);
   const vArr  = ct.v;
@@ -464,7 +470,7 @@ export function integrateTrajectoryFps(
       nextYd += stepYd;
     }
 
-    if (!supersonicLogged && vel < SOUND_FPS) {
+    if (!supersonicLogged && vel < soundFps) {
       supersonicLimYd = rangeYd;
       supersonicLogged = true;
     }
@@ -535,6 +541,7 @@ export function integrateTrajectoryFps(
 export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryResult {
   validate(bullet, params);
 
+  const soundFps = soundSpeedFps(params.temperatureC);
   const bc    = bullet.ballisticCoefficient;
   const mvFps = bullet.muzzleVelocityMps * FPS_PER_MPS;
   const wLbs  = bullet.bulletWeightGrams / G_PER_LB;
@@ -552,7 +559,7 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
     : params.dragModel === 'G7' ? 'G7'
     : params.dragModel === 'G5' ? 'G5'
     : 'G1';
-  const dragTable   = useCustom ? toDragTable(custom)
+  const dragTable   = useCustom ? toDragTable(custom, soundFps)
     : dragModel === 'G7' ? G7_TABLE
     : dragModel === 'G5' ? G5_TABLE
     : G1_TABLE;
@@ -583,7 +590,7 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
   const maxRangeYd = params.maxRangeMeters / M_PER_YARD;
   const stepYd     = params.stepMeters / M_PER_YARD;
   const { points, maxOrdIn, maxOrdRangeYd, supersonicLimYd } =
-    integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle, dragTable, extras);
+    integrateTrajectoryFps(mvFps, angle, bc, rho, wLbs, windMph, maxRangeYd, stepYd, cosAngle, dragTable, extras, soundFps);
 
   let densityAltitudeMeters: number;
   if (params.pressureHpa == null && params.humidityPercent == null) {
