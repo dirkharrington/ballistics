@@ -142,6 +142,7 @@ function buildDOM() {
       <option value="0.1mrad">0.1 MRAD</option><option value="0.05mrad">0.05 MRAD</option><option value="custom">Custom…</option>
     </select>
     <input type="number" id="clickValueCustom" style="display:none" value="0.25">
+    <input type="number" id="mvSens" value="0" /><small id="mvSens-error" class="field-error"></small>
     <input id="twistRate" value="" />
     <input id="latitudeDeg" value="" />
     <input id="azimuthDeg"  value="" />
@@ -275,6 +276,18 @@ describe('computeClientSide', () => {
     const results = await mod.computeClientSide({ ...req, bulletIds: ['a', 'unknown'] });
     expect(results).toHaveLength(1);
     expect(results[0].bullet.id).toBe('a');
+  });
+
+  test('applies MV temperature sensitivity to the bullet passed to the engine', async () => {
+    await mod.computeClientSide({ ...req, bulletIds: ['a'], mvSensMps: 1, temperatureC: 25 });
+    const passed = simulateAsync.mock.calls[0][0];
+    expect(passed.muzzleVelocityMps).toBe(817);
+    expect(passed.nominalMuzzleVelocityMps).toBe(807);
+  });
+
+  test('leaves bullet untouched when sensitivity is absent', async () => {
+    await mod.computeClientSide({ ...req, bulletIds: ['a'] });
+    expect(simulateAsync.mock.calls[0][0].muzzleVelocityMps).toBe(807);
   });
 
   test('returns empty array for all unknown IDs', async () => {
@@ -896,6 +909,35 @@ describe('runSimulation', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // runSimulation input validation
 // ─────────────────────────────────────────────────────────────────────────────
+describe('runSimulation — MV sensitivity (S23-1)', () => {
+  beforeEach(() => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getBuiltInBullets());
+  });
+
+  test('invalid sensitivity shows inline error and does not compute', () => {
+    document.getElementById('mvSens').value = '9';
+    mod.runSimulation();
+    expect(document.getElementById('mvSens-error').textContent).toMatch(/between/);
+    expect(simulateAsync).not.toHaveBeenCalled();
+  });
+
+  test('valid sensitivity clears the error and reaches the engine as m/s/°C', async () => {
+    document.getElementById('mvSens').value = '9';
+    mod.runSimulation();
+    document.getElementById('mvSens').value = '1.5';
+    await mod.runSimulation();
+    expect(document.getElementById('mvSens-error').textContent).toBe('');
+    expect(simulateAsync.mock.calls[0][1].mvSensMps).toBe(1.5);
+  });
+
+  test('zero / empty sensitivity sends 0', async () => {
+    document.getElementById('mvSens').value = '';
+    await mod.runSimulation();
+    expect(simulateAsync.mock.calls[0][1].mvSensMps).toBe(0);
+  });
+});
+
 describe('runSimulation — input validation', () => {
   test('shows error and returns early when latitudeDeg is out of range', () => {
     mod._setSelectedIds(new Set(['308-win-168gr']));

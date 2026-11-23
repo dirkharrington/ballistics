@@ -29,6 +29,7 @@ const OPTIONAL_NUMERIC_RULES = Object.freeze([
   ['pressureHpa',     500, 1100],
   ['humidityPercent', 0,   100 ],
   ['clickValueCustom', 0.001, 100],
+  ['mvSens',          -5.5, 5.5 ],
 ]);
 
 function _isPlainObject(v) {

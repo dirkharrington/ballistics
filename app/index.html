@@ -134,6 +134,13 @@
           <input type="number" id="temperature" value="15" min="-30" max="50" step="1">
         </div>
         <div class="param-group">
+          <label for="mvSens">MV Temp Sensitivity (<span data-unit-kind="mvSens">m/s/°C</span>)</label>
+          <input type="number" id="mvSens" value="0" min="-5.5" max="5.5" step="0.05" aria-describedby="mvSens-error">
+          <small class="field-error" id="mvSens-error"></small>
+        </div>
+      </div>
+      <div class="param-row">
+        <div class="param-group">
           <label for="humidityPercent">Humidity (%)</label>
           <input type="number" id="humidityPercent" placeholder="auto" min="0" max="100" step="1">
         </div>
@@ -386,6 +393,7 @@
               <th data-sort-key="time"><button class="sort-btn" type="button">Time (s)<span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th data-sort-key="moa"><button class="sort-btn" type="button">MOA<span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th data-sort-key="mrad"><button class="sort-btn" type="button">MRAD<span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th id="machColHeader">Mach (ambient)</th>
               <th id="spinDriftColHeader" style="display:none">Spin Drift (<span data-unit-kind="drift">cm</span>)</th>
               <th id="coriolisColHeader" style="display:none">Coriolis (<span data-unit-kind="drift">cm</span>)</th>
               <th id="eotvosColHeader" style="display:none">Eötvös (<span data-unit-kind="drop">cm</span>)</th>

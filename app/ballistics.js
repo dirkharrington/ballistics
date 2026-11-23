@@ -33,6 +33,7 @@ import {
 } from './units.js';
 import { loadProfiles, saveProfile, deleteProfile } from './profiles.js';
 import { syncClickCustomVisibility } from './clicks.js';
+import { validateMvSens, applyMvSensitivity, showMvSensError } from './mv-sens.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,7 @@ const UNIT_INPUT_CONFIG = Object.freeze({
   temperature:  { kind: 'temp',        metric: { min: '-30', max: '50',   step: '1'    }, imperial: { min: '-22',   max: '122',   step: '0.1'   } },
   step:         { kind: 'step',        metric: { min: '10',  max: '100',  step: '10'   }, imperial: { min: '10',    max: '110',   step: '1'     } },
   sightHeight:  { kind: 'sightHeight', metric: { min: '10',  max: '100',  step: '0.1'  }, imperial: { min: '0.4',   max: '4',     step: '0.01'  } },
+  mvSens:       { kind: 'mvSens',      metric: { min: '-5.5', max: '5.5',  step: '0.05' }, imperial: { min: '-10.025', max: '10.025', step: '0.1'   } },
   mpbrVitalCm:  { kind: 'vitalZone',   metric: { min: '2',   max: '100',  step: '1'    }, imperial: { min: '0.8',   max: '40',    step: '0.1'   } },
 });
 
@@ -115,6 +117,7 @@ const ALL_UNIT_INPUTS = Object.freeze({
   temperature:   'temp',
   step:          'step',
   sightHeight:   'sightHeight',
+  mvSens:        'mvSens',
   mpbrVitalCm:   'vitalZone',
   bcCalcWeightG: 'weight',
   bcCalcMvMps:   'velocity',
@@ -127,7 +130,7 @@ const ALL_UNIT_INPUTS = Object.freeze({
 });
 
 const PREF_UNIT_INPUT_IDS = new Set([
-  'zeroRange', 'maxRange', 'windSpeed', 'altitude', 'temperature', 'step', 'sightHeight',
+  'zeroRange', 'maxRange', 'windSpeed', 'altitude', 'temperature', 'step', 'sightHeight', 'mvSens',
 ]);
 
 function _syncUnitToggleUI(sys) {
@@ -330,7 +333,9 @@ async function computeClientSide(req, signal) {
   const promises = req.bulletIds.map(id => {
     const bullet = _bulletById.get(id);
     if (!bullet) return null;
-    const resolved = bulletForDragModel(bullet, req.dragModel);
+    const resolved = applyMvSensitivity(
+      bulletForDragModel(bullet, req.dragModel), req.mvSensMps, req.temperatureC,
+    );
     const bulletReq = bullet.customDragTable?.length
       ? { ...req, customDragTable: bullet.customDragTable }
       : req;
@@ -646,6 +651,12 @@ async function runSimulation() {
   const extras = _readEnvExtras();
   if (extras.error) { _setSimulationError(extras.error); return; }
 
+  const mvSensCheck = validateMvSens(document.getElementById('mvSens')?.value, unitSystem);
+  if (showMvSensError(mvSensCheck.ok ? '' : mvSensCheck.error)) return;
+  const mvSensMps = mvSensCheck.value
+    ? readMetricInputValue(document.getElementById('mvSens'), 'mvSens', unitSystem, 0)
+    : 0;
+
   _setSimStatus('Computing trajectories…');
   _warmChart();
 
@@ -662,6 +673,7 @@ async function runSimulation() {
     sightHeightMm:            readMetricInputValue(get('sightHeight'), 'sightHeight', unitSystem, 0),
     shootingAngleDegrees:     +get('shootingAngle').value,
     dragModel:                get('dragModel').value,
+    mvSensMps,
     ...extras.fields,
   };
   lastReq = req;
@@ -852,6 +864,8 @@ function currentState() {
     : undefined;
   const humVal   = get('humidityPercent')?.value;
   const eotvosOn = Boolean(get('includeEotvos')?.checked);
+  const mvSensRaw = readMetricInputValue(get('mvSens'), 'mvSens', unitSystem, 0);
+  const mvSensVal = Math.round(mvSensRaw * 1000) / 1000;
   /* istanbul ignore next -- each element is always present in the app shell */
   return {
     bulletIds:   [...selectedIds],
@@ -870,6 +884,7 @@ function currentState() {
     ...(azVal  !== undefined && azVal  !== '' ? { azimuthDeg:  +azVal  } : {}),
     ...(pressVal !== undefined ? { pressureHpa: pressVal } : {}),
     ...(humVal !== undefined && humVal !== '' ? { humidityPercent: +humVal } : {}),
+    ...(mvSensVal ? { mvSens: mvSensVal } : {}),
     ...(eotvosOn ? { includeEotvos: true } : {}),
   };
 }
@@ -964,6 +979,7 @@ async function _applyProfile(profile) {
   _setInputVal('latitudeDeg',       p.latitudeDeg != null ? String(p.latitudeDeg) : '');
   _setInputVal('azimuthDeg',        p.azimuthDeg != null ? String(p.azimuthDeg) : '');
   _setMetricInputVal('pressureHpa', 'pressure',    p.pressureHpa ?? null);
+  _setMetricInputVal('mvSens',      'mvSens',      p.mvSens ?? 0);
   _setInputVal('humidityPercent',   p.humidityPercent != null ? String(p.humidityPercent) : '');
   const eotvosEl = document.getElementById('includeEotvos');
   /* istanbul ignore else -- #includeEotvos is always present in the app shell */
@@ -1060,6 +1076,7 @@ function init() {
   _setInputVal('clickValue',        merged.clickValue);
   _setInputVal('clickValueCustom',  merged.clickValueCustom);
   syncClickCustomVisibility();
+  _setMetricInputVal('mvSens',      'mvSens',      merged.mvSens);
   if (fromUrl.params.pressureHpa     != null) _setMetricInputVal('pressureHpa', 'pressure', fromUrl.params.pressureHpa);
   if (fromUrl.params.humidityPercent != null) _setInputVal('humidityPercent', fromUrl.params.humidityPercent);
   const eotvosEl = document.getElementById('includeEotvos');
@@ -1130,7 +1147,7 @@ function init() {
   // Persist parameter changes automatically, sync URL, and schedule auto-compute
   const autoParamIds = [
     'zeroRange','maxRange','windSpeed','windDir','altitude','pressureHpa','temperature','humidityPercent',
-    'step','sightHeight','shootingAngle','dragModel','twistRate','latitudeDeg','azimuthDeg','includeEotvos',
+    'step','sightHeight','mvSens','shootingAngle','dragModel','twistRate','latitudeDeg','azimuthDeg','includeEotvos',
   ];
   // Click-size changes persist but never trigger a recompute (DOPE re-renders itself)
   ['clickValue', 'clickValueCustom'].forEach(id => {
