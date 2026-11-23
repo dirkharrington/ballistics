@@ -14,6 +14,7 @@ import {
   loadAutoComputePref, saveAutoComputePref,
   savePrefs as _savePrefs, loadPrefs, initThemeToggle as _initThemeToggle,
   escapeHtml, computeAdjustments, showToast, _setSimStatus, _setSimulationError,
+  pushRecentCombo, loadRecentCombos,
 } from './prefs.js';
 import {
   HEX_COLOR_RE, colorFor, _warmChart,
@@ -672,6 +673,8 @@ async function runSimulation() {
       if (signal.aborted) return;
       renderResults(results, req);
       lastResults = results;
+      pushRecentCombo([...selectedIds], _bulletById);
+      _renderRecentPanel();
       updateSweepButtonVisibility();
       const exportBtn = document.getElementById('exportCsvBtn');
       /* istanbul ignore else -- #exportCsvBtn is always present in the app shell */
@@ -980,6 +983,35 @@ async function _applyProfile(profile) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 let _initListenerController = null;
 
+function _renderRecentPanel() {
+  const details = document.getElementById('recentCombos');
+  /* istanbul ignore next -- #recentCombos is always present in the app shell */
+  if (!details) return;
+  const combos = loadRecentCombos();
+  if (combos.length === 0) {
+    details.setAttribute('hidden', '');
+    return;
+  }
+  details.removeAttribute('hidden');
+  const summary = details.querySelector('summary');
+  /* istanbul ignore else -- summary is always present inside #recentCombos */
+  if (summary) summary.textContent = `Recent (${combos.length})`;
+  const list = details.querySelector('.recent-combo-list');
+  /* istanbul ignore next -- .recent-combo-list is always present inside #recentCombos */
+  if (!list) return;
+  list.innerHTML = '';
+  for (const c of combos) {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.className = 'recent-combo-btn';
+    btn.type = 'button';
+    btn.textContent = c.names.join(' · ');
+    btn.dataset.ids = JSON.stringify(c.ids);
+    li.appendChild(btn);
+    list.appendChild(li);
+  }
+}
+
 function init() {
   if (_initListenerController) _initListenerController.abort();
   _initListenerController = new AbortController();
@@ -1132,6 +1164,17 @@ function init() {
     }
   }, { signal });
   document.getElementById('clearSelectionBtn')?.addEventListener('click', clearSelection, { signal });
+  document.getElementById('recentCombos')?.addEventListener('click', e => {
+    const btn = e.target.closest('.recent-combo-btn');
+    if (!btn) return;
+    let ids;
+    try { ids = JSON.parse(btn.dataset.ids ?? '[]'); } catch (_) { return; }
+    if (!Array.isArray(ids)) return;
+    clearSelection();
+    for (const id of ids) {
+      if (_bulletById.has(id)) toggleBullet(id);
+    }
+  }, { signal });
 
   // Static event listeners
   document.getElementById('exportCsvBtn')?.addEventListener('click', exportTrajectoryCSV, { signal });
@@ -1603,6 +1646,7 @@ export {
   _loadIo, _loadTools, _loadDragCsv,
   debounce,
   _setCustomRecords, _setCustomStorageStatus,
+  _renderRecentPanel,
   initThemeToggle,
   setUnitSystem, toggleUnitSystem,
 };

@@ -5,6 +5,7 @@ const {
   loadAutoComputePref, saveAutoComputePref,
   escapeHtml, computeAdjustments, showToast, _setSimStatus, _setSimulationError,
   savePrefs, loadPrefs, updateToggleLabel, applyTheme, initThemeToggle,
+  pushRecentCombo, loadRecentCombos,
 } = require('../app/prefs.js');
 
 function buildPrefsDOM() {
@@ -258,5 +259,95 @@ describe('theme helpers (updateToggleLabel, applyTheme, initThemeToggle)', () =>
     // Missing #themeToggle does not throw
     document.getElementById('themeToggle').remove();
     expect(() => initThemeToggle()).not.toThrow();
+  });
+});
+
+describe('pushRecentCombo and loadRecentCombos', () => {
+  const makeMap = (...entries) => new Map(entries.map(([id, name]) => [id, { id, name }]));
+
+  test('loadRecentCombos returns [] when key absent', () => {
+    expect(loadRecentCombos()).toEqual([]);
+  });
+
+  test('loadRecentCombos returns [] when JSON is invalid', () => {
+    localStorage.setItem('bv_recentCombos', '{bad');
+    expect(loadRecentCombos()).toEqual([]);
+  });
+
+  test('loadRecentCombos returns [] when value is not an array', () => {
+    localStorage.setItem('bv_recentCombos', '"string"');
+    expect(loadRecentCombos()).toEqual([]);
+  });
+
+  test('loadRecentCombos silently drops malformed entries but keeps valid siblings', () => {
+    const data = [
+      { ids: ['a'], names: ['Alpha'] },
+      { ids: ['b'], names: ['B', 'extra'] },
+      { ids: [], names: [] },
+      null,
+      { ids: ['c', 'd', 'e', 'f', 'g'], names: ['C', 'D', 'E', 'F', 'G'] },
+      { ids: ['c', 'd', 'e', 'f', 'g', 'h'], names: ['C', 'D', 'E', 'F', 'G', 'H'] },
+      { ids: [1, 2], names: ['A', 'B'] },
+    ];
+    localStorage.setItem('bv_recentCombos', JSON.stringify(data));
+    const result = loadRecentCombos();
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ ids: ['a'], names: ['Alpha'] });
+    expect(result[1]).toEqual({ ids: ['c', 'd', 'e', 'f', 'g'], names: ['C', 'D', 'E', 'F', 'G'] });
+  });
+
+  test('loadRecentCombos rejects entries with more than 5 IDs', () => {
+    localStorage.setItem('bv_recentCombos', JSON.stringify([
+      { ids: ['a', 'b', 'c', 'd', 'e', 'f'], names: ['A', 'B', 'C', 'D', 'E', 'F'] },
+    ]));
+    expect(loadRecentCombos()).toEqual([]);
+  });
+
+  test('pushRecentCombo writes a new entry with names from bulletMap', () => {
+    pushRecentCombo(['a', 'b'], makeMap(['a', 'Alpha'], ['b', 'Bravo']));
+    const result = loadRecentCombos();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ ids: ['a', 'b'], names: ['Alpha', 'Bravo'] });
+  });
+
+  test('pushRecentCombo uses id as fallback name when bullet not in map', () => {
+    pushRecentCombo(['unknown'], new Map());
+    expect(loadRecentCombos()[0]).toEqual({ ids: ['unknown'], names: ['unknown'] });
+  });
+
+  test('pushRecentCombo deduplicates — same combo in different order promotes to top', () => {
+    const map = makeMap(['a', 'Alpha'], ['b', 'Bravo'], ['c', 'Charlie']);
+    pushRecentCombo(['a', 'b'], map);
+    pushRecentCombo(['c'], map);
+    pushRecentCombo(['b', 'a'], map);
+    const result = loadRecentCombos();
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ ids: ['b', 'a'], names: ['Bravo', 'Alpha'] });
+    expect(result[1]).toEqual({ ids: ['c'], names: ['Charlie'] });
+  });
+
+  test('pushRecentCombo caps at 10 entries, dropping the oldest', () => {
+    const map = new Map();
+    for (let i = 0; i < 11; i++) {
+      map.set(`id${i}`, { name: `Name${i}` });
+      pushRecentCombo([`id${i}`], map);
+    }
+    const result = loadRecentCombos();
+    expect(result).toHaveLength(10);
+    expect(result[0]).toEqual({ ids: ['id10'], names: ['Name10'] });
+    expect(result[9]).toEqual({ ids: ['id1'], names: ['Name1'] });
+  });
+
+  test('pushRecentCombo handles localStorage unavailable without throwing', () => {
+    const origLS = window.localStorage;
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() { throw new DOMException('blocked', 'SecurityError'); },
+    });
+    try {
+      expect(() => pushRecentCombo(['a'], makeMap(['a', 'A']))).not.toThrow();
+    } finally {
+      Object.defineProperty(window, 'localStorage', { configurable: true, value: origLS });
+    }
   });
 });

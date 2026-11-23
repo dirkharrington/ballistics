@@ -3,17 +3,18 @@ import { normalizeUnitSystem, readMetricInputValue } from './units.js';
 
 /** Keys used in localStorage (all prefixed `bv_`). */
 export const PREF_KEYS = {
-  selectedIds: 'bv_selectedIds',
-  zero:        'bv_zero',
-  maxRange:    'bv_maxRange',
-  wind:        'bv_wind',
-  windDir:     'bv_windDir',
-  altitude:    'bv_altitude',
-  temp:        'bv_temp',
-  step:        'bv_step',
-  sightHeight: 'bv_sightHeight',
-  angle:       'bv_angle',
-  dragModel:   'bv_dragModel',
+  selectedIds:   'bv_selectedIds',
+  zero:          'bv_zero',
+  maxRange:      'bv_maxRange',
+  wind:          'bv_wind',
+  windDir:       'bv_windDir',
+  altitude:      'bv_altitude',
+  temp:          'bv_temp',
+  step:          'bv_step',
+  sightHeight:   'bv_sightHeight',
+  angle:         'bv_angle',
+  dragModel:     'bv_dragModel',
+  recentCombos:  'bv_recentCombos',
 };
 
 /** Default values when a key is absent from storage. */
@@ -248,6 +249,47 @@ export function applyTheme(theme, onThemeApplied = null) {
   document.documentElement.setAttribute('data-theme', theme);
   updateToggleLabel(theme);
   if (typeof onThemeApplied === 'function') onThemeApplied(theme);
+}
+
+// ── Recent bullet combinations ─────────────────────────────────────────────────
+
+const MAX_RECENT_COMBOS = 10;
+
+/**
+ * Record the current bullet selection as the most-recent combo.
+ * bulletMap is Map<id, Bullet> (i.e. _bulletById); names are extracted via .name.
+ * Deduplicates by sorted IDs; caps history at MAX_RECENT_COMBOS entries.
+ */
+export function pushRecentCombo(ids, bulletMap) {
+  const names = ids.map(id => bulletMap.get(id)?.name ?? id);
+  const sortedKey = [...ids].sort().join('\x00');
+  const existing = loadRecentCombos();
+  const filtered = existing.filter(e => [...e.ids].sort().join('\x00') !== sortedKey);
+  const updated = [{ ids: [...ids], names }, ...filtered].slice(0, MAX_RECENT_COMBOS);
+  safeSetItem(PREF_KEYS.recentCombos, JSON.stringify(updated));
+}
+
+/**
+ * Load and validate the stored recent-combos array.
+ * Returns [] on absent key, invalid JSON, non-array, or when every entry is malformed.
+ * Silently drops entries that fail validation (wrong types, length mismatch, >5 IDs).
+ */
+export function loadRecentCombos() {
+  const raw = safeGetItem(PREF_KEYS.recentCombos);
+  if (raw === null) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(e =>
+      e !== null && typeof e === 'object' &&
+      Array.isArray(e.ids) && e.ids.length > 0 && e.ids.length <= 5 &&
+      e.ids.every(id => typeof id === 'string') &&
+      Array.isArray(e.names) && e.names.length === e.ids.length &&
+      e.names.every(n => typeof n === 'string')
+    );
+  } catch (_) {
+    return [];
+  }
 }
 
 /** Wire up the theme toggle button and apply the saved/default theme. */
