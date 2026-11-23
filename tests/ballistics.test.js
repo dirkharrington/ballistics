@@ -33,6 +33,10 @@ function buildDOM() {
     </div>
     <div id="bulletSearchEmpty" class="bullet-search-empty" hidden>No matching rounds</div>
     <div id="bulletList" role="group" aria-label="Select bullet"></div>
+    <details id="recentCombos" hidden>
+      <summary>Recent (0)</summary>
+      <ul class="recent-combo-list"></ul>
+    </details>
     <div id="customBulletPanel">
       <button type="button" id="addCustomBulletBtn" aria-controls="customBulletForm" aria-expanded="false">+ ADD CUSTOM BULLET</button>
       <form id="customBulletForm" hidden novalidate>
@@ -652,6 +656,138 @@ describe('renderResults', () => {
   });
 });
 
+describe('_renderRecentPanel', () => {
+  test('renders XSS bullet names as plain text via textContent, not innerHTML', () => {
+    const xssName = '<img src=x onerror=alert(1)>';
+    localStorage.setItem('bv_recentCombos', JSON.stringify([
+      { ids: ['x'], names: [xssName] },
+    ]));
+    mod._renderRecentPanel();
+    const btn = document.querySelector('#recentCombos .recent-combo-btn');
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toBe(xssName);
+    expect(btn.innerHTML).not.toContain('<img');
+  });
+
+  test('hides panel when no combos stored', () => {
+    localStorage.removeItem('bv_recentCombos');
+    mod._renderRecentPanel();
+    expect(document.getElementById('recentCombos').hasAttribute('hidden')).toBe(true);
+  });
+
+  test('shows panel and updates summary count when combos are present', () => {
+    localStorage.setItem('bv_recentCombos', JSON.stringify([
+      { ids: ['a'], names: ['Alpha'] },
+      { ids: ['b'], names: ['Bravo'] },
+    ]));
+    mod._renderRecentPanel();
+    const details = document.getElementById('recentCombos');
+    expect(details.hasAttribute('hidden')).toBe(false);
+    expect(details.querySelector('summary').textContent).toBe('Recent (2)');
+    expect(details.querySelectorAll('.recent-combo-btn')).toHaveLength(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #recentCombos click handler (init)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('#recentCombos click handler', () => {
+  beforeEach(() => {
+    mod._setBullets(mod.getBuiltInBullets());
+    mod.init();
+  });
+
+  test('clicking a .recent-combo-btn clears selection then re-selects stored IDs', () => {
+    const bullets = mod.getBuiltInBullets();
+    const id = bullets[0].id;
+    localStorage.setItem('bv_recentCombos', JSON.stringify([
+      { ids: [id], names: [bullets[0].name] },
+    ]));
+    mod._renderRecentPanel();
+
+    const btn = document.querySelector('.recent-combo-btn');
+    expect(btn).not.toBeNull();
+    btn.click();
+
+    const { selectedIds } = mod._getState();
+    expect(selectedIds.has(id)).toBe(true);
+  });
+
+  test('clicking a non-button area inside #recentCombos is a no-op', () => {
+    const details = document.getElementById('recentCombos');
+    details.click();
+    // should not throw and selection stays intact
+  });
+
+  test('button with invalid JSON in dataset.ids is ignored', () => {
+    const details = document.getElementById('recentCombos');
+    const list = details.querySelector('.recent-combo-list');
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.className = 'recent-combo-btn';
+    btn.dataset.ids = '{not valid json';
+    li.appendChild(btn);
+    list.appendChild(li);
+    details.removeAttribute('hidden');
+    expect(() => btn.click()).not.toThrow();
+  });
+
+  test('button with non-array JSON in dataset.ids is ignored', () => {
+    const details = document.getElementById('recentCombos');
+    const list = details.querySelector('.recent-combo-list');
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.className = 'recent-combo-btn';
+    btn.dataset.ids = '"not-an-array"';
+    li.appendChild(btn);
+    list.appendChild(li);
+    details.removeAttribute('hidden');
+    expect(() => btn.click()).not.toThrow();
+  });
+
+  test('button with no data-ids attribute (undefined) uses empty-array default', () => {
+    const details = document.getElementById('recentCombos');
+    const list = details.querySelector('.recent-combo-list');
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.className = 'recent-combo-btn';
+    // dataset.ids is intentionally not set → undefined → ?? '[]' branch taken
+    li.appendChild(btn);
+    list.appendChild(li);
+    details.removeAttribute('hidden');
+    expect(() => btn.click()).not.toThrow();
+  });
+
+  test('IDs not present in _bulletById are skipped silently', () => {
+    localStorage.setItem('bv_recentCombos', JSON.stringify([
+      { ids: ['nonexistent-id'], names: ['Ghost'] },
+    ]));
+    mod._renderRecentPanel();
+    const btn = document.querySelector('.recent-combo-btn');
+    expect(btn).not.toBeNull();
+    expect(() => btn.click()).not.toThrow();
+    const { selectedIds } = mod._getState();
+    expect(selectedIds.has('nonexistent-id')).toBe(false);
+  });
+});
+
+describe('renderResults does not write recent combos history', () => {
+  const results = [{
+    bullet: { id: '308-win-168gr', name: '.308 Win 168gr BTHP',
+              muzzleVelocityMps: 807, muzzleEnergyJoules: 3552,
+              ballisticCoefficient: 0.475, bulletWeightGrams: 10.89 },
+    request: {},
+    points: [{ rangeMeters: 0, dropCm: 0, velocityMps: 807, energyJoules: 3552, windDriftCm: 0, timeOfFlightSec: 0 }],
+    maxOrdinateCm: 3.8, maxOrdinateRangeMeters: 46, supersonicLimitMeters: 823,
+  }];
+
+  test('calling renderResults directly (import/unit-toggle path) does not write bv_recentCombos', async () => {
+    localStorage.removeItem('bv_recentCombos');
+    await mod.renderResults(results, {});
+    expect(localStorage.getItem('bv_recentCombos')).toBeNull();
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // runSimulation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -706,6 +842,20 @@ describe('runSimulation', () => {
     jest.runAllTimers();
 
     expect(document.getElementById('simStatus').textContent).toMatch(/Trajectories ready/);
+  });
+
+  test('writes bv_recentCombos after successful simulation', async () => {
+    mod._setSelectedIds(new Set(['308-win-168gr']));
+    mod._setBullets(mod.getBuiltInBullets());
+
+    await mod.runSimulation();
+    jest.runAllTimers();
+
+    const raw = localStorage.getItem('bv_recentCombos');
+    expect(raw).not.toBeNull();
+    const combos = JSON.parse(raw);
+    expect(Array.isArray(combos)).toBe(true);
+    expect(combos[0].ids).toContain('308-win-168gr');
   });
 
   test('outer catch logs error when simulateAsync rejects with non-input error', async () => {
