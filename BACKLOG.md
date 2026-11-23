@@ -2977,6 +2977,6 @@ gh api repos/dirkharrington/ballistics/branches/main/protection/required_status_
 
 ---
 
-### S23-4 — MV truing tool ✅ Done (PR #PLACEHOLDER)
+### S23-4 — MV truing tool ✅ Done (PR #214)
 
 Adds an **MV Truing** card to the Tools tab. Enter an observed range and drop (cm/in, or MOA; positive = below line of sight); `solveMV()` (exported from `app/tools.js`, bisection over 50–9999 m/s) finds the muzzle velocity that reproduces it using the selected bullet and the last simulation's atmosphere, zero range and sight height. The result shows the trued MV and its delta vs nominal; **Apply to bullet** saves a `<name> (trued)` custom bullet (re-applying refreshes it). Catalog bullets are never mutated. Errors appear in `#truingError`. 100% Jest coverage maintained.
