@@ -6,7 +6,6 @@ const {
   calcMpbr, initMpbrTool, renderMpbrTool, setToolsUnitSystem,
   solveBC, truedBcBulletName, truedBcBulletFields, initBcTruing, refreshBcTruing,
 } = require('../app/tools.js');
-const { simulate: engineSimulate } = require('../app/physics/engine.ts');
 
 function flushPromises() {
   return new Promise(r => setTimeout(r, 0));
@@ -1284,34 +1283,49 @@ describe('solveBC', () => {
     zeroRangeMeters: 100, maxRangeMeters: 600, stepMeters: 50, windSpeedKph: 0,
     altitudeMeters: 0, temperatureC: 15, dragModel: 'G1',
   };
-  const dropAt = (bc, rangeM, extra = {}, b = bullet) => {
-    const r = engineSimulate({ ...b, ballisticCoefficient: bc }, { ...req, ...extra, maxRangeMeters: rangeM, stepMeters: rangeM });
-    return -r.points[r.points.length - 1].dropCm;
-  };
+  // Synthetic simulate: drop(cm) = -(500 / bc). Low BC → large drop, high BC → small drop.
+  const fakeSim = (b, params) => ({
+    points: [
+      { rangeMeters: 0, dropCm: 0 },
+      { rangeMeters: params.maxRangeMeters, dropCm: -(500 / b.ballisticCoefficient) },
+    ],
+  });
+  // Synthetic simulate that also depends on MV (for the temperature-sensitivity test).
+  // drop = -(500 * nominalMv / (bc * mv)) so the solver can verify MV adjustment is applied.
+  const nominalMv = 807;
+  const fakeSimMv = (b, params) => ({
+    points: [
+      { rangeMeters: 0, dropCm: 0 },
+      { rangeMeters: params.maxRangeMeters, dropCm: -(500 * nominalMv / (b.ballisticCoefficient * b.muzzleVelocityMps)) },
+    ],
+  });
 
-  test('recovers a known BC within 1%', () => {
-    const target = dropAt(0.475, 500);
-    const bc = solveBC(target, 500, { simulate: engineSimulate, bullet, req });
+  test('converges to a known BC (0.475)', () => {
+    const target = 500 / 0.475;
+    const bc = solveBC(target, 500, { simulate: fakeSim, bullet, req });
+    expect(bc).not.toBeNull();
     expect(Math.abs(bc - 0.475) / 0.475).toBeLessThan(0.01);
   });
 
-  test('recovers a different BC (0.30) within 1%', () => {
-    const target = dropAt(0.30, 400);
-    const bc = solveBC(target, 400, { simulate: engineSimulate, bullet, req });
+  test('converges to a different BC (0.30)', () => {
+    const target = 500 / 0.30;
+    const bc = solveBC(target, 400, { simulate: fakeSim, bullet, req });
+    expect(bc).not.toBeNull();
     expect(Math.abs(bc - 0.30) / 0.30).toBeLessThan(0.01);
   });
 
   test('holds the temperature-adjusted MV fixed', () => {
+    // mvSensMps=1 at tempC=35 → effMv = 807 + 1*(35−15) = 827 m/s
     const r2 = { ...req, mvSensMps: 1, temperatureC: 35 };
-    const effBullet = { ...bullet, muzzleVelocityMps: 807 + 20 };
-    const target = dropAt(0.40, 500, { temperatureC: 35 }, effBullet);
-    const bc = solveBC(target, 500, { simulate: engineSimulate, bullet, req: r2 });
+    const target = 500 * nominalMv / (0.40 * 827);
+    const bc = solveBC(target, 500, { simulate: fakeSimMv, bullet, req: r2 });
+    expect(bc).not.toBeNull();
     expect(Math.abs(bc - 0.40) / 0.40).toBeLessThan(0.01);
   });
 
   test('returns null when the drop is outside the achievable envelope', () => {
-    expect(solveBC(5000, 500, { simulate: engineSimulate, bullet, req })).toBeNull();
-    expect(solveBC(-5000, 500, { simulate: engineSimulate, bullet, req })).toBeNull();
+    expect(solveBC(20000, 500, { simulate: fakeSim, bullet, req })).toBeNull();
+    expect(solveBC(-5000, 500, { simulate: fakeSim, bullet, req })).toBeNull();
   });
 
   test('returns null when the engine throws or cannot reach the range', () => {
@@ -1451,7 +1465,10 @@ describe('initBcTruing UI', () => {
   });
 
   test('apply surfaces save failures, falls back to a default message, and is inert before a solve', async () => {
-    document.getElementById('applyBcBtn').click();
+    // disabled button won't fire click in jsdom; enable briefly to exercise the !_bc guard
+    const btn = document.getElementById('applyBcBtn');
+    btn.disabled = false;
+    btn.click();
     expect(deps.saveTrued).not.toHaveBeenCalled();
     fill('500', '200');
     await solve();

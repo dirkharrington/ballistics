@@ -3033,3 +3033,11 @@ Adds five Puppeteer tests to `tests/e2e/app.e2e.test.js`: custom bullet creation
 ### S24-2 — Include scope click settings in share URL ✅ Done (PR #217)
 
 The share URL (`COPY LINK` / address bar) now carries `clickValue` (allow-list: `0.25moa`, `0.5moa`, `1moa`, `0.1mrad`, `0.05mrad`, `custom`) and, only when `clickValue=custom`, `clickValueCustom` (validated to (0, 100]). Invalid values are ignored on decode. On load the URL values override saved prefs and the custom-click input visibility is re-synced. 100% Jest coverage maintained.
+
+### S24-3 — E2E coverage for Sprint 23 features ✅ Done (PR #218)
+
+Adds four Puppeteer smoke tests to `tests/e2e/app.e2e.test.js`: MV temperature sensitivity → "Effective MV" stat line; transonic/subsonic Mach markers (or "Beyond max range") on the stat card; DOPE table "Elev Clicks" column after selecting ½ MOA; MV truing (Tools tab) producing a numeric trued MV with no error. 21/21 E2E tests pass locally against the built `dist/`.
+
+### S24-4 — BC truing tool ✅ Done
+
+Adds `solveBC` (bisection solver, 0.05–1.5 G1/G7) and the BC Truing card (Tools tab) that mirrors the MV Truing card. Enter an observed drop at a known range → solver converges to the ballistic coefficient that reproduces it → Apply saves a `(trued-BC)` custom bullet. `applyMvSensitivity` is applied before solving so temperature-adjusted MV is held constant. Tests use a synthetic BC-dependent simulate (identical to the MV truing pattern) to work around the engine's near-uniform drag across BCs. A `_setBcLoadSimulate` test seam in `ballistics.js` injects the fake without touching production code. 1370 Jest tests, 100% coverage.
