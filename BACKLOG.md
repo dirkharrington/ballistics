@@ -3051,3 +3051,217 @@ Implements the standard drag deceleration formula (`a = ρ_ratio · CD_TO_RETARD
 ### S24-4b — BC truing tool ✅ Done (PR #219)
 
 Adds `solveBC` (bisection solver, 0.05–1.5 G1/G7) and the BC Truing card (Tools tab) that mirrors the MV Truing card. Enter an observed drop at a known range → solver converges to the ballistic coefficient that reproduces it → Apply saves a `(trued-BC)` custom bullet. `applyMvSensitivity` is applied before solving so temperature-adjusted MV is held constant. Tests use a synthetic BC-dependent simulate (identical to the MV truing pattern) to work around the engine's near-uniform drag across BCs. A `_setBcLoadSimulate` test seam in `ballistics.js` injects the fake without touching production code. 1370 Jest tests, 100% coverage.
+
+---
+
+## Sprint 25 — Post-ADR 011 Follow-Through & Analysis Tools
+
+**Sprint goal:** Shooters using the standard drag engine get a BC truing tool that works correctly in G7 mode, the physics changes are documented, and a regression net guards future engine changes. The new realistic drag physics unlocks higher-value analysis tools (effective range, range cards, FRHP) that were not worth building before.
+
+Merge order guidance: S25-5 (`.md`-only, no devsecops) → S25-2 → S25-1 (adds G7 E2E after S25-2) → S25-9, S25-11 → S25-4, S25-6, S25-8, S25-12 in parallel → S25-3 and S25-7 after architect passes → S25-10, S25-14 after architect passes.
+
+---
+
+### S25-1 — E2E smoke tests for ADR 011 drag engine and BC truing tool · FE · Size S [Must Have]
+
+**As a** developer maintaining the physics engine, **I want** Puppeteer smoke tests that verify the standard drag formula produces physically plausible drop and that BC truing resolves to a numeric result, **so that** a silent regression in the drag constants, the solver, or the BC truing wire-up is caught in CI before it reaches users.
+
+**Acceptance criteria:**
+- After a G1 simulation with the default `.308 Win 168gr` bullet at 500 m range and 100 m zero, the stat card or data table shows a drop between 150 cm and 450 cm below line of sight — ruling out the near-vacuum values the old engine produced.
+- Switching the drag model selector to G7 and re-computing produces a drop value that differs from the G1 result by at least 2% — confirming the G7 Cd table is active.
+- Opening the Tools tab, entering range 500 and an observed drop within the plausible envelope for the default bullet, clicking SOLVE BC, and waiting for the result shows a numeric G1 BC value with no error text in `#bcTruingError`.
+- Clicking APPLY after a successful BC solve saves a custom bullet whose name ends in `(trued-BC)` and that bullet appears in the bullet list.
+- Loading the app with clean `localStorage` (no `bv_physicsNotice` key) on a session that has never had any `(trued)` bullets does not display the re-truing notice.
+
+**Dependencies:** none. G7 BC truing E2E test held until S25-2 merges.
+
+---
+
+### S25-2 — Fix BC truing to bisect over the active drag model's BC field · FE · Size S [Must Have]
+
+**As a** shooter using G7 drag mode for catalog ammunition, **I want** BC truing to find a G7 ballistic coefficient that reproduces my observed drop, **so that** I can apply a trued G7 BC to my custom bullet rather than receiving a "Cannot converge" error.
+
+**Bug:** `solveBC()` in `app/tools.js` always bisects over `ballisticCoefficient` (G1 field) regardless of `dragModel`. When `dragModel === 'G7'`, the engine reads `ballisticCoefficientG7` from the bullet and ignores the bisected G1 value → every trial produces the same drop → `fLo ≈ fHi` → returns `null`. G5 mode has the same structural problem. Existing Jest tests use a synthetic simulate keyed on `ballisticCoefficient` and do not catch the bug.
+
+**Acceptance criteria:**
+- `solveBC()` determines the BC field to bisect over from `req.dragModel`: `'G7' → ballisticCoefficientG7`, `'G5' → ballisticCoefficientG5`, otherwise `ballisticCoefficient`. Each simulation trial passes `{ ...base, [bcField]: bc }`.
+- A Jest test with a synthetic simulate that reads `b.ballisticCoefficientG7` converges to a known G7 BC within 1% when `dragModel === 'G7'`. An equivalent G5 test also passes.
+- The result display shows label `'G5'` when `dragModel === 'G5'` and the solved BC is non-null.
+- `truedBcBulletFields()` and the `saveTrued` callback write the solved BC to the correct field (`ballisticCoefficientG7` or `ballisticCoefficientG5` as appropriate).
+- `npm test` passes at 100/100/100/100.
+
+**Notes for architect:** `saveTrued` callback in `app/ballistics.js` currently passes `(baseBullet, bc, useG7: boolean)`. Confirm the right change to `(baseBullet, bc, dragModel: string)` and count call sites before the builder starts.
+
+---
+
+### S25-3 — Catalog G5 BCs for all 37 rounds · FE · Size S [Should Have] ⚠️ Needs architect pass
+
+**As a** shooter comparing VLD boat-tail bullets using the G5 drag model, **I want** every catalog round to carry a G5 BC, **so that** selecting G5 drag actually uses the G5 Cd table rather than silently falling back to G1 for every built-in round.
+
+**Acceptance criteria:**
+- Every one of the 37 rounds in `app/data/bullets.yaml` carries a numeric `ballisticCoefficientG5` field, positive and less than the round's G1 `ballisticCoefficient`.
+- `catalog-projection.cjs` includes `ballisticCoefficientG5`; `virtual:bullet-catalog` emits the field for all 37 rounds.
+- A Jest test iterating all 37 rounds confirms type, positivity, and that it is less than the G1 BC.
+- Selecting G5 drag for a catalog round produces `result.dragModel === 'G5'` (not G1 fallback); the model pill shows "MODEL: G5".
+- `npm test` passes at 100/100/100/100 and `spa1-golden.json` passes unchanged.
+
+**Notes for architect:** Key decision before builder starts — G5 BCs are rarely published directly by manufacturers. Options: (a) derive from G7 BC via established G5-to-G7 form-factor ratio (~1.20–1.25× for boattail spitzers); (b) source from JBM/py-ballisticcalc published tables; (c) block G5 for catalog bullets with a clear fallback indicator until authoritative data exists. Wrong G5 BCs harm shooters. Document derivation method in a contract or `bullets.yaml` comment before the builder starts.
+
+**Dependencies:** S25-2 (so the truing tool correctly uses G5 BCs once they exist).
+
+---
+
+### S25-4 — Per-bullet supersonic limit annotations in multi-bullet compare mode · FE · Size XS [Should Have]
+
+**As a** shooter comparing two bullets with different transonic thresholds, **I want** each bullet's supersonic limit annotated on the drop and velocity charts, **so that** I can see at a glance which comparison round is still supersonic at my intended engagement distance.
+
+**Acceptance criteria:**
+- When two or more bullets have different `supersonicLimitMeters` (within 5 m = same, draw one line), the drop and velocity charts show one vertical annotation line per bullet in that bullet's series color labeled "Trans. N m".
+- Annotation labels stagger vertically when limits are within 20 m of each other to avoid overlap.
+- When only one bullet is simulated, the existing single "SUPERSONIC ←" annotation behavior is preserved.
+- `npm test` passes at 100/100/100/100.
+
+**Notes:** `sonicAnn` and `dropAnns` in `app/charts.js` currently read only `results[0]`; this story iterates `results`.
+
+---
+
+### S25-5 — CHANGELOG update for Sprints 23–24 · DX · Size XS [Must Have] (`.md`-only — no devsecops)
+
+**As a** developer or deployer checking what physics version is running in production, **I want** the `[Unreleased]` section of `CHANGELOG.md` to document every engine change since v3.0.0, **so that** I know all trajectory values changed when the standard drag formula was introduced.
+
+**Acceptance criteria:**
+- `[Unreleased]` gains an `### Added` block covering: temperature-aligned sound speed (S24-1, PR #216); transonic/subsonic Mach markers (S23-2, PR #212); MV truing tool (S23-4, PR #214); scope click values and share URL (S23-3/S24-2, PRs #213/#217); standard drag formula with BRL G1/G5/G7 Cd tables (ADR 011/S24-4, PRs #220/#221); G5 BC model selection; BC truing tool (S24-4b, PR #219); MV temperature sensitivity (S23-1, PR #211).
+- `[Unreleased]` gains a `### Changed` block noting all previously computed trajectory values changed when the standard drag formula replaced the near-vacuum approximation; previously trued MV and BC custom bullets may need re-truing.
+- `grep -c 'standard drag\|ADR 011\|BC truing' CHANGELOG.md` returns at least 2.
+- `npx markdownlint CHANGELOG.md --config '{"MD013": false}'` exits 0.
+
+---
+
+### S25-6 — Wind hold per unit speed column in DOPE card · FE · Size S [Should Have]
+
+**As a** long-range shooter whose field wind speed differs from my modeled wind speed, **I want** the DOPE card to show a "hold per 10 mph" (or per 10 kph) column, **so that** I can quickly scale my windage correction to any observed wind speed without mental arithmetic.
+
+**Acceptance criteria:**
+- DOPE table shows "Hold/10 MPH" (metric: "Hold/10 KPH") column immediately after the Wind MRAD column: `windDriftMOA ÷ (windSpeedInChosenUnits / 10)`, one decimal place.
+- When simulated wind speed is zero the entire column (including header) is omitted from the table, COPY TEXT output, and printed card.
+- Column is included in COPY TEXT and `@media print` layout.
+- Column respects Metric / Imperial unit toggle.
+- `npm test` passes at 100/100/100/100 including tests for the column value at a known wind speed and for absence when wind speed is zero.
+
+---
+
+### S25-7 — Multi-bullet sweep comparison · FE · Size M [Should Have] ⚠️ Needs architect pass
+
+**As a** shooter comparing two or three loads, **I want** to sweep wind or altitude across all selected bullets simultaneously, **so that** I can see how each load performs across the sweep range without running sweep manually per bullet.
+
+**Acceptance criteria:**
+- When two or more bullets are selected and sweep mode is active, each bullet appears as a distinct series on the sweep drop, drift, and velocity charts (not just the first bullet as today).
+- Each bullet's sweep series uses the same color as that bullet's main trajectory chart series.
+- Sweep runs all bullets in parallel using the existing worker pool; `AbortSignal` cancellation applies to all in-flight requests.
+- Partial results render as individual workers resolve (no "all or nothing" wait).
+- Single-bullet behavior is unchanged.
+
+**Notes for architect:** `buildSweepRequests` in `app/sweep.js` accepts a single `bulletId`. The extension loops over `ctx.bullets` and merges resulting `sweepResultsList` arrays into the chart renderer. The chart renderer (`renderSweepCharts`) needs a new multi-series variant or a legend scheme that separates bullet identity from sweep-step identity — architect must decide the data shape before the builder starts.
+
+---
+
+### S25-8 — Terminal / effective range calculator · Full · Size M [Should Have]
+
+**As a** hunter, **I want** to see the exact range at which my load drops below the minimum ethical kinetic energy for my target game, **so that** I can make an ethical shot-distance decision from real physics rather than a rule-of-thumb chart.
+
+**Acceptance criteria:**
+- Tools tab gains an "Effective Range" card with an energy-threshold input (100–5000 ft-lbf, default 1500) and a game preset selector: Small Game (500), Deer (1500), Elk (2500), Large Bear (3000 ft-lbf). Selecting a preset populates the input; editing the input deselects the preset.
+- Card shows the range (yards or meters per unit toggle) at which KE crosses the threshold, linearly interpolated; if KE never drops below the threshold within `maxRange`, displays "> maxRange".
+- When multiple bullets are selected, each bullet's effective range is shown in a compact per-row table (bullet name | range | energy at that range).
+- Result updates live on every simulation rerun; no separate "Calculate" button.
+- `npm test` passes at 100/100/100/100.
+
+**Notes:** `energyJoules` is already in the packed `Float64Array` (POINT_STRIDE slot [3]). No new physics needed.
+
+---
+
+### S25-9 — Profile file backup and restore · FE · Size M [Must Have]
+
+**As a** shooter who moves to a new device, **I want** to export all saved profiles to a JSON file and import them on the new device, **so that** I do not have to re-enter every rifle profile manually.
+
+**Acceptance criteria:**
+- Profiles panel gains an "Export" button that downloads all saved profiles as `ballistics-profiles-YYYY-MM-DD.json` — a JSON array where every element passes `isValidProfile()`.
+- An "Import" button opens a file picker restricted to `.json`; valid profiles are merged into existing storage. Name collisions (case-insensitive) prompt a "Replace existing?" confirmation before overwriting.
+- Profiles that fail `isValidProfile()` are silently skipped; a summary toast shows "Imported N of M profiles".
+- Import respects `MAX_PROFILES=20` limit; user is told how many were skipped and why if the merge would exceed it.
+- `npm test` passes at 100/100/100/100.
+
+**Notes for architect:** Confirm whether the name-collision confirmation is a modal or an inline confirmation row in the profiles list, and document that decision in a contract update before the builder starts.
+
+---
+
+### S25-10 — Share URL custom bullet embedding · FE · Size L [Should Have] ⚠️ Needs architect pass
+
+**As a** shooter who creates a custom load, **I want** to share a link that opens the exact configuration on a recipient's device, **so that** the recipient does not need to have the same custom bullet saved locally.
+
+**Acceptance criteria:**
+- When the share URL is generated and one or more selected bullets is a custom bullet, each is compact-encoded into the URL as one `cb=` query parameter per bullet.
+- A share URL containing up to three custom bullets remains within 2048 characters total.
+- On load, `cb=` parameters are decoded, validated, and injected into the in-memory bullet registry before the first simulation runs; they are NOT written to `localStorage` automatically.
+- Bullets injected from a share URL display a "shared" badge in the bullet selector. A one-click "Save" action persists the bullet to `localStorage`.
+- Malformed, oversized (> 512 chars per param), or schema-invalid `cb=` values are silently dropped; the app loads remaining state correctly.
+
+**Notes for architect:** Key decisions before builder starts: (1) encoding format (compact abbreviations vs. Base64 JSON vs. bespoke binary); (2) which fields are required vs. optional; (3) injection whitelist for field names to prevent prototype-pollution during `JSON.parse`; (4) whether `cb=` params should be excluded from the existing `OWNED_KEYS` deduplication in `url-state.js`. The 2048-char URL budget is the binding constraint and must be verified against the encoding scheme before the builder starts.
+
+---
+
+### S25-11 — Atmospheric condition presets · FE · Size S [Must Have]
+
+**As a** shooter adjusting for a known location or weather condition, **I want** to populate altitude, temperature, and pressure in one click, **so that** I do not have to look up and enter three numbers manually.
+
+**Acceptance criteria:**
+- Atmospheric inputs section gains a "Presets" dropdown with at least five entries: ISA Sea Level (15 °C, 1013.25 hPa, 0 m), Denver (1 °C, 843 hPa, 1609 m), Cold Morning (−10 °C, 1013 hPa, 0 m), Hot Desert (40 °C, 980 hPa, 300 m), Mile High + Hot (30 °C, 843 hPa, 1609 m).
+- Selecting a preset populates altitude, temperature, and `pressureHpa`; `humidityPercent` is not changed.
+- After any manual edit to any atmospheric field, the active-preset indicator clears.
+- Preset selection is NOT included in profiles or share URLs.
+- Preset definitions live in a single exported constant in a new `app/presets.js` module so future presets require no UI changes.
+
+---
+
+### S25-12 — Printable step-interval range card · FE · Size M [Should Have]
+
+**As a** shooter heading to the range, **I want** to print a clean single-page data card at every step interval, **so that** I have drop, drift, and energy without manually entering individual distances in the DOPE tool.
+
+**Acceptance criteria:**
+- A "Range Card" section (distinct from the custom-distance DOPE card) renders a table from 0 to `maxRange` at the current `step` interval showing: range (yd or m), drop (MOA and in/cm), wind drift (MOA and in/cm at current wind input), velocity (fps or m/s), energy (ft-lbf or J).
+- If multiple bullets are selected, each bullet is a separate section with its name as a heading row; a single "Print" action covers all sections.
+- Clicking "Print" triggers `window.print()`. An `@media print` rule hides all UI chrome outside the range card container.
+- Table updates live when any simulation parameter changes; no separate "Generate" button.
+- Accessible: `<th scope="col">` headers, keyboard-focusable print button, respects unit toggle.
+
+**Notes for architect:** Trajectory data is already in the packed `Float64Array` (slots: [0] rangeMeters, [1] dropCm, [2] velocityMps, [3] energyJoules, [4] windDriftCm). Architect should decide whether range card rendering lives in `table.js` as a new export or in a new `range-card.js` module.
+
+---
+
+### S25-13 — Drag curve (Cd vs Mach) preview for custom bullets · FE · Size M [Could Have]
+
+**As an** advanced user importing a custom drag CSV, **I want** to see a preview of my Cd values before saving, **so that** I can catch data entry errors that would otherwise silently produce wrong trajectories.
+
+**Acceptance criteria:**
+- After a custom drag CSV is successfully parsed (before it is saved), a "Cd curve preview" chart appears showing the user's data points as Cd (y-axis) vs Mach (x-axis) using the existing Chart.js instance.
+- A dashed reference overlay shows the standard G1 Cd curve. A three-way toggle (G1/G5/G7) switches the reference overlay; defaults to G1.
+- Data points where Cd < 0.1 or Cd > 1.5 are rendered in red with a hover tooltip "Unusual value — verify source data."
+- The same preview chart is accessible from the custom bullet detail/edit view for bullets that already have a saved drag table.
+- The preview renders immediately from the parsed CSV data alone (no full simulation run required).
+
+**Notes for architect:** The compiled G1/G5/G7 `Float64Array` drag tables already exist in `engine.ts`. A read-only accessor returning `{mach, cd}[]` pairs needs to be exposed — decide whether to export a thin function from `engine.ts` or add a new `app/drag-tables.js` re-export module so the frontend can consume the table data without importing from the TypeScript physics module.
+
+---
+
+### S25-14 — First-round hit probability (FRHP) card · Full · Size L [Could Have] ⚠️ Needs architect pass
+
+**As a** precision shooter, **I want** to enter my system's expected dispersion and a target size to see at what range my first-round hit probability drops below 95%, **so that** I can derive a true effective-range verdict from real physics rather than a rule-of-thumb chart.
+
+**Acceptance criteria:**
+- Tools tab gains an "FRHP" card with two inputs: target diameter (1–100 in or 2.5–250 cm per unit toggle, default 10 in / 25 cm) and system dispersion (0.1–10 MOA, default 1.0 MOA). Both validate inline.
+- Card shows FRHP % at the current zero range and at each step-interval range to `maxRange`; the 95% and 50% crossover ranges are highlighted or labeled.
+- FRHP is computed on the main thread synchronously: `P = erf(r_target / (√2 × σ_linear))` where `σ_linear = range_m × tan(dispersion_moa × π / (60 × 180))` and `r_target` is half target diameter in meters.
+- When multiple bullets are selected, each bullet's 95% crossover range is shown as a single comparison row; the full per-range table shows only the first selected bullet.
+- Card updates live on every simulation rerun and whenever either input changes.
+
+**Notes for architect:** Key decisions before builder starts: (1) UX treatment of the per-range table vs. sparkline on mobile viewports; (2) whether the circular Gaussian assumption is called out explicitly in a tooltip; (3) whether to use a native JS Horner-series `erf` approximation (error < 1.5×10⁻⁷) — the codebase currently has no `erf` implementation. Architect must provide the formula constant derivation and the `erf` approximation in a contract so both the builder and test author use the same reference.
