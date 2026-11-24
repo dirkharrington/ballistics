@@ -9,8 +9,20 @@ const {
   stationAirDensityRatio,
   findZeroAngleFps,
   integrateTrajectoryFps,
+  referenceDragTable,
+  soundSpeedFps,
+  sectionalDensityLbIn2,
+  resolveDrag,
+  CD_TO_RETARD,
+  ZERO_ANGLE_MIN,
+  ZERO_ANGLE_MAX,
 } = require('../app/physics/engine.ts');
-const { G1_TABLE, G5_TABLE, G7_TABLE } = require('./__mocks__/physics-tables.js');
+const { G1_CD_TABLE, G5_CD_TABLE, G7_CD_TABLE } = require('./__mocks__/physics-tables.js');
+// Build fps-keyed reference tables for use with compileDragTable / findBracket
+const _ss15 = soundSpeedFps(15);
+const G1_TABLE = referenceDragTable('G1', _ss15);
+const G5_TABLE = referenceDragTable('G5', _ss15);
+const G7_TABLE = referenceDragTable('G7', _ss15);
 
 const golden = require('./fixtures/spa1-golden.json');
 
@@ -235,27 +247,23 @@ describe('simulate()', () => {
   });
 
   test('supersonic limit equals maxRange when bullet stays supersonic', () => {
-    const bullet223 = {
-      ...BASE_BULLET,
-      id: '223-rem-55gr', ballisticCoefficient: 0.243,
-      bulletWeightGrams: 3.56, muzzleVelocityMps: 987,
-    };
-    const longReq = { ...BASE_PARAMS, maxRangeMeters: 1000, stepMeters: 50 };
-    const result = simulate(bullet223, longReq);
+    const longReq = { ...BASE_PARAMS, maxRangeMeters: 900, stepMeters: 50 };
+    const result = simulate(BASE_BULLET, longReq);
     expect(result.supersonicLimitMeters).toBe(longReq.maxRangeMeters);
   });
 
   test('covers velocity < 100 early-break with very slow bullet', () => {
-    const slowBullet = { ...BASE_BULLET, ballisticCoefficient: 0.1, bulletWeightGrams: 3.24, muzzleVelocityMps: 12 };
-    const result = simulate(slowBullet, BASE_PARAMS);
+    // MV=20 m/s (~66 fps) > zero-finder threshold (50 fps) but < MIN_VEL_FPS (100 fps)
+    const slowBullet = { ...BASE_BULLET, ballisticCoefficient: 0.1, bulletWeightGrams: 3.24, muzzleVelocityMps: 20 };
+    const shortParams = { ...BASE_PARAMS, zeroRangeMeters: 1 };
+    const result = simulate(slowBullet, shortParams);
     expect(result).toBeDefined();
     expect(result.supersonicLimitMeters).toBe(0);
   });
 
   test('covers velocity < 50 in zero-finder with very slow bullet', () => {
     const ultraSlow = { ...BASE_BULLET, ballisticCoefficient: 0.05, bulletWeightGrams: 3.24, muzzleVelocityMps: 9 };
-    const result = simulate(ultraSlow, BASE_PARAMS);
-    expect(result).toBeDefined();
+    expect(() => simulate(ultraSlow, BASE_PARAMS)).toThrow(TrajectoryInputError);
   });
 
   test('max ordinate is positive for normal bullet', () => {
@@ -280,7 +288,8 @@ describe('simulate()', () => {
   });
 
   test('G5 model dragModel field is set correctly and trajectory is valid', () => {
-    const g5 = simulate(BASE_BULLET, { ...BASE_PARAMS, dragModel: 'G5' });
+    const g5Bullet = { ...BASE_BULLET, ballisticCoefficientG5: 0.3 };
+    const g5 = simulate(g5Bullet, { ...BASE_PARAMS, dragModel: 'G5' });
     expect(g5.dragModel).toBe('G5');
     expect(g5.points.length).toBeGreaterThan(0);
     g5.points.forEach(p => {
@@ -321,12 +330,17 @@ describe('simulate()', () => {
 // Drag table monotonicity & clamping (migrated from interpolateDragTable)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Drag table monotonicity & clamping', () => {
-  test('G1_TABLE, G5_TABLE and G7_TABLE velocities are strictly ascending with positive dv deltas', () => {
-    for (const table of [G1_TABLE, G5_TABLE, G7_TABLE]) {
-      const ct = compileDragTable(table);
-      expect(ct.last).toBe(table.length - 1);
+  test('G1_CD_TABLE, G5_CD_TABLE and G7_CD_TABLE mach values are strictly ascending; fps tables built from them are also strictly ascending', () => {
+    for (const cdTable of [G1_CD_TABLE, G5_CD_TABLE, G7_CD_TABLE]) {
+      for (let i = 1; i < cdTable.length; i++) {
+        expect(cdTable[i].mach).toBeGreaterThan(cdTable[i - 1].mach);
+      }
+    }
+    for (const fpsTable of [G1_TABLE, G5_TABLE, G7_TABLE]) {
+      const ct = compileDragTable(fpsTable);
+      expect(ct.last).toBe(fpsTable.length - 1);
       for (let i = 1; i <= ct.last; i++) {
-        expect(table[i][0]).toBeGreaterThan(table[i - 1][0]);
+        expect(fpsTable[i][0]).toBeGreaterThan(fpsTable[i - 1][0]);
         expect(ct.v[i]).toBeGreaterThan(ct.v[i - 1]);
         expect(ct.dv[i]).toBeGreaterThan(0);
       }
@@ -436,9 +450,9 @@ describe('findZeroAngleFps', () => {
     expect(angleSlow).toBeGreaterThan(angleFast);
   });
 
-  test('returns a finite number even for very slow (sub-50 fps) bullet', () => {
+  test('returns NaN for very slow (sub-50 fps) bullet that cannot reach zero range', () => {
     const angle = findZeroAngleFps(15, 0.05, rho, zeroFt, sightHtFt);
-    expect(Number.isFinite(angle)).toBe(true);
+    expect(Number.isNaN(angle)).toBe(true);
   });
 
   test('uses G7 drag table when specified', () => {
@@ -617,20 +631,20 @@ describe('FEAT-1 test 3: twist 10 basic properties', () => {
 describe('FEAT-1 test 4: hand-checked values', () => {
   const params308 = { ...COND_A, dragModel: 'G1', twistRateInchesPerTurn: 10 };
 
-  test('.308 at ~500m: spinDriftCm = 3.8 ± 0.1 (SG=1.7125)', () => {
+  test('.308 at ~500m: spinDriftCm = 5.8 ± 0.1 (SG=1.7125)', () => {
     const result = simulate(B308, params308);
     const p500 = result.points.find(p => p.rangeMeters >= 490 && p.rangeMeters <= 510);
     expect(p500).toBeDefined();
-    expect(p500.spinDriftCm).toBeGreaterThanOrEqual(3.7);
-    expect(p500.spinDriftCm).toBeLessThanOrEqual(3.9);
+    expect(p500.spinDriftCm).toBeGreaterThanOrEqual(5.7);
+    expect(p500.spinDriftCm).toBeLessThanOrEqual(5.9);
   });
 
-  test('.308 at ~1000m: spinDriftCm = 13.7 ± 0.1 (SG=1.7125)', () => {
+  test('.308 at ~1000m: spinDriftCm = 32.5 ± 0.1 (SG=1.7125)', () => {
     const result = simulate(B308, params308);
     const p1000 = result.points.find(p => p.rangeMeters >= 990 && p.rangeMeters <= 1010);
     expect(p1000).toBeDefined();
-    expect(p1000.spinDriftCm).toBeGreaterThanOrEqual(13.6);
-    expect(p1000.spinDriftCm).toBeLessThanOrEqual(13.8);
+    expect(p1000.spinDriftCm).toBeGreaterThanOrEqual(32.4);
+    expect(p1000.spinDriftCm).toBeLessThanOrEqual(32.6);
   });
 });
 
@@ -786,20 +800,20 @@ describe('FEAT-2 test 2: coriolisDeflectionCm absent when lat/az not both set', 
 describe('FEAT-2 test 3: lat 45 az 90 hand-checked values', () => {
   const params = { ...COND_A_CORIOLIS, latitudeDeg: 45, azimuthDeg: 90 };
 
-  test('point at ~500m: coriolisDeflectionCm = 1.6 ± 0.1', () => {
+  test('point at ~500m: coriolisDeflectionCm = 2.5 ± 0.1', () => {
     const result = simulate(B308, params);
     const p500 = result.points.find(p => p.rangeMeters >= 490 && p.rangeMeters <= 510);
     expect(p500).toBeDefined();
-    expect(p500.coriolisDeflectionCm).toBeGreaterThanOrEqual(1.5);
-    expect(p500.coriolisDeflectionCm).toBeLessThanOrEqual(1.7);
+    expect(p500.coriolisDeflectionCm).toBeGreaterThanOrEqual(2.4);
+    expect(p500.coriolisDeflectionCm).toBeLessThanOrEqual(2.6);
   });
 
-  test('point at ~1000m: coriolisDeflectionCm = 6.4 ± 0.1', () => {
+  test('point at ~1000m: coriolisDeflectionCm = 16.4 ± 0.1', () => {
     const result = simulate(B308, params);
     const p1000 = result.points.find(p => p.rangeMeters >= 990 && p.rangeMeters <= 1010);
     expect(p1000).toBeDefined();
-    expect(p1000.coriolisDeflectionCm).toBeGreaterThanOrEqual(6.3);
-    expect(p1000.coriolisDeflectionCm).toBeLessThanOrEqual(6.5);
+    expect(p1000.coriolisDeflectionCm).toBeGreaterThanOrEqual(16.3);
+    expect(p1000.coriolisDeflectionCm).toBeLessThanOrEqual(16.5);
   });
 
   test('points[0].coriolisDeflectionCm === 0', () => {
@@ -812,12 +826,12 @@ describe('FEAT-2 test 3: lat 45 az 90 hand-checked values', () => {
 describe('FEAT-2 test 4: lat -33 az 0 southern hemisphere', () => {
   const params = { ...COND_A_CORIOLIS, latitudeDeg: -33, azimuthDeg: 0 };
 
-  test('point at ~1000m: coriolisDeflectionCm = -4.9 ± 0.1', () => {
+  test('point at ~1000m: coriolisDeflectionCm = -12.7 ± 0.1', () => {
     const result = simulate(B308, params);
     const p1000 = result.points.find(p => p.rangeMeters >= 990 && p.rangeMeters <= 1010);
     expect(p1000).toBeDefined();
-    expect(p1000.coriolisDeflectionCm).toBeGreaterThanOrEqual(-5.0);
-    expect(p1000.coriolisDeflectionCm).toBeLessThanOrEqual(-4.8);
+    expect(p1000.coriolisDeflectionCm).toBeGreaterThanOrEqual(-12.8);
+    expect(p1000.coriolisDeflectionCm).toBeLessThanOrEqual(-12.6);
   });
 
   test('every value <= 0', () => {
@@ -977,7 +991,7 @@ describe('FEAT-2 test 14: integrateTrajectoryFps with coriolisK', () => {
 // FEAT-3: Custom drag table
 // ─────────────────────────────────────────────────────────────────────────────
 
-const { toDragTable, soundSpeedFps } = require('../app/physics/engine.ts');
+const { toDragTable } = require('../app/physics/engine.ts');
 
 const FLAT_TABLE    = [{mach:0,cd:0.28},{mach:1,cd:0.28},{mach:3,cd:0.28}];
 const HEAVY_TABLE   = [{mach:0,cd:2.0},{mach:1,cd:2.0},{mach:3,cd:2.0}];
@@ -998,11 +1012,12 @@ describe('FEAT-3 test 2: absent/null/empty customDragTable equals no-table run',
     expect(emptyTbl.dragModel).toBe('G1');
   });
 
-  test('G7: omitted/null/[] all toEqual', () => {
-    const base    = simulate(B308, { ...COND_A, dragModel: 'G7' });
-    const noTbl   = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: undefined });
-    const nullTbl = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: null });
-    const emptyTbl = simulate(B308, { ...COND_A, dragModel: 'G7', customDragTable: [] });
+  test('G7: omitted/null/[] all toEqual (requires ballisticCoefficientG7)', () => {
+    const B308_G7 = { ...B308, ballisticCoefficientG7: 0.249 };
+    const base    = simulate(B308_G7, { ...COND_A, dragModel: 'G7' });
+    const noTbl   = simulate(B308_G7, { ...COND_A, dragModel: 'G7', customDragTable: undefined });
+    const nullTbl = simulate(B308_G7, { ...COND_A, dragModel: 'G7', customDragTable: null });
+    const emptyTbl = simulate(B308_G7, { ...COND_A, dragModel: 'G7', customDragTable: [] });
     expect(noTbl.points).toEqual(base.points);
     expect(nullTbl.points).toEqual(base.points);
     expect(emptyTbl.points).toEqual(base.points);
@@ -1013,20 +1028,16 @@ describe('FEAT-3 test 2: absent/null/empty customDragTable equals no-table run',
   });
 });
 
-// Test 3: G1-equivalent table produces similar results, dragModel === 'custom'
+// Test 3: G1-equivalent table produces identical results, dragModel === 'custom'
 describe('FEAT-3 test 3: G1-equivalent custom table', () => {
-  test('every point within ±0.1 of G1 run; dragModel === custom', () => {
-    const g1Table = G1_TABLE.map(([v, f]) => ({ mach: v / 1125, cd: f }));
-    const g1Run  = simulate(B308, COND_A);
-    const cusRun = simulate(B308, { ...COND_A, customDragTable: g1Table });
+  test('every point toEqual G1 run when BC = sectionalDensityLbIn2; dragModel === custom', () => {
+    const g1Table = G1_CD_TABLE.map(r => ({ mach: r.mach, cd: r.cd }));
+    const sd = sectionalDensityLbIn2(B308.bulletWeightGrams, B308.bulletDiameterMm);
+    const B308_SD = { ...B308, ballisticCoefficient: sd };
+    const g1Run  = simulate(B308_SD, COND_A);
+    const cusRun = simulate(B308_SD, { ...COND_A, customDragTable: g1Table });
     expect(cusRun.dragModel).toBe('custom');
-    for (let i = 0; i < g1Run.points.length; i++) {
-      const pg1 = g1Run.points[i];
-      const pc  = cusRun.points[i];
-      expect(Math.abs(pc.dropCm        - pg1.dropCm)).toBeLessThanOrEqual(0.1);
-      expect(Math.abs(pc.velocityMps   - pg1.velocityMps)).toBeLessThanOrEqual(0.1);
-      expect(Math.abs(pc.timeOfFlightSec - pg1.timeOfFlightSec)).toBeLessThanOrEqual(0.1);
-    }
+    expect(cusRun.points).toEqual(g1Run.points);
   });
 });
 
@@ -1188,8 +1199,12 @@ describe('FEAT-3 test 9: validation boundary values accepted', () => {
 
 // Test 10: dragModel on results
 describe('FEAT-3 test 10: dragModel field on results', () => {
-  test('no table, params.dragModel G7 → dragModel G7', () => {
-    expect(simulate(B308, { ...COND_A, dragModel: 'G7' }).dragModel).toBe('G7');
+  const B308_G7 = { ...B308, ballisticCoefficientG7: 0.249 };
+  test('no table, params.dragModel G7 with G7 BC → dragModel G7', () => {
+    expect(simulate(B308_G7, { ...COND_A, dragModel: 'G7' }).dragModel).toBe('G7');
+  });
+  test('no table, params.dragModel G7 without G7 BC → falls back to dragModel G1', () => {
+    expect(simulate(B308, { ...COND_A, dragModel: 'G7' }).dragModel).toBe('G1');
   });
   test('no table, params.dragModel G1 → dragModel G1', () => {
     expect(simulate(B308, { ...COND_A, dragModel: 'G1' }).dragModel).toBe('G1');
@@ -1290,7 +1305,11 @@ describe('PERF-15: compileDragTable and findBracket', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('PERF-16: findZeroAngleFps safeguarded secant solver', () => {
   test('agrees with 64-pass bisection across a broad parameter sweep', () => {
+    // Mirror §3.3: k = Cd*(CD_TO_RETARD*rho/bc)*v; ax = -vx*k; ay = -vy*k - 32.174
+    // Uses vx < 50 stop (§3.4), fps G1 table at 15 °C, bracket [-0.05, 0.5]
     function refBisection(mvFps, bc, rho, zeroFt, sightHtFt) {
+      const CD_TO_RETARD = 2.08551e-4;
+      const kDrag = CD_TO_RETARD * rho / bc;
       function refInterpolateDrag(v, table) {
         v = Math.abs(v);
         if (v <= table[0][0]) return table[0][1];
@@ -1305,27 +1324,27 @@ describe('PERF-16: findZeroAngleFps safeguarded secant solver', () => {
         return Number.NaN;
       }
 
-      let lo = -0.05, hi = 0.05;
+      let lo = -0.05, hi = 0.5;
       for (let i = 0; i < 64; i++) {
         const mid = (lo + hi) / 2;
         let vx = mvFps * Math.cos(mid), vy = mvFps * Math.sin(mid), x = 0, y = 0;
         while (x < zeroFt) {
           const v1 = Math.sqrt(vx * vx + vy * vy);
-          if (v1 < 50) break;
-          const d1 = refInterpolateDrag(v1, G1_TABLE) * rho / bc;
-          const ax1 = -(vx / v1) * d1, ay1 = -(vy / v1) * d1 - 32.174;
+          if (vx < 50) break;
+          const k1 = refInterpolateDrag(v1, G1_TABLE) * kDrag * v1;
+          const ax1 = -vx * k1, ay1 = -vy * k1 - 32.174;
           const vx2 = vx + 0.00025 * ax1, vy2 = vy + 0.00025 * ay1;
           const v2 = Math.sqrt(vx2 * vx2 + vy2 * vy2);
-          const d2 = refInterpolateDrag(v2, G1_TABLE) * rho / bc;
-          const ax2 = -(vx2 / v2) * d2, ay2 = -(vy2 / v2) * d2 - 32.174;
+          const k2 = refInterpolateDrag(v2, G1_TABLE) * kDrag * v2;
+          const ax2 = -vx2 * k2, ay2 = -vy2 * k2 - 32.174;
           const vx3 = vx + 0.00025 * ax2, vy3 = vy + 0.00025 * ay2;
           const v3 = Math.sqrt(vx3 * vx3 + vy3 * vy3);
-          const d3 = refInterpolateDrag(v3, G1_TABLE) * rho / bc;
-          const ax3 = -(vx3 / v3) * d3, ay3 = -(vy3 / v3) * d3 - 32.174;
+          const k3 = refInterpolateDrag(v3, G1_TABLE) * kDrag * v3;
+          const ax3 = -vx3 * k3, ay3 = -vy3 * k3 - 32.174;
           const vx4 = vx + 0.0005 * ax3, vy4 = vy + 0.0005 * ay3;
           const v4 = Math.sqrt(vx4 * vx4 + vy4 * vy4);
-          const d4 = refInterpolateDrag(v4, G1_TABLE) * rho / bc;
-          const ax4 = -(vx4 / v4) * d4, ay4 = -(vy4 / v4) * d4 - 32.174;
+          const k4 = refInterpolateDrag(v4, G1_TABLE) * kDrag * v4;
+          const ax4 = -vx4 * k4, ay4 = -vy4 * k4 - 32.174;
           vx += (0.0005 / 6) * (ax1 + 2 * ax2 + 2 * ax3 + ax4);
           vy += (0.0005 / 6) * (ay1 + 2 * ay2 + 2 * ay3 + ay4);
           x += vx * 0.0005; y += vy * 0.0005;
@@ -1349,11 +1368,14 @@ describe('PERF-16: findZeroAngleFps safeguarded secant solver', () => {
     }
   });
 
-  test('clamps to lo (-0.05) when root lies below lower bracket and hi (+0.05) when above upper bracket', () => {
-    // Very negative sightHtFt → even at -0.05 rad y > sightHtFt → fLo >= 0 → returns -0.05
-    expect(findZeroAngleFps(2650, 0.475, 1.0, 328, -50, G1_TABLE)).toBe(-0.05);
-    // Huge positive sightHtFt → even at +0.05 rad y < sightHtFt → fHi < 0 → returns +0.05
-    expect(findZeroAngleFps(2650, 0.475, 1.0, 328,  50, G1_TABLE)).toBe(0.05);
+  test('returns NaN when no root exists in bracket; returns real root in (0.05, 0.5) when above old +0.05 boundary', () => {
+    // Very negative sightHtFt: bullet is always above sight at any angle in [-0.05, 0.5] → no bracket → NaN
+    expect(findZeroAngleFps(2650, 0.475, 1.0, 328, -50, G1_TABLE)).toBeNaN();
+    // Large positive sightHtFt: root now lies between 0.05 and 0.5 (widened bracket)
+    const result = findZeroAngleFps(2650, 0.475, 1.0, 328, 50, G1_TABLE);
+    expect(Number.isFinite(result)).toBe(true);
+    expect(result).toBeGreaterThan(0.05);
+    expect(result).toBeLessThan(0.5);
   });
 
   test('terminates via bracket tolerance (hi - lo <= 1e-13) across a discrete DT_S step jump', () => {
@@ -1373,16 +1395,16 @@ describe('PERF-17: solveBC', () => {
   const { solveBC } = require('../app/physics/engine.ts');
 
   test('recovers G1 BC monotonically and matches simulated drop to 4 decimal places', () => {
-    const resLow  = simulate({ ...BASE_BULLET, ballisticCoefficient: 0.02 }, {
-      zeroRangeMeters: 100, maxRangeMeters: 1000, stepMeters: 25,
+    const resLow  = simulate({ ...BASE_BULLET, ballisticCoefficient: 0.15 }, {
+      zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 25,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15, dragModel: 'G1',
     });
     const resHigh = simulate({ ...BASE_BULLET, ballisticCoefficient: 0.50 }, {
-      zeroRangeMeters: 100, maxRangeMeters: 1000, stepMeters: 25,
+      zeroRangeMeters: 100, maxRangeMeters: 500, stepMeters: 25,
       windSpeedKph: 0, altitudeMeters: 0, temperatureC: 15, dragModel: 'G1',
     });
-    const ptLow  = resLow.points.find(p => Math.abs(p.rangeMeters - 1000) < 1);
-    const ptHigh = resHigh.points.find(p => Math.abs(p.rangeMeters - 1000) < 1);
+    const ptLow  = resLow.points.find(p => Math.abs(p.rangeMeters - 500) < 1);
+    const ptHigh = resHigh.points.find(p => Math.abs(p.rangeMeters - 500) < 1);
 
     const bcLow = solveBC({
       weightG: BASE_BULLET.bulletWeightGrams,
@@ -1405,7 +1427,8 @@ describe('PERF-17: solveBC', () => {
     expect(bcLow).toBeGreaterThanOrEqual(0.001);
     expect(bcHigh).toBeLessThanOrEqual(1.5);
     expect(bcHigh).toBeGreaterThan(bcLow);
-    expect(Math.abs(bcLow - 0.02)).toBeLessThan(0.005);
+    expect(Math.abs(bcLow - 0.15)).toBeLessThan(0.005);
+    expect(Math.abs(bcHigh - 0.50)).toBeLessThan(0.005);
     // 4-decimal rounding check
     expect(Math.round(bcLow * 10000) / 10000).toBe(bcLow);
   });
@@ -1447,20 +1470,26 @@ describe('PERF-30: warm-bracket findZeroAngleFps, safeguarded secant solveBC & h
     const hintedLow = findZeroAngleFps(mvFps, 0.475, rho, zeroFt, sightHtFt, G1_TABLE, -0.04);
     expect(Math.abs(hintedLow - unhinted)).toBeLessThan(1e-12);
 
-    // Hint near clamping edges [-0.05, 0.05]
-    expect(findZeroAngleFps(mvFps, 0.475, rho, zeroFt, -50, G1_TABLE, -0.05)).toBe(-0.05);
-    expect(findZeroAngleFps(mvFps, 0.475, rho, zeroFt,  50, G1_TABLE,  0.05)).toBe(0.05);
+    // Hint near clamping edges: sightHt=-50 is unzeroable → NaN; sightHt=+50 has real root in (0.05, 0.5)
+    expect(findZeroAngleFps(mvFps, 0.475, rho, zeroFt, -50, G1_TABLE, -0.05)).toBeNaN();
+    const root50 = findZeroAngleFps(mvFps, 0.475, rho, zeroFt, 50, G1_TABLE, 0.3);
+    expect(Number.isFinite(root50)).toBe(true);
+    expect(root50).toBeGreaterThan(0.05);
+    expect(root50).toBeLessThan(0.5);
   });
 
-  test('solveBC clamps to 0.001 / 1.5 when measuredDropCm lies outside bracket', () => {
-    expect(solveBC({ weightG: 10.89, mvMps: 807, measuredDropCm: -5000, rangeM: 500, altM: 0, tempC: 15 })).toBe(0.001);
+  test('solveBC returns lower-bound BC when drop is too extreme; returns 1.5 when drop is too flat', () => {
+    // Extreme drop (-5000 cm at 500m) is physically infeasible; feasible lower bound < 0.2
+    expect(solveBC({ weightG: 10.89, mvMps: 807, measuredDropCm: -5000, rangeM: 500, altM: 0, tempC: 15 })).toBe(0.034);
+    // Very flat drop (-50 cm at 500m) needs very high BC → 1.5
     expect(solveBC({ weightG: 10.89, mvMps: 807, measuredDropCm: -50,   rangeM: 500, altM: 0, tempC: 15 })).toBe(1.5);
   });
 
   test('solveBC solves interior roots across 500m and 1000m (secant + bisection fallback) to 4 decimal places', () => {
-    expect(solveBC({ weightG: 10.89, mvMps: 807.7, measuredDropCm: -188.06, rangeM: 500,  altM: 0, tempC: 15 })).toBe(0.5136);
-    expect(solveBC({ weightG: 10.89, mvMps: 807.7, measuredDropCm: -752.0,  rangeM: 1000, altM: 0, tempC: 15 })).toBe(0.3026);
-    expect(solveBC({ weightG: 10.89, mvMps: 807.7, measuredDropCm: -753.6,  rangeM: 1000, altM: 0, tempC: 15 })).toBe(0.0162);
+    // Drops measured from new engine; solveBC must recover BC within ±0.001
+    expect(solveBC({ weightG: 10.89, mvMps: 807.7, measuredDropCm: -312.60, rangeM: 500,  altM: 0, tempC: 15 })).toBe(0.2999);
+    expect(solveBC({ weightG: 10.89, mvMps: 807.7, measuredDropCm: -1473.20, rangeM: 1000, altM: 0, tempC: 15 })).toBe(0.4748);
+    expect(solveBC({ weightG: 10.89, mvMps: 807.7, measuredDropCm: -2276.90, rangeM: 1000, altM: 0, tempC: 15 })).toBe(0.3);
   });
 
   test('hoisted dragAt handles sub-vMin, super-vMax, and upward bracket advance across all RK4 paths', () => {
@@ -1489,6 +1518,17 @@ describe('PERF-30: warm-bracket findZeroAngleFps, safeguarded secant solveBC & h
     // Upward bracket advance (v > vArr[idx]) in evalDropCmAtRange: 121.9 m/s (399.93 fps) accelerates past 400 fps over 150m
     const accelBc = solveBC({ weightG: 10, mvMps: 121.9, measuredDropCm: -50, rangeM: 150, altM: 0, tempC: 15 });
     expect(accelBc).toBe(1.5);
+
+    // v >= vMax (G1 table max is Mach 5.0 ≈ 5580 fps at 15°C) in evalDropCmAtRange: 2000 m/s = 6562 fps exceeds table
+    const hypersonicBc = solveBC({ weightG: 10.89, mvMps: 2000, measuredDropCm: -60, rangeM: 500, altM: 0, tempC: 15 });
+    expect(hypersonicBc).toBeGreaterThanOrEqual(0.001);
+    expect(hypersonicBc).toBeLessThanOrEqual(1.5);
+
+    // solveBC early-exit (line 810): short range (10m < zero 100m) with measuredDropCm more negative than
+    // any feasible drop at 10m — computed drop ≈ -0.5 cm, so -1 cm forces fLo >= 0 immediately
+    const earlyExitBc = solveBC({ weightG: 10.89, mvMps: 807, measuredDropCm: -1, rangeM: 10, altM: 0, tempC: 15 });
+    expect(earlyExitBc).toBeGreaterThan(0);
+    expect(earlyExitBc).toBeLessThanOrEqual(1.5);
   });
 });
 
@@ -1564,7 +1604,7 @@ describe('ENH-2: validation for pressureHpa, humidityPercent, and includeEotvos'
 });
 
 describe('ENH-2: station pressure & humidity effects in simulate()', () => {
-  const DRAG_BULLET = { ...B308, ballisticCoefficient: 0.01 };
+  const DRAG_BULLET = { ...B308, ballisticCoefficient: 0.3 };
   const LONG_COND   = { ...COND_A, maxRangeMeters: 2000, stepMeters: 100 };
 
   test('lower station pressure yields flatter trajectory, higher downrange velocity, and higher density altitude', () => {
@@ -1675,5 +1715,425 @@ describe('S24-1: soundSpeedFps', () => {
   });
   test('at 15 °C matches the Mach module formula (~340.3 m/s)', () => {
     expect(soundSpeedFps(15) / 3.28084).toBeCloseTo(340.3, 1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR 011: drag calibration (N1–N19)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ADR 011: drag calibration', () => {
+  // §6.1 reference bullet and params
+  const A011_BULLET = {
+    id: 'x', name: 'x',
+    bulletWeightGrams: 10.89, muzzleVelocityMps: 807,
+    ballisticCoefficient: 0.475, bulletDiameterMm: 7.82,
+    muzzleEnergyJoules: 3546,
+  };
+  const A011_PARAMS = {
+    zeroRangeMeters: 100, maxRangeMeters: 600, stepMeters: 100,
+    windSpeedKph: 16, windDirectionDeg: 90, altitudeMeters: 0, temperatureC: 15,
+    sightHeightMm: 38.1, shootingAngleDegrees: 0, dragModel: 'G1',
+  };
+
+  // N1: §6.3 worked example rows within §6.4 bands
+  test('N1: §6.3 worked example — every row within §6.4 acceptance bands', () => {
+    const result = simulate(A011_BULLET, A011_PARAMS);
+    // expected rows from §6.3: [R, velMps, tof, dropCm, windDriftCm, energyJ]
+    const rows = [
+      [100, 744.5, 0.1290, -7.96, 2.3, 3018],
+      [200, 684.7, 0.2691, -33.7, 9.4, 2553],
+      [300, 627.7, 0.4216, -80.4, 22.2, 2145],
+      [400, 573.6, 0.5882, -152.1, 41.2, 1792],
+      [500, 522.7, 0.7709, -253.7, 67.3, 1488],
+      [600, 475.3, 0.9715, -391.3, 101.4, 1230],
+    ];
+    for (const [R, vel, tof, drop, wind, energy] of rows) {
+      const p = result.points.find(pt => Math.abs(pt.rangeMeters - R) < 1);
+      expect(p).toBeDefined();
+      // velocityMps ±1%
+      expect(p.velocityMps).toBeGreaterThanOrEqual(vel * 0.99);
+      expect(p.velocityMps).toBeLessThanOrEqual(vel * 1.01);
+      // timeOfFlightSec ±1%
+      expect(p.timeOfFlightSec).toBeGreaterThanOrEqual(tof * 0.99);
+      expect(p.timeOfFlightSec).toBeLessThanOrEqual(tof * 1.01);
+      // dropCm: at 100m ±0.3 cm, else ±2% (use absolute tolerance to handle negative values)
+      if (R === 100) {
+        expect(Math.abs(p.dropCm - drop)).toBeLessThanOrEqual(0.3);
+      } else {
+        const dropTol = Math.abs(drop) * 0.02;
+        expect(p.dropCm).toBeGreaterThanOrEqual(drop - dropTol);
+        expect(p.dropCm).toBeLessThanOrEqual(drop + dropTol);
+      }
+      // windDriftCm ±5% (skip 100m: lag method gives tiny value)
+      if (R >= 200) {
+        expect(p.windDriftCm).toBeGreaterThanOrEqual(wind * 0.95);
+        expect(p.windDriftCm).toBeLessThanOrEqual(wind * 1.05);
+      }
+      // energyJoules ±2%
+      expect(p.energyJoules).toBeGreaterThanOrEqual(energy * 0.98);
+      expect(p.energyJoules).toBeLessThanOrEqual(energy * 1.02);
+    }
+  });
+
+  // N2: A1 and A2 supersonic limits
+  test('N2: A1 — supersonicLimitMeters ∈ [955, 1010] for 1000 m run', () => {
+    const result = simulate(A011_BULLET, { ...A011_PARAMS, maxRangeMeters: 1000, stepMeters: 25 });
+    expect(result.supersonicLimitMeters).toBeGreaterThanOrEqual(955);
+    expect(result.supersonicLimitMeters).toBeLessThanOrEqual(1010);
+  });
+
+  test('N2: A2 — low BC supersonicLimitMeters ∈ [95, 112]', () => {
+    const result = simulate(
+      { ...A011_BULLET, ballisticCoefficient: 0.05 },
+      { ...A011_PARAMS, maxRangeMeters: 300, stepMeters: 25 },
+    );
+    expect(result.supersonicLimitMeters).toBeGreaterThanOrEqual(95);
+    expect(result.supersonicLimitMeters).toBeLessThanOrEqual(112);
+  });
+
+  // N3: A3 — G7 with catalog G7 BC
+  test('N3: A3 — G7 run with ballisticCoefficientG7: 0.224 gives velocityMps at 600 m ∈ [445, 461]', () => {
+    const bullet = { ...A011_BULLET, ballisticCoefficientG7: 0.224 };
+    const result = simulate(bullet, { ...A011_PARAMS, dragModel: 'G7' });
+    expect(result.dragModel).toBe('G7');
+    const p600 = result.points.find(p => Math.abs(p.rangeMeters - 600) < 1);
+    expect(p600).toBeDefined();
+    expect(p600.velocityMps).toBeGreaterThanOrEqual(445);
+    expect(p600.velocityMps).toBeLessThanOrEqual(461);
+  });
+
+  // N4: A4 — BC response monotonic
+  test('N4: A4 — velocity, drop, TOF monotonically respond to BC changes', () => {
+    const bcs = [0.2, 0.3, 0.475, 0.6, 1.0];
+    const results = bcs.map(bc =>
+      simulate({ ...A011_BULLET, ballisticCoefficient: bc }, A011_PARAMS)
+    );
+    const get600 = r => r.points.find(p => Math.abs(p.rangeMeters - 600) < 1);
+    const pts = results.map(get600);
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i].velocityMps).toBeGreaterThan(pts[i - 1].velocityMps);
+      expect(pts[i].dropCm).toBeGreaterThan(pts[i - 1].dropCm); // less negative = greater
+      expect(pts[i].timeOfFlightSec).toBeLessThan(pts[i - 1].timeOfFlightSec);
+    }
+    // v(0.475) − v(0.3) > 100 m/s
+    const p475 = get600(results[2]);
+    const p030 = get600(results[1]);
+    expect(p475.velocityMps - p030.velocityMps).toBeGreaterThan(100);
+  });
+
+  // N5: CD_TO_RETARD constant
+  test('N5: CD_TO_RETARD === 2.08551e-4 and equals ρ₀·π/(8·144)', () => {
+    expect(CD_TO_RETARD).toBe(2.08551e-4);
+    expect(CD_TO_RETARD).toBeCloseTo(0.0764742 * Math.PI / 1152, 8);
+  });
+
+  // N6: Table integrity
+  test('N6: table row counts, mach bounds, and spot values', () => {
+    expect(G1_CD_TABLE.length).toBe(79);
+    expect(G5_CD_TABLE.length).toBe(76);
+    expect(G7_CD_TABLE.length).toBe(84);
+
+    for (const table of [G1_CD_TABLE, G5_CD_TABLE, G7_CD_TABLE]) {
+      expect(table[0].mach).toBe(0);
+      expect(table[table.length - 1].mach).toBe(5);
+      for (let i = 1; i < table.length; i++) {
+        expect(table[i].mach).toBeGreaterThan(table[i - 1].mach);
+      }
+    }
+
+    // G1 spot values: {0: 0.2629, 1.40: 0.6625, 2.40: 0.5481, 5: 0.4988}
+    expect(G1_CD_TABLE.find(r => r.mach === 0).cd).toBeCloseTo(0.2629, 4);
+    expect(G1_CD_TABLE.find(r => r.mach === 1.40).cd).toBeCloseTo(0.6625, 4);
+    expect(G1_CD_TABLE.find(r => r.mach === 2.40).cd).toBeCloseTo(0.5481, 4);
+    expect(G1_CD_TABLE.find(r => r.mach === 5).cd).toBeCloseTo(0.4988, 4);
+
+    // G5 spot values: {0: 0.1710, 1.40: 0.4406, 5: 0.2280}
+    expect(G5_CD_TABLE.find(r => r.mach === 0).cd).toBeCloseTo(0.1710, 4);
+    expect(G5_CD_TABLE.find(r => r.mach === 1.40).cd).toBeCloseTo(0.4406, 4);
+    expect(G5_CD_TABLE.find(r => r.mach === 5).cd).toBeCloseTo(0.2280, 4);
+
+    // G7 spot values: {0: 0.1198, 1.05: 0.4043, 2.40: 0.2752, 5: 0.1618}
+    expect(G7_CD_TABLE.find(r => r.mach === 0).cd).toBeCloseTo(0.1198, 4);
+    expect(G7_CD_TABLE.find(r => r.mach === 1.05).cd).toBeCloseTo(0.4043, 4);
+    expect(G7_CD_TABLE.find(r => r.mach === 2.40).cd).toBeCloseTo(0.2752, 4);
+    expect(G7_CD_TABLE.find(r => r.mach === 5).cd).toBeCloseTo(0.1618, 4);
+  });
+
+  // N7: referenceDragTable memoization
+  test('N7: referenceDragTable — memo hits, fps scaling, and memo-miss rebuild', () => {
+    const ss15 = soundSpeedFps(15);
+    const ss20 = soundSpeedFps(20);
+    const t1 = referenceDragTable('G1', ss15);
+    const t2 = referenceDragTable('G1', ss15);
+    expect(t1).toBe(t2); // same object
+
+    // Different soundFps → different object with scaled fps, identical cd
+    const t3 = referenceDragTable('G1', ss20);
+    expect(t3).not.toBe(t1);
+    for (let i = 0; i < G1_CD_TABLE.length; i++) {
+      expect(t3[i][0]).toBeCloseTo(G1_CD_TABLE[i].mach * ss20, 6);
+      expect(t3[i][1]).toBeCloseTo(t1[i][1], 6);
+    }
+
+    // Switching back rebuilds (memo-miss branch)
+    const t4 = referenceDragTable('G1', ss15);
+    expect(t4).not.toBe(t1); // new object (memo had ss20)
+    expect(t4[0][0]).toBeCloseTo(G1_CD_TABLE[0].mach * ss15, 6);
+  });
+
+  // N8: Temperature affects drag through Mach
+  test('N8: temperature changes drag through Mach (colder air = higher Mach at same speed)', () => {
+    const params = { ...A011_PARAMS, pressureHpa: 1013.25, humidityPercent: 0, maxRangeMeters: 600 };
+    const cold = simulate(A011_BULLET, { ...params, temperatureC: -20 });
+    const hot  = simulate(A011_BULLET, { ...params, temperatureC: 40 });
+    const p600cold = cold.points.find(p => Math.abs(p.rangeMeters - 600) < 1);
+    const p600hot  = hot.points.find(p => Math.abs(p.rangeMeters - 600) < 1);
+
+    // At same speed, cold air → higher Mach → higher Cd in transonic → more drag
+    // But at supersonic speeds the effect is mixed. Check via referenceDragTable fps scaling:
+    const ss_cold = soundSpeedFps(-20);
+    const ss_hot  = soundSpeedFps(40);
+    expect(ss_cold).toBeLessThan(ss_hot); // -20°C slower sound
+    // Row 0 fps at -20°C < row 0 fps at +40°C
+    const t_cold = referenceDragTable('G1', ss_cold);
+    const t_hot  = referenceDragTable('G1', ss_hot);
+    expect(t_cold[1][0]).toBeLessThan(t_hot[1][0]);
+    expect(t_cold[1][1]).toBe(t_hot[1][1]); // same cd for same mach row
+
+    // Trajectory level: results differ (velocity at 600m)
+    expect(p600cold.velocityMps).not.toBeCloseTo(p600hot.velocityMps, 0);
+  });
+
+  // N9: solveBC round trip
+  test('N9: solveBC round trip ±0.002 for BC ∈ {0.25, 0.475, 0.8}', () => {
+    const { solveBC } = require('../app/physics/engine.ts');
+    const params = { ...A011_PARAMS, windSpeedKph: 0, maxRangeMeters: 600 };
+    for (const bc of [0.25, 0.475, 0.8]) {
+      const result = simulate({ ...A011_BULLET, ballisticCoefficient: bc }, params);
+      const p500 = result.points.find(p => Math.abs(p.rangeMeters - 500) < 1);
+      expect(p500).toBeDefined();
+      const solved = solveBC({
+        weightG: A011_BULLET.bulletWeightGrams,
+        mvMps: A011_BULLET.muzzleVelocityMps,
+        measuredDropCm: p500.dropCm,
+        rangeM: p500.rangeMeters,
+        altM: 0,
+        tempC: 15,
+      });
+      expect(solved).not.toBeNull();
+      expect(Math.abs(solved - bc)).toBeLessThanOrEqual(0.002);
+    }
+  });
+
+  // N10: solveBC feasible lower-bound search
+  test('N10: solveBC feasible lower-bound returns non-null when BC=0.001 is infeasible', () => {
+    const { solveBC } = require('../app/physics/engine.ts');
+    // BC=0.001 → bullet stalls before 500m; a valid result should still come back
+    const result = solveBC({ weightG: 10.89, mvMps: 807, measuredDropCm: -400, rangeM: 500, altM: 0, tempC: 15 });
+    expect(result).not.toBeNull();
+    // MV=20 m/s → stalls before any range; must return null
+    const slow = solveBC({ weightG: 10.89, mvMps: 20, measuredDropCm: -40, rangeM: 500, altM: 0, tempC: 15 });
+    expect(slow).toBeNull();
+  });
+
+  // N11: Termination tests (timeout 5000ms)
+  test('N11a: BC=0.01, MV=91.44 m/s — simulate terminates without hanging', () => {
+    // With BC=0.01 at 300 fps, vx drops below 50 fps before x=100m, so the zero is
+    // unreachable: simulate either returns short points OR throws TrajectoryInputError.
+    const bullet = { ...A011_BULLET, ballisticCoefficient: 0.01, muzzleVelocityMps: 91.44 };
+    let threw = false;
+    let result;
+    try {
+      result = simulate(bullet, { ...A011_PARAMS, maxRangeMeters: 1000, stepMeters: 25 });
+      expect(result.points.length).toBeGreaterThanOrEqual(1);
+      result.points.forEach(p => {
+        expect(Number.isFinite(p.velocityMps)).toBe(true);
+        expect(Number.isFinite(p.dropCm)).toBe(true);
+      });
+    } catch (e) {
+      threw = true;
+      expect(e).toBeInstanceOf(TrajectoryInputError);
+    }
+    // Either path is acceptable; the key invariant is: does not hang (5 s timeout)
+    expect(threw || result != null).toBe(true);
+  }, 5000);
+
+  test('N11b: custom table cd=2.0 — simulate returns without hanging', () => {
+    const bullet = { ...A011_BULLET, ballisticCoefficient: 0.01, muzzleVelocityMps: 800 };
+    const heavyTable = [{ mach: 0, cd: 2.0 }, { mach: 1, cd: 2.0 }, { mach: 3, cd: 2.0 }];
+    const result = simulate(bullet, { ...A011_PARAMS, maxRangeMeters: 5000, stepMeters: 100, customDragTable: heavyTable });
+    expect(result).toBeDefined();
+  }, 5000);
+
+  test('N11c: findZeroAngleFps with BC=0.01, MV=91.44 m/s — terminates without hanging', () => {
+    // With BC=0.01 at 300 fps, vx < 50 fps before x=100m for all launch angles, so the
+    // zero is unreachable. findZeroAngleFps correctly returns NaN; the key is it terminates.
+    const mvFps  = 91.44 * 3.28084;
+    const bc     = 0.01;
+    const rho    = 1.0;
+    const ss     = soundSpeedFps(15);
+    const g1     = referenceDragTable('G1', ss);
+    const zeroFt = 100 * 3.28084;
+    const sightHtFt = 38.1 / 25.4 / 12;
+    const angle  = findZeroAngleFps(mvFps, bc, rho, zeroFt, sightHtFt, g1);
+    // NaN is the correct return when no launch angle can reach the zero range
+    expect(typeof angle).toBe('number');
+    expect(Number.isFinite(angle) || Number.isNaN(angle)).toBe(true);
+  }, 5000);
+
+  test('N11d: solveBC with unreachable range returns without hanging', () => {
+    const { solveBC } = require('../app/physics/engine.ts');
+    const result = solveBC({ weightG: 10, mvMps: 100, measuredDropCm: -100, rangeM: 3000, altM: 0, tempC: 15 });
+    expect(result === null || typeof result === 'number').toBe(true);
+  }, 5000);
+
+  // N12: Termination in integrateTrajectoryFps (timeout 5000ms)
+  test('N12: BC=0.02, MV=800 m/s — integrateTrajectoryFps terminates; last point < 1000 m', () => {
+    const bullet = { ...A011_BULLET, ballisticCoefficient: 0.02, muzzleVelocityMps: 800 };
+    const result = simulate(bullet, { ...A011_PARAMS, maxRangeMeters: 1000, stepMeters: 25 });
+    const last = result.points[result.points.length - 1];
+    expect(last.rangeMeters).toBeLessThan(1000);
+    expect(last.velocityMps).toBeGreaterThan(100 / 3.28084);
+  }, 5000);
+
+  // N13: G5 BC
+  test('N13: G5 BC — dragModel G5 with ballisticCoefficientG5 gives correct model and differs from G1', () => {
+    const bulletG5 = { ...A011_BULLET, ballisticCoefficientG5: 0.30 };
+    const bulletG5hi = { ...A011_BULLET, ballisticCoefficientG5: 0.40 };
+    const g5 = simulate(bulletG5, { ...A011_PARAMS, dragModel: 'G5' });
+    const g5hi = simulate(bulletG5hi, { ...A011_PARAMS, dragModel: 'G5' });
+    const g1 = simulate(A011_BULLET, A011_PARAMS);
+
+    expect(g5.dragModel).toBe('G5');
+    const p600g5 = g5.points.find(p => Math.abs(p.rangeMeters - 600) < 1);
+    const p600g5hi = g5hi.points.find(p => Math.abs(p.rangeMeters - 600) < 1);
+    expect(p600g5hi.velocityMps).toBeGreaterThan(p600g5.velocityMps);
+
+    // G5 points differ from G1
+    expect(g5.points).not.toEqual(g1.points);
+
+    // Without G5 BC → falls back to G1
+    const g5fallback = simulate(A011_BULLET, { ...A011_PARAMS, dragModel: 'G5' });
+    expect(g5fallback.dragModel).toBe('G1');
+    expect(g5fallback.points).toEqual(g1.points);
+  });
+
+  // N14: G7 fallback
+  test('N14: G7 fallback — without G7 BC resolves to G1; with G7 BC resolves to G7', () => {
+    const g1 = simulate(A011_BULLET, A011_PARAMS);
+    const g7fallback = simulate(A011_BULLET, { ...A011_PARAMS, dragModel: 'G7' });
+    expect(g7fallback.dragModel).toBe('G1');
+    expect(g7fallback.points).toEqual(g1.points);
+
+    const bulletG7 = { ...A011_BULLET, ballisticCoefficientG7: 0.224 };
+    const g7 = simulate(bulletG7, { ...A011_PARAMS, dragModel: 'G7' });
+    expect(g7.dragModel).toBe('G7');
+
+    // Legacy UI swap: G7 BC copied into ballisticCoefficient gives same result
+    const bulletLegacy = { ...A011_BULLET, ballisticCoefficient: 0.224, ballisticCoefficientG7: 0.224 };
+    const g7legacy = simulate(bulletLegacy, { ...A011_PARAMS, dragModel: 'G7' });
+    expect(g7legacy.points).toEqual(g7.points);
+  });
+
+  // N15: Sectional density
+  test('N15: sectionalDensityLbIn2 and custom-table divisor behavior', () => {
+    expect(sectionalDensityLbIn2(10.89, 7.82)).toBeCloseTo(0.25329, 4);
+
+    const customTable = [{ mach: 0, cd: 0.3 }, { mach: 1, cd: 0.5 }, { mach: 3, cd: 0.4 }];
+    // Different G1 BCs give same points (custom uses SD, not BC)
+    const r1 = simulate({ ...A011_BULLET, ballisticCoefficient: 0.2 }, { ...A011_PARAMS, customDragTable: customTable });
+    const r2 = simulate({ ...A011_BULLET, ballisticCoefficient: 0.8 }, { ...A011_PARAMS, customDragTable: customTable });
+    expect(r1.points).toEqual(r2.points);
+
+    // Larger diameter → lower SD → more drag → more drop
+    const rSmall = simulate({ ...A011_BULLET, bulletDiameterMm: 7.82 }, { ...A011_PARAMS, customDragTable: customTable });
+    const rLarge = simulate({ ...A011_BULLET, bulletDiameterMm: 8.00 }, { ...A011_PARAMS, customDragTable: customTable });
+    const p600small = rSmall.points.find(p => Math.abs(p.rangeMeters - 600) < 1);
+    const p600large = rLarge.points.find(p => Math.abs(p.rangeMeters - 600) < 1);
+    expect(p600large.dropCm).toBeLessThan(p600small.dropCm); // more negative
+
+    // resolveDrag returns custom with SD divisor
+    const { model, divisor } = resolveDrag(A011_BULLET, { ...A011_PARAMS, customDragTable: customTable });
+    expect(model).toBe('custom');
+    expect(divisor).toBeCloseTo(sectionalDensityLbIn2(A011_BULLET.bulletWeightGrams, A011_BULLET.bulletDiameterMm), 6);
+  });
+
+  // N16: Validation V1–V3
+  test('N16: validation V1 — ballisticCoefficientG7 must be finite and > 0 when non-null', () => {
+    for (const bad of [0, -1, NaN, Infinity]) {
+      expect(() => simulate({ ...A011_BULLET, ballisticCoefficientG7: bad }, A011_PARAMS))
+        .toThrow(TrajectoryInputError);
+    }
+    expect(() => simulate({ ...A011_BULLET, ballisticCoefficientG7: null }, A011_PARAMS)).not.toThrow();
+    expect(() => simulate({ ...A011_BULLET }, A011_PARAMS)).not.toThrow();
+  });
+
+  test('N16: validation V2 — ballisticCoefficientG5 must be finite and > 0 when non-null', () => {
+    for (const bad of [0, -1, NaN, Infinity]) {
+      expect(() => simulate({ ...A011_BULLET, ballisticCoefficientG5: bad }, A011_PARAMS))
+        .toThrow(TrajectoryInputError);
+    }
+    expect(() => simulate({ ...A011_BULLET, ballisticCoefficientG5: null }, A011_PARAMS)).not.toThrow();
+  });
+
+  test('N16: validation V3 — bulletDiameterMm [1,30] required when customDragTable is non-empty', () => {
+    const customTable = [{ mach: 0, cd: 0.3 }, { mach: 1, cd: 0.5 }, { mach: 3, cd: 0.4 }];
+    for (const bad of [0, 31, NaN]) {
+      expect(() => simulate({ ...A011_BULLET, bulletDiameterMm: bad }, { ...A011_PARAMS, customDragTable: customTable }))
+        .toThrow(TrajectoryInputError);
+    }
+    expect(() => simulate({ ...A011_BULLET, bulletDiameterMm: 7.82 }, { ...A011_PARAMS, customDragTable: customTable }))
+      .not.toThrow();
+  });
+
+  // N17: Zero bracket expansion
+  test('N17: zero bracket expansion — wide zero range resolved or throws, never clamps silently', () => {
+    // .223 55gr at 3000m zero: either finds a solution or throws zeroRangeMeters error
+    const bullet223 = {
+      id: 'x', name: 'x',
+      bulletWeightGrams: 3.56, muzzleVelocityMps: 987.6,
+      ballisticCoefficient: 0.243, bulletDiameterMm: 5.69, muzzleEnergyJoules: 1738,
+    };
+    let threw = false;
+    let result3k;
+    try {
+      result3k = simulate(bullet223, { ...A011_PARAMS, zeroRangeMeters: 3000, maxRangeMeters: 3000 });
+    } catch (e) {
+      threw = true;
+      expect(e).toBeInstanceOf(TrajectoryInputError);
+      expect(e.field).toBe('zeroRangeMeters');
+    }
+    if (!threw) {
+      // If resolved, the 3000m point's bore-line drop should be near zero (within ±1 cm of sight line)
+      const p3k = result3k.points.find(p => Math.abs(p.rangeMeters - 3000) < 10);
+      expect(p3k).toBeDefined();
+    }
+
+    // §6.1 bullet at MV 300 m/s, zero 800 m — zero angle > 0.05 rad
+    const mvSlow = 300;
+    const mvFps  = mvSlow * 3.28084;
+    const ss15   = soundSpeedFps(15);
+    const g1t    = referenceDragTable('G1', ss15);
+    const rho    = 1.0;
+    const zeroFt = 800 * 3.28084;
+    const sightHtFt = 38.1 / 25.4 / 12;
+    const angle  = findZeroAngleFps(mvFps, A011_BULLET.ballisticCoefficient, rho, zeroFt, sightHtFt, g1t);
+    expect(Number.isFinite(angle)).toBe(true);
+    expect(angle).toBeGreaterThan(0.05);
+    expect(angle).toBeLessThanOrEqual(ZERO_ANGLE_MAX);
+
+    // Clearly unreachable: BC=0.01, MV=91.44 m/s, zero=1000 m throws
+    expect(() => simulate(
+      { ...A011_BULLET, ballisticCoefficient: 0.01, muzzleVelocityMps: 91.44 },
+      { ...A011_PARAMS, zeroRangeMeters: 1000 },
+    )).toThrow(TrajectoryInputError);
+  });
+
+  // N18: evalDropCmAtRange and solveBC with unreachable zero
+  test('N18: solveBC with very low MV returns null and does not throw', () => {
+    const { solveBC } = require('../app/physics/engine.ts');
+    // Every BC → zero unreachable at MV=5 m/s
+    const result = solveBC({ weightG: 10.89, mvMps: 5, measuredDropCm: -100, rangeM: 500, altM: 0, tempC: 15 });
+    expect(result).toBeNull();
   });
 });

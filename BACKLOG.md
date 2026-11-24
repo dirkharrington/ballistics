@@ -3039,3 +3039,9 @@ The share URL (`COPY LINK` / address bar) now carries `clickValue` (allow-list: 
 ### S24-3 — E2E coverage for Sprint 23 features ✅ Done (PR #218)
 
 Adds four Puppeteer smoke tests to `tests/e2e/app.e2e.test.js`: MV temperature sensitivity → "Effective MV" stat line; transonic/subsonic Mach markers (or "Beyond max range") on the stat card; DOPE table "Elev Clicks" column after selecting ½ MOA; MV truing (Tools tab) producing a numeric trued MV with no error. 21/21 E2E tests pass locally against the built `dist/`.
+
+---
+
+### S24-4 — Standard drag formula and BRL G1/G5/G7 tables (ADR 011)
+
+Implements the standard drag deceleration formula (`a = ρ_ratio · CD_TO_RETARD · Cd(M) · v² / BC`, constant `2.08551×10⁻⁴` ft⁻¹), replaces legacy interpolated tables with authoritative BRL G1 (79-row), G5 (76-row), and G7 (84-row) Mach-keyed `Cd` tables from `physics-tables.yaml`, adds G5/G7 BC model selection, sectional-density BC for custom drag tables, and `MIN_VEL_FPS=100` trajectory stop. BC back-calculator (`solveBC`) extended with feasibility probe. Zero-angle bracket expanded to 0.5 rad. `simulationCacheKey` differentiates G5/G7 BCs and diameter when twist or custom table is present. 100% Jest coverage maintained. See `contracts/engine-drag-calibration.md` and `docs/adr/011-engine-drag-calibration.md`.

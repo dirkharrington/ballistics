@@ -161,7 +161,7 @@ function bulletCatalogPlugin() {
 
 // Exposes /app/data/physics-tables.yaml as a virtual ES module so
 // the JS client has a single source of truth for the
-// G1 drag table and atmosphere model constants.
+// G1/G5/G7 reference C_d tables and atmosphere model constants.
 function physicsTablesPlugin() {
   const virtualId = 'virtual:physics-tables'
   const resolvedId = '\0' + virtualId
@@ -175,15 +175,15 @@ function physicsTablesPlugin() {
         const raw = readFileSync(
           resolve(__dirname, 'app/data/physics-tables.yaml'), 'utf-8')
         const data = yaml.load(raw)
-        const G1_TABLE = data.g1Table.map(({ v, f }) => [v, f])
-        const G5_TABLE = data.g5Table.map(({ v, f }) => [v, f])
-        const G7_TABLE = data.g7Table.map(({ v, f }) => [v, f])
+        const G1_CD_TABLE = data.g1CdTable.map(({ mach, cd }) => ({ mach, cd }))
+        const G5_CD_TABLE = data.g5CdTable.map(({ mach, cd }) => ({ mach, cd }))
+        const G7_CD_TABLE = data.g7CdTable.map(({ mach, cd }) => ({ mach, cd }))
         const ATMOSPHERE = data.atmosphere
-        return `export const G1_TABLE = ${JSON.stringify(G1_TABLE)};\n`
-             + `export const G5_TABLE = ${JSON.stringify(G5_TABLE)};\n`
-             + `export const G7_TABLE = ${JSON.stringify(G7_TABLE)};\n`
+        return `export const G1_CD_TABLE = ${JSON.stringify(G1_CD_TABLE)};\n`
+             + `export const G5_CD_TABLE = ${JSON.stringify(G5_CD_TABLE)};\n`
+             + `export const G7_CD_TABLE = ${JSON.stringify(G7_CD_TABLE)};\n`
              + `export const ATMOSPHERE = ${JSON.stringify(ATMOSPHERE)};\n`
-             + `export default { G1_TABLE, G5_TABLE, G7_TABLE, ATMOSPHERE };\n`
+             + `export default { G1_CD_TABLE, G5_CD_TABLE, G7_CD_TABLE, ATMOSPHERE };\n`
       }
     }
   }
