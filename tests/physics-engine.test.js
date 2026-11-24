@@ -1525,7 +1525,7 @@ describe('PERF-30: warm-bracket findZeroAngleFps, safeguarded secant solveBC & h
     expect(hypersonicBc).toBeGreaterThanOrEqual(0.001);
     expect(hypersonicBc).toBeLessThanOrEqual(1.5);
 
-    // solveBC early-exit (line 810): short range (10m < zero 100m) with measuredDropCm more negative than
+    // solveBC early-exit: short range (10m < zero 100m) with measuredDropCm more negative than
     // any feasible drop at 10m — computed drop ≈ -0.5 cm, so -1 cm forces fLo >= 0 immediately
     const earlyExitBc = solveBC({ weightG: 10.89, mvMps: 807, measuredDropCm: -1, rangeM: 10, altM: 0, tempC: 15 });
     expect(earlyExitBc).toBe(0.008);
@@ -2131,6 +2131,9 @@ describe('ADR 011: drag calibration', () => {
     let resultBoundary;
     expect(() => { resultBoundary = simulate({ ...A011_BULLET, bulletWeightGrams: 0.5, bulletDiameterMm: 25.4, muzzleVelocityMps: 800 }, boundaryParams); }).not.toThrow();
     for (const pt of resultBoundary.points) expect(pt.velocityMps).toBeLessThanOrEqual(801);
+    for (const pt of resultBoundary.points) {
+      for (const v of Object.values(pt)) expect(v == null || Number.isFinite(v)).toBe(true);
+    }
     // just above 0.5 — throws V4
     let errBoundary;
     try {
@@ -2156,8 +2159,38 @@ describe('ADR 011: drag calibration', () => {
     const bcStable4000 = CD_TO_RETARD * 1 * maxCdG1 * mvFps4000 * 0.0005 / STABILITY_LIMIT;
     expect(bcStable4000).toBeGreaterThan(0.001); // confirms the floor kicks in
     const result = solveBC({ weightG: 10.89, mvMps: 4000, measuredDropCm: -100, rangeM: 500, altM: 0, tempC: 15 });
-    // must not throw and must be null or ≥ bcStable
-    expect(result === null || (typeof result === 'number' && Number.isFinite(result) && result >= bcStable4000)).toBe(true);
+    expect(result).toBe(0.0683);
+  });
+
+  test('N16b: findZeroAngleFps NaN branch — fLo=-Infinity triggers bisection fallback', () => {
+    // Custom Cd=1 table: a 0.5g/10mm bullet at 300 m/s stalls before ~30.8m (ZERO_ANGLE_MIN shot),
+    // so evalHeightAtZero returns -Infinity and fLo enters the bisection loop as NaN via Number.NaN.
+    const nanBranchTable = [{ mach: 0, cd: 1 }, { mach: 1, cd: 1 }, { mach: 3, cd: 1 }];
+    const nanBranchBullet = {
+      id: 'nb', name: 'nb',
+      bulletWeightGrams: 0.5, bulletDiameterMm: 10,
+      ballisticCoefficient: 0.3, muzzleVelocityMps: 300,
+      muzzleEnergyJoules: 1,
+    };
+    const nanBranchParams = {
+      zeroRangeMeters: 30.8, maxRangeMeters: 50, stepMeters: 10,
+      windSpeedKph: 0, windDirectionDeg: 0, altitudeMeters: 0, temperatureC: 15,
+      sightHeightMm: 38.1, shootingAngleDegrees: 0,
+      customDragTable: nanBranchTable,
+    };
+    // Should not throw and should return a trajectory with at least one point
+    let result;
+    expect(() => { result = simulate(nanBranchBullet, nanBranchParams); }).not.toThrow();
+    expect(result.points.length).toBeGreaterThanOrEqual(1);
+    for (const pt of result.points) {
+      for (const v of Object.values(pt)) expect(v == null || Number.isFinite(v)).toBe(true);
+    }
+  });
+
+  test('N16c: solveBC stability floor early-exit — mvMps=5e6 gives bcStable >> 1.5, returns null', () => {
+    const { solveBC } = require('../app/physics/engine.ts');
+    const result = solveBC({ weightG: 10.89, mvMps: 5e6, measuredDropCm: -100, rangeM: 500, altM: 0, tempC: 15 });
+    expect(result).toBe(null);
   });
 
   // N17: Zero bracket expansion
