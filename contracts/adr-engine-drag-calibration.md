@@ -1,7 +1,7 @@
 # ADR 011: Calibrate the engine's drag model to standard point-mass retardation
 
 **Status:** Proposed. The user decided open questions Q1–Q4 on 2026-11-23 (§7). The ADR itself still needs final approval before builders start.
-**Date:** 2026-11-23 (revised the same day with the Q1–Q4 decisions)
+**Date:** 2026-11-23 (revised the same day with the Q1–Q4 decisions; amended 2026-11-24 with the V4 stability guard)
 **Author:** Architect
 **Contract:** [`engine-drag-calibration.md`](engine-drag-calibration.md)
 **Supersedes:** `feat3-custom-drag-ts.md` §3.4 (the "physics limitation" note, and the rule that custom tables divide by BC). It also supersedes the "bit-identical to `simulateBulletJS` at `a63f361`" lock in ADR 008 and `spa1-ts-engine.md` §11.3. The golden fixture is re-baselined once. The lock itself stays in force from the new baseline.
@@ -131,6 +131,7 @@ The full table is in contract §6. The 600 m values are ≈ 475 m/s, 0.972 s, �
 | R4 | **Zero-angle bracket ±0.05 rad.** Long zeros silently clamp. | **Resolved (Q3):** expansion to 0.5 rad, and an error instead of a clamp (contract §3.10). |
 | R5 | **Stale user data.** Custom "(trued)" bullets were solved under near-vacuum drag. | **Resolved (Q4):** one-time notice (contract F5). No automatic migration, because the app can't recompute without the user's field observation. |
 | R5a | **Custom-curve results change meaning.** Custom-table runs switch from BC to sectional density. For a typical .308 bullet, SD 0.253 vs G1 BC 0.475. Users who had tuned BC to compensate will see different results. | Intended (Q2). F6 copy says BC is ignored for custom curves. |
+| R5c | **Numerical instability with extreme inputs** that the custom-bullet form accepts (devsecops Medium, PR #221) | V4 stability guard and the `solveBC` floor (§5.3; contract §3.9, tests N16 V4 and N16a) |
 | R5b | **Old G7 golden cases have no G7 BC.** They would silently become G1. | The golden fixture adds `ballisticCoefficientG7` to its G7 cases (contract §7.3). |
 | R6 | **Bullets now stall.** Very low BC at long range can fall below `MIN_VEL_FPS` (100 fps), so `points` can be shorter than `maxRangeMeters / stepMeters`. | This was always legal. Gravity bounds terminal velocity well above 100 fps for catalog bullets. The contract adds a test that a short `points` array is valid output. UI code already iterates `points` without assuming a length. |
 | R6a | **Worker hang (DoS).** Real drag plus a low BC, or a heavy custom C_d curve, can leave the RK4 loops spinning forever (§4.1 item 5). The PERF-17 test (BC 0.02 to 1000 m) is a likely trigger once the formula changes. | The horizontal-speed termination guard is **mandatory**. Contract §7.2 adds non-termination regression tests with a Jest timeout. |
@@ -145,6 +146,7 @@ The full table is in contract §6. The 600 m values are ≈ 475 m/s, 0.972 s, �
 - **T / integrity:** a cached result reused after a G5 or G7 BC, or the diameter, changes. **Mitigation:** those fields are added to `simulationCacheKey`.
 - **I / injection:** user bullet names are rendered in the re-truing notice. **Mitigation:** `textContent` only.
 - **I (integrity):** a silent wrong zero. **Mitigation:** the zero search reports unreachable instead of clamping.
+- **I (integrity) and D: unstable integration (devsecops Medium, PR #221, 2026-11-24).** Real drag is stiff. With a tiny divisor (a heavy custom C_d curve on a light, wide bullet, or a near-zero BC), one RK4 step can remove more than the whole velocity. The integrator then diverges: the devsecops repro returned about 314,000 m/s and 3.2 MJ at 157 m with no error. This could not happen under the old near-vacuum drag. **Mitigation (contract §3.9 V4):** before any integration, `simulate()` requires `CD_TO_RETARD·rho·maxCd·mvFps·DT_S / divisor ≤ 0.5`. This upper-bounds λ·Δt, well inside RK4's stability limit of about 2.78. Otherwise it throws `TrajectoryInputError` on the field that sets the divisor: `bullet.bulletDiameterMm` for custom runs, otherwise the BC field in use. `solveBC` raises its lower BC bound to the same limit. Realistic bullets sit about 1,000× below the limit. The MV truing tool's probes at extreme MV may hit V4 for extreme custom bullets. That tool already treats an engine error as "unreachable", so its behaviour stays safe.
 - New persisted state is one `localStorage` flag (`bv_physicsNotice`) and one optional custom-bullet field. There are no network calls or URL parameters, apart from `G5` now being accepted where `G1`/`G7` already are.
 
 ## 7. Decisions on open questions (user, 2026-11-23)

@@ -1,6 +1,6 @@
 # Contract: engine drag calibration (standard point-mass retardation)
 
-**Version:** 1.1.0. 1.0.0 was the engine-only draft. 1.1.0 records the user's Q1–Q4 decisions (§11) and adds the G5 BC, sectional density for custom curves, zero-angle bracket expansion, and the re-truing notice.
+**Version:** 1.1.1. 1.0.0 was the engine-only draft. 1.1.0 recorded the user's Q1–Q4 decisions (§11) and added the G5 BC, sectional density for custom curves, zero-angle bracket expansion, and the re-truing notice. 1.1.1 (2026-11-24) adds the V4 integration-stability guard (§3.9) after a devsecops Medium finding on PR #221.
 **Status:** Proposed. Q1–Q4 were decided by the user on 2026-11-23. ADR 011 still needs final approval.
 **Date:** 2026-11-23
 **Author:** Architect
@@ -189,7 +189,7 @@ const dragTable = dragModel === 'custom'
   ? toDragTable(params.customDragTable!, soundFps)
   : referenceDragTable(dragModel, soundFps);
 ```
-Pass `divisor` everywhere `bc` is passed today (`findZeroAngleFps`, `integrateTrajectoryFps`). After `findZeroAngleFps`, apply the §3.10 NaN check. `TrajectoryResult.dragModel` is the **resolved** `dragModel`. `rho` stays the station density ratio, and `soundFps` stays `soundSpeedFps(params.temperatureC)`. Everything else in `simulate()` is unchanged. TS narrowing is fine. `any` is not.
+Pass `divisor` everywhere `bc` is passed today (`findZeroAngleFps`, `integrateTrajectoryFps`). Run the §3.9 **V4 stability check** after `rho` is computed and **before** `findZeroAngleFps`. After `findZeroAngleFps`, apply the §3.10 NaN check. `TrajectoryResult.dragModel` is the **resolved** `dragModel`. `rho` stays the station density ratio, and `soundFps` stays `soundSpeedFps(params.temperatureC)`. Everything else in `simulate()` is unchanged. TS narrowing is fine. `any` is not.
 
 ### 3.7 `evalDropCmAtRange` and `solveBC`
 `evalDropCmAtRange` (private): replace the `ct: CompiledDragTable` parameter with `dragTable: DragTable` in the same position, and derive `const ct = getCompiledDragTable(dragTable);` inside. Pass `dragTable`, not `G1_TABLE`, to `findZeroAngleFps`. Apply §3.3 and §3.4.
@@ -257,6 +257,30 @@ export function resolveDrag(bullet: Bullet, params: TrajectoryParams): { model: 
 | V1 | If `bullet.ballisticCoefficientG7 != null`: finite and > 0 | `bullet.ballisticCoefficientG7` | `'a finite number greater than 0'` |
 | V2 | If `bullet.ballisticCoefficientG5 != null`: finite and > 0 | `bullet.ballisticCoefficientG5` | `'a finite number greater than 0'` |
 | V3 | If `customDragTable` is non-empty (checked after the existing table rules): `bulletDiameterMm` is finite and in [1, 30] | `bullet.bulletDiameterMm` | `'a finite number between 1 and 30'` (same text as the twist rule) |
+| V4 | **Integration stability guard** (since 1.1.1; devsecops Medium on PR #221). See the rules below the table | depends on the divisor source (see below) | see below |
+
+**V4 rules.** V4 is not part of `validate()`. It needs the resolved divisor, `rho` and the table.
+- **Where it runs.** In `simulate()`, immediately after `resolveDrag` and the `rho` computation, and **before** `findZeroAngleFps`. The zero solver already runs the RK4 loop, so checking any later would be too late.
+- **Condition.** Throw when
+  ```ts
+  CD_TO_RETARD * rho * maxCd * mvFps * DT_S / divisor > STABILITY_LIMIT   // STABILITY_LIMIT = 0.5 (@internal export)
+  ```
+  The left side is an upper bound on λ·Δt, where λ = kDrag·C_d(v)·v is the velocity decay rate in one RK4 step. That bound holds because C_d(v)·v ≤ maxCd·mvFps along the trajectory, and speed only exceeds mvFps when drag is negligible. Keeping λ·Δt ≤ 0.5 holds the per-step velocity change well inside RK4's stability limit (|λΔt| < 2.78) at good accuracy.
+- **`maxCd`.** For a custom run, the largest `cd` in `params.customDragTable`. For G1/G5/G7, the largest `cd` in the reference table: G1 0.6625, G5 0.4406, G7 0.4043. Compute these from the tables once at module load with a helper `maxCd(points: readonly DragPoint[]): number`. Don't hard-code them.
+- **Error field and text.** Each choice keeps the message grammatical in the form `"<field> must be <constraint>"`.
+
+| Resolved model | `field` | `expected` |
+|---|---|---|
+| `custom` | `bullet.bulletDiameterMm` | `'small enough relative to bullet weight for this muzzle velocity and drag table (integration stability)'` |
+| `G1` | `bullet.ballisticCoefficient` | `'large enough for this muzzle velocity and drag model (integration stability)'` |
+| `G7` | `bullet.ballisticCoefficientG7` | same as G1 |
+| `G5` | `bullet.ballisticCoefficientG5` | same as G1 |
+
+- **Scale.** The worked bullet (G1, BC 0.475, 807 m/s) gives 2.08551e-4 × 1 × 0.6625 × 2647.6 × 0.0005 / 0.475 = 3.85e-4, about 1,300× below the limit. The devsecops case (1 gr, 1.0 in diameter so SD = 1.4286e-4 lb/in², Cd 2, 800 m/s = 2,624.7 fps) gives 2.08551e-4 × 2 × 2624.7 × 0.0005 / 1.4286e-4 ≈ **3.83**, which exceeds 0.5 and throws.
+
+**`solveBC` gets the same bound.** It searches BCs down to 0.001 at any MV. Before the §3.7 doubling loop, compute
+`const bcStable = CD_TO_RETARD * rho * maxCd(G1_CD_TABLE) * mvFps * DT_S / STABILITY_LIMIT;`
+then start the search from `lo = Math.max(0.001, bcStable)` instead of `0.001`. If `lo >= hi`, return `null`. For example, G1 at sea level gives `bcStable` = 1.3817e-7 × mvFps, which only exceeds 0.001 above about 7,238 fps (2,206 m/s). Existing `solveBC` tests at ≤ 1,800 m/s are unaffected.
 
 ### 3.10 Zero-angle bracket expansion (Q3, D7)
 Add these constants: `export const ZERO_ANGLE_MIN = -0.05;` and `export const ZERO_ANGLE_MAX = 0.5;` (rad, 28.6°, below the roughly 30–35° maximum-range elevation of rifle bullets under drag). Both are `@internal`.
@@ -422,7 +446,8 @@ Coverage must stay at **100/100/100/100**. `npm test` (including `tsc --noEmit`)
 | N13 | **G5 BC (Q1).** The §6.1 bullet plus `ballisticCoefficientG5: 0.30`, with `dragModel: 'G5'`: `result.dragModel === 'G5'`. The points differ from the G1 run. Raising the G5 BC to 0.40 gives a higher 600 m `velocityMps`. Without `ballisticCoefficientG5` and with `dragModel: 'G5'`: `result.dragModel === 'G1'`, and the points `toEqual` the plain G1 run. |
 | N14 | **G7 fallback (D5a).** `dragModel: 'G7'` without `ballisticCoefficientG7`: `result.dragModel === 'G1'` and the result equals the G1 run. With `ballisticCoefficientG7` set: `'G7'`. A bullet that already has the G7 BC copied into `ballisticCoefficient` (the legacy UI swap) gives an identical result to one with only `ballisticCoefficientG7` set to the same value. |
 | N15 | **Sectional density (Q2).** `sectionalDensityLbIn2(10.89, 7.82)` is `toBeCloseTo(0.25329, 4)`. For a custom-table run, changing `ballisticCoefficient` (0.2 vs 0.8) gives `toEqual` points. Changing `bulletDiameterMm` (7.82 vs 8.00) changes the points: larger diameter, lower SD, more drop. `resolveDrag` returns `{ model: 'custom', divisor: SD }`. |
-| N16 | **Validation V1–V3.** G7/G5 BC of `0`, `-1`, `NaN` or `Infinity` throws with the matching field. `null` and absent pass. A custom table with `bulletDiameterMm` `0`, `31` or `NaN` (no twist set) throws `bullet.bulletDiameterMm`. A custom table with a valid diameter passes. |
+| N16 | **Validation V1–V4.** G7/G5 BC of `0`, `-1`, `NaN` or `Infinity` throws with the matching field. `null` and absent pass. A custom table with `bulletDiameterMm` `0`, `31` or `NaN` (no twist set) throws `bullet.bulletDiameterMm`. A custom table with a valid diameter passes.<br>**V4** (each throws `TrajectoryInputError`, completes well inside the Jest timeout, and never returns a result):<br>(a) The devsecops case: custom table with `cd: 2.0` at Mach 0/1/3, `bulletWeightGrams: 0.0648` (1 gr), `bulletDiameterMm: 25.4`, `muzzleVelocityMps: 800`. Throws with `field === 'bullet.bulletDiameterMm'`.<br>(b) G1 with `ballisticCoefficient: 0.0001` at 800 m/s: `field === 'bullet.ballisticCoefficient'`.<br>(c) G7 with `ballisticCoefficientG7: 0.0001`: `bullet.ballisticCoefficientG7`. (d) G5 likewise: `bullet.ballisticCoefficientG5`.<br>(e) **Boundary:** choose a divisor that puts the ratio just below 0.5 (no throw, every output field finite, `velocityMps` never above MV + 1) and one just above it (throws).<br>(f) `error.message` starts with the field name followed by `" must be "`. |
+| N16a | **`solveBC` stability floor.** At `mvMps: 4000`, G1, sea level, the lower bound is `bcStable` rather than 0.001, and the result is `null` or ≥ `bcStable`. No call throws or returns a non-finite value. |
 | N17 | **Zero bracket expansion (Q3).** .223 55 gr catalog bullet (G1 0.243, 987.6 m/s), `zeroRangeMeters: 3000`, `maxRangeMeters: 3000`: either it returns with the 3000 m point's bore-line drop matched to the sight line (path within ±1 cm of 0), or, if out of reach, it throws `TrajectoryInputError` with `field === 'zeroRangeMeters'`. **It never silently clamps.** Also: an input whose zero angle is known to be > 0.05 (for example the §6.1 bullet at MV 300 m/s, zero 800 m) gets a resolved angle > 0.05 and the zero-range path within ±1 cm of the sight line. An input that is clearly unreachable (BC 0.01, MV 91.44 m/s, zero 1000 m) throws `zeroRangeMeters`. |
 | N18 | **`evalDropCmAtRange` and `solveBC` with an unreachable zero.** `solveBC` at very low MV, where every BC's zero is unreachable, returns `null` and doesn't throw. |
 | N19 | **`simulationCacheKey`** (`tests/physics/engine-async.test.ts`). Keys differ when only `ballisticCoefficientG7` differs, when only `ballisticCoefficientG5` differs, and when only `bulletDiameterMm` differs with a custom table and no twist. Keys are equal when `bulletDiameterMm` differs with neither a custom table nor twist. |
@@ -454,6 +479,7 @@ See ADR 011 §5.3. Required mitigations, and where this contract covers each:
 | Bounded `solveBC` work | §3.7 (at most 12 extra evaluations) |
 | Bounded zero search | §3.10 (at most 4 extra evaluations) |
 | No silent wrong zero (integrity) | §3.10, N17 |
+| No unstable integration or garbage output from extreme inputs (integrity; devsecops Medium, PR #221) | §3.9 V4, the `solveBC` floor, N16 V4 (a–f), N16a |
 | Tampered `localStorage` or imported G5 BC | Engine V1–V2 (§3.9), plus UI limits and record validation (F1) |
 | Results cache poisoning across drag inputs (stale result for a different BC or diameter) | §3.11, N19 |
 | Bullet names in the re-truing notice (DOM injection) | F5 builds the list with `textContent` and `createElement` only. No `innerHTML` |
@@ -463,8 +489,8 @@ See ADR 011 §5.3. Required mitigations, and where this contract covers each:
 
 ### 10.1 Backend PR
 1. §2–§4, §3.9–§3.11 are implemented exactly. `git diff` shows no change to the RK4 combination lines, `findBracket`, `compileDragTable`, the zero solver's secant/bisection loop (apart from the §3.10 `secant` guard), or the `solveBC` secant loop body.
-2. No identifier `rhoOverBc`, `G1_TABLE`, `G5_TABLE`, `G7_TABLE` or `G1_COMPILED` remains under `app/` or `tests/`.
-3. N1–N19 pass. The golden fixture is re-baselined per §7.3. `npm test` is green at 100/100/100/100. The E2E suite passes against `dist/`.
+2. No identifier `rhoOverBc`, `G1_TABLE`, `G5_TABLE`, `G7_TABLE` or `G1_COMPILED` remains under `app/` or `tests/`. **V4 stability guard (since 1.1.1):** `simulate()` checks V4 after `resolveDrag` and before `findZeroAngleFps`. `solveBC` starts its search at `max(0.001, bcStable)`. No input accepted by `validate()` and V4 can produce a `velocityMps` greater than the muzzle velocity plus 1 m/s, or a non-finite output field. N16 (V4 a–f) and N16a pass.
+3. N1–N19 pass, including N16a. The golden fixture is re-baselined per §7.3. `npm test` is green at 100/100/100/100. The E2E suite passes against `dist/`.
 4. Manual check (`npm run dev`): select the .308 168 gr with G1 at default conditions.
    - The table shows velocity falling to about 475 m/s at 600 m.
    - Changing BC visibly changes drop.
@@ -500,7 +526,7 @@ There are no open questions left for this story. The remaining known gap, catalo
 | B1 | Tables and module surface (§2.1–§2.4) | Appendix A data matches exactly. N6 passes |
 | B2 | Retardation formula, `CD_TO_RETARD`, `referenceDragTable` (§3.1–§3.3, §3.5) | N1–N5, N7, N8 pass |
 | B3 | `vx` termination guard (§3.4) | N11 and N12 pass within their timeouts |
-| B4 | Drag resolution: G5/G7 BC with G1 fallback, sectional density for custom, validation V1–V3 (§3.9, §4) | N13–N16 pass. `result.dragModel` reports the resolved model |
+| B4 | Drag resolution: G5/G7 BC with G1 fallback, sectional density for custom, validation V1–V3, the V4 stability guard and the `solveBC` stability floor (§3.9, §4) | N13–N16 and N16a pass. `result.dragModel` reports the resolved model |
 | B5 | Zero bracket expansion and the unreachable-zero error (§3.10, §3.6) | N17 and N18 pass. Updated PERF-16/30 tests pass |
 | B6 | `solveBC` feasible lower bound and temperature-matched G1 (§3.7) | N9, N10, N18 pass |
 | B7 | `simulationCacheKey` (§3.11) | N19 passes |
