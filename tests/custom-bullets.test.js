@@ -866,7 +866,7 @@ describe('Simulate compatibility (real engine)', () => {
       expect(threw || result != null).toBe(true);
     });
 
-    test(`${label} with G7 via bulletForDragModel terminates without hanging`, () => {
+    test(`${label} with G7 BC terminates without hanging`, () => {
       const rec = makeRecord({
         bulletWeightGrains:     bwg,
         ballisticCoefficientG1: bcG1,
@@ -875,11 +875,10 @@ describe('Simulate compatibility (real engine)', () => {
         muzzleVelocityFps:      mv,
       });
       const bullet = toBullet(rec);
-      const g7Bullet = bulletForDragModel(bullet, 'G7');
       let threw = false;
       let result;
       try {
-        result = simulate(g7Bullet, { ...baseParams, dragModel: 'G7', bulletWeightGrams: g7Bullet.bulletWeightGrams, muzzleVelocityMps: g7Bullet.muzzleVelocityMps, ballisticCoefficient: g7Bullet.ballisticCoefficient, bulletDiameterMm: g7Bullet.bulletDiameterMm });
+        result = simulate(bullet, { ...baseParams, dragModel: 'G7', bulletWeightGrams: bullet.bulletWeightGrams, muzzleVelocityMps: bullet.muzzleVelocityMps, ballisticCoefficient: bullet.ballisticCoefficient, bulletDiameterMm: bullet.bulletDiameterMm });
         expect(result.points.length).toBeGreaterThan(0);
       } catch (e) {
         threw = true;
