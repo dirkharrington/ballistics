@@ -14,6 +14,7 @@ const {
   sectionalDensityLbIn2,
   resolveDrag,
   CD_TO_RETARD,
+  STABILITY_LIMIT,
   ZERO_ANGLE_MIN,
   ZERO_ANGLE_MAX,
 } = require('../app/physics/engine.ts');
@@ -2083,6 +2084,80 @@ describe('ADR 011: drag calibration', () => {
     }
     expect(() => simulate({ ...A011_BULLET, bulletDiameterMm: 7.82 }, { ...A011_PARAMS, customDragTable: customTable }))
       .not.toThrow();
+  });
+
+  test('N16: validation V4 — RK4 stability guard throws for extreme inputs', () => {
+    const { solveBC } = require('../app/physics/engine.ts');
+    // (a) devsecops case: 1 gr bullet, 1 in diameter, Cd=2, 800 m/s — ratio ≈ 3.83 >> 0.5
+    const devSecOpsTable = [{ mach: 0, cd: 2 }, { mach: 1, cd: 2 }, { mach: 3, cd: 2 }];
+    let err;
+    try {
+      simulate({ ...A011_BULLET, bulletWeightGrams: 0.0648, bulletDiameterMm: 25.4, muzzleVelocityMps: 800 },
+        { ...A011_PARAMS, customDragTable: devSecOpsTable });
+    } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(TrajectoryInputError);
+    expect(err.field).toBe('bullet.bulletDiameterMm');
+
+    // (b) G1 BC=0.0001 at 800 m/s — ratio ≈ 1.81 > 0.5
+    let errG1;
+    try {
+      simulate({ ...A011_BULLET, ballisticCoefficient: 0.0001, muzzleVelocityMps: 800 }, A011_PARAMS);
+    } catch (e) { errG1 = e; }
+    expect(errG1).toBeInstanceOf(TrajectoryInputError);
+    expect(errG1.field).toBe('bullet.ballisticCoefficient');
+
+    // (c) G7 BC=0.0001 at 800 m/s — ratio ≈ 1.11 > 0.5
+    let errG7;
+    try {
+      simulate({ ...A011_BULLET, ballisticCoefficientG7: 0.0001, muzzleVelocityMps: 800 },
+        { ...A011_PARAMS, dragModel: 'G7' });
+    } catch (e) { errG7 = e; }
+    expect(errG7).toBeInstanceOf(TrajectoryInputError);
+    expect(errG7.field).toBe('bullet.ballisticCoefficientG7');
+
+    // (d) G5 BC=0.0001 at 800 m/s — ratio ≈ 1.21 > 0.5
+    let errG5;
+    try {
+      simulate({ ...A011_BULLET, ballisticCoefficientG5: 0.0001, muzzleVelocityMps: 800 },
+        { ...A011_PARAMS, dragModel: 'G5' });
+    } catch (e) { errG5 = e; }
+    expect(errG5).toBeInstanceOf(TrajectoryInputError);
+    expect(errG5.field).toBe('bullet.ballisticCoefficientG5');
+
+    // (e) boundary: custom Cd=2, diamMm=25.4, mvMps=800; just-below (weightG=0.5→ratio≈0.497) and just-above (weightG=0.4→ratio≈0.621)
+    const boundaryTable = devSecOpsTable;
+    const boundaryParams = { ...A011_PARAMS, customDragTable: boundaryTable, zeroRangeMeters: 0.5, maxRangeMeters: 1, stepMeters: 0.5 };
+    // just below 0.5 — no V4 throw
+    let resultBoundary;
+    expect(() => { resultBoundary = simulate({ ...A011_BULLET, bulletWeightGrams: 0.5, bulletDiameterMm: 25.4, muzzleVelocityMps: 800 }, boundaryParams); }).not.toThrow();
+    for (const pt of resultBoundary.points) expect(pt.velocityMps).toBeLessThanOrEqual(801);
+    // just above 0.5 — throws V4
+    let errBoundary;
+    try {
+      simulate({ ...A011_BULLET, bulletWeightGrams: 0.4, bulletDiameterMm: 25.4, muzzleVelocityMps: 800 }, boundaryParams);
+    } catch (e) { errBoundary = e; }
+    expect(errBoundary).toBeInstanceOf(TrajectoryInputError);
+    expect(errBoundary.field).toBe('bullet.bulletDiameterMm');
+
+    // (f) error.message starts with field name followed by " must be "
+    expect(err.message).toMatch(/^bullet\.bulletDiameterMm must be /);
+    expect(errG1.message).toMatch(/^bullet\.ballisticCoefficient must be /);
+    expect(errG7.message).toMatch(/^bullet\.ballisticCoefficientG7 must be /);
+    expect(errG5.message).toMatch(/^bullet\.ballisticCoefficientG5 must be /);
+
+    // .308 168gr at 807 m/s must NOT throw (ratio ≈ 0.000385 << 0.5)
+    expect(() => simulate(A011_BULLET, A011_PARAMS)).not.toThrow();
+  });
+
+  test('N16a: solveBC stability floor — at mvMps=4000 lo starts at bcStable, result is null or ≥ bcStable', () => {
+    const { solveBC } = require('../app/physics/engine.ts');
+    const maxCdG1 = Math.max(...G1_CD_TABLE.map(r => r.cd));
+    const mvFps4000 = 4000 * (1 / 0.3048); // m/s to fps via 1 ft = 0.3048 m
+    const bcStable4000 = CD_TO_RETARD * 1 * maxCdG1 * mvFps4000 * 0.0005 / STABILITY_LIMIT;
+    expect(bcStable4000).toBeGreaterThan(0.001); // confirms the floor kicks in
+    const result = solveBC({ weightG: 10.89, mvMps: 4000, measuredDropCm: -100, rangeM: 500, altM: 0, tempC: 15 });
+    // must not throw and must be null or ≥ bcStable
+    expect(result === null || (typeof result === 'number' && Number.isFinite(result) && result >= bcStable4000)).toBe(true);
   });
 
   // N17: Zero bracket expansion

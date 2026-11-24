@@ -18,6 +18,8 @@ const G_PER_LB    = 453.592;
  * CD_TO_RETARD = ρ₀·π/(8·144), ρ₀ = 0.0764742 lb/ft³ (ICAO sea level). @internal
  */
 export const CD_TO_RETARD = 2.08551e-4;
+/** Upper λ·Δt bound for RK4 integration stability; throw when exceeded (ADR 011 §3.9). @internal */
+export const STABILITY_LIMIT = 0.5;
 
 // ── Coriolis deflection ───────────────────────────────────────────────────────
 const EARTH_OMEGA_RADS = 7.2921e-5;
@@ -210,6 +212,19 @@ type ReferenceDragModel = Exclude<EffectiveDragModel, 'custom'>;   // 'G1' | 'G5
 
 const REFERENCE_CD: Readonly<Record<ReferenceDragModel, readonly DragPoint[]>> = {
   G1: G1_CD_TABLE, G5: G5_CD_TABLE, G7: G7_CD_TABLE,
+};
+
+/** Returns the maximum cd in a DragPoint array. Computed once at module load for V4. @internal */
+function maxCd(points: readonly DragPoint[]): number {
+  let m = 0;
+  for (const p of points) if (p.cd > m) m = p.cd;
+  return m;
+}
+
+const MAX_CD_REF: Readonly<Record<ReferenceDragModel, number>> = {
+  G1: maxCd(REFERENCE_CD.G1),
+  G5: maxCd(REFERENCE_CD.G5),
+  G7: maxCd(REFERENCE_CD.G7),
 };
 
 const _refMemo = new Map<ReferenceDragModel, { readonly soundFps: number; readonly table: DragTable }>();
@@ -621,6 +636,21 @@ export function simulate(bullet: Bullet, params: TrajectoryParams): TrajectoryRe
     ? toDragTable(params.customDragTable!, soundFps)
     : referenceDragTable(dragModel, soundFps);
 
+  // V4: RK4 stability guard (ADR 011 §3.9) — must run before findZeroAngleFps
+  const v4MaxCd = dragModel === 'custom'
+    ? Math.max(...params.customDragTable!.map(r => r.cd))
+    : MAX_CD_REF[dragModel as ReferenceDragModel];
+  if (CD_TO_RETARD * rho * v4MaxCd * mvFps * DT_S / divisor > STABILITY_LIMIT) {
+    const v4Field = dragModel === 'custom' ? 'bullet.bulletDiameterMm' : (
+      dragModel === 'G7' ? 'bullet.ballisticCoefficientG7' :
+      dragModel === 'G5' ? 'bullet.ballisticCoefficientG5' : 'bullet.ballisticCoefficient'
+    );
+    throw new TrajectoryInputError(v4Field,
+      dragModel === 'custom'
+        ? 'small enough relative to bullet weight for this muzzle velocity and drag table (integration stability)'
+        : 'large enough for this muzzle velocity and drag model (integration stability)');
+  }
+
   const twist  = params.twistRateInchesPerTurn;
   const lat = params.latitudeDeg;
   const az  = params.azimuthDeg;
@@ -798,10 +828,13 @@ export function solveBC(params: SolveBCParams): number | null {
   const g1Ct     = getCompiledDragTable(g1);
   const startIdx = findBracket(mvFps, g1Ct, g1Ct.last);
 
-  // Feasible lower bound (ADR 011 §4.1 item 6): with real drag a tiny BC never reaches the
-  // zero or target range. Double lo until the projectile reaches max(target, zero).
+  // Feasible lower bound (ADR 011 §3.9 + §4.1 item 6): start from the stability floor, then
+  // double lo until the projectile reaches max(target, zero).
+  const bcStable = CD_TO_RETARD * rho * MAX_CD_REF.G1 * mvFps * DT_S / STABILITY_LIMIT;
   const probeFt = Math.max(targetFt, zeroFt);
-  let lo = 0.001, hi = 1.5;
+  let lo = Math.max(0.001, bcStable), hi = 1.5;
+  /* istanbul ignore next -- bcStable >= 1.5 requires mvFps ≥ 10M fps, beyond any physical input */
+  if (lo >= hi) return null;
   while (lo < hi && evalDropCmAtRange(mvFps, lo, rho, zeroFt, sightHtFt, probeFt, g1, startIdx) === null) {
     lo = Math.min(lo * 2, hi);
   }
