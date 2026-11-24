@@ -1150,9 +1150,9 @@ function init() {
   // F5: one-time re-truing notice for (trued) and (trued-BC) bullets
   {
     let noticeKey;
-    try { noticeKey = localStorage.getItem('bv_physicsNotice'); } catch (_) { noticeKey = 'skip'; }
+    try { noticeKey = localStorage.getItem('bv_physicsNotice'); } catch (_) { noticeKey = 'adr011'; }
     if (noticeKey !== 'adr011') {
-      const truedRecords = customRecords.filter(r => / \(trued(?:-BC)?\)$/.test(r.name));
+      const truedRecords = customRecords.filter(r => /\(trued(?:-BC)?\)/i.test(r.name));
       if (truedRecords.length === 0) {
         try { localStorage.setItem('bv_physicsNotice', 'adr011'); } catch (_) { /* ignore */ }
       } else {
@@ -1162,7 +1162,7 @@ function init() {
           const shown = truedRecords.slice(0, 10);
           const overflow = truedRecords.length - shown.length;
           const msgEl = document.createElement('span');
-          msgEl.textContent = `Your trued bullet${truedRecords.length > 1 ? 's' : ''} were saved with the previous physics. Re-run MV truing to update them for the new drag model.`;
+          msgEl.textContent = 'Drag physics were corrected in this version. These trued bullets were calculated with the old model — re-run MV/BC truing to update them:';
           const listEl = document.createElement('ul');
           shown.forEach(r => {
             const li = document.createElement('li');
