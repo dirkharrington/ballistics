@@ -583,4 +583,53 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     syncModelPill();
     expect(document.getElementById('modelStatus').textContent).toBe('MODEL: G1');
   });
+
+  test('ADR-011: syncModelPill shows G1 fallback indicator when G5/G7 results fall back', () => {
+    const fakeResults = [
+      { bullet: { name: 'Sierra 175' }, dragModel: 'G1' },
+      { bullet: { name: 'Hornady 168' }, dragModel: 'G7' },
+    ];
+    const req = { dragModel: 'G7' };
+    syncModelPill('G7', false, fakeResults, req);
+    const el = document.getElementById('modelStatus');
+    expect(el.textContent).toBe('MODEL: G7 · G1 FALLBACK ×1');
+    expect(el.title).toBe('G7 BC not set for: Sierra 175');
+  });
+
+  test('ADR-011: syncModelPill shows fallback for G5 drag model', () => {
+    const fakeResults = [
+      { bullet: { name: 'VLD 90gr' }, dragModel: 'G1' },
+    ];
+    const req = { dragModel: 'G5' };
+    syncModelPill('G5', false, fakeResults, req);
+    const el = document.getElementById('modelStatus');
+    expect(el.textContent).toBe('MODEL: G5 · G1 FALLBACK ×1');
+    expect(el.title).toBe('G5 BC not set for: VLD 90gr');
+  });
+
+  test('ADR-011: syncModelPill no fallback when all results use the requested model', () => {
+    const fakeResults = [
+      { bullet: { name: 'Sierra 175' }, dragModel: 'G7' },
+    ];
+    const req = { dragModel: 'G7' };
+    syncModelPill('G7', false, fakeResults, req);
+    const el = document.getElementById('modelStatus');
+    expect(el.textContent).toBe('MODEL: G7');
+    expect(el.title).toBe('');
+  });
+
+  test('ADR-011: syncModelPill uses bullet.id when bullet.name is absent', () => {
+    const fakeResults = [
+      { bullet: { id: 'usr-abc', name: undefined }, dragModel: 'G1' },
+    ];
+    const req = { dragModel: 'G7' };
+    syncModelPill('G7', false, fakeResults, req);
+    const el = document.getElementById('modelStatus');
+    expect(el.title).toContain('usr-abc');
+  });
+
+  test('syncModelPill is a no-op when #modelStatus is absent', () => {
+    document.getElementById('modelStatus').remove();
+    expect(() => syncModelPill('G1')).not.toThrow();
+  });
 });

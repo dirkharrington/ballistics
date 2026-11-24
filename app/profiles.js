@@ -57,7 +57,7 @@ function _sanitizeParams(raw) {
     }
   }
 
-  if (raw.dragModel !== 'G1' && raw.dragModel !== 'G7') return null;
+  if (raw.dragModel !== 'G1' && raw.dragModel !== 'G7' && raw.dragModel !== 'G5') return null;
 
   const clean = { bulletIds: cleanIds, dragModel: raw.dragModel };
 

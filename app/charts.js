@@ -726,11 +726,28 @@ export function _applyChartTheme(theme) {
 /**
  * Update the MODEL: pill in the header immediately.
  * Pass `isCustom = true` to show CUSTOM (custom drag CSV in use).
+ * Pass `results` and `req` to detect G5/G7 fallback to G1.
  */
-export function syncModelPill(dragModel = 'G1', isCustom = false) {
+export function syncModelPill(dragModel = 'G1', isCustom = false, results = null, req = null) {
   const modelEl = document.getElementById('modelStatus');
   /* istanbul ignore else -- #modelStatus is always present in the app shell */
-  if (modelEl) modelEl.textContent = `MODEL: ${isCustom ? 'CUSTOM' : dragModel}`;
+  if (!modelEl) return;
+  if (isCustom) {
+    modelEl.textContent = 'MODEL: CUSTOM';
+    modelEl.title = '';
+    return;
+  }
+  if (results && req && (req.dragModel === 'G5' || req.dragModel === 'G7')) {
+    const fallbacks = results.filter(r => r?.bullet && r.dragModel === 'G1');
+    if (fallbacks.length > 0) {
+      const names = fallbacks.map(r => r.bullet.name ?? r.bullet.id).join(', ');
+      modelEl.textContent = `MODEL: ${req.dragModel} · G1 FALLBACK ×${fallbacks.length}`;
+      modelEl.title = `${req.dragModel} BC not set for: ${names}`;
+      return;
+    }
+  }
+  modelEl.textContent = `MODEL: ${dragModel}`;
+  modelEl.title = '';
 }
 
 /**
@@ -752,7 +769,7 @@ export async function renderCharts(rawResults, req = {}, { onExportPNG, unitSyst
   rc.style.display = 'flex';
   const cc = document.getElementById('chartContainer');
   const isCustomModel = Boolean(req.customDragTable?.length || results.some(r => r.dragModel === 'custom'));
-  syncModelPill(req.dragModel ?? 'G1', isCustomModel);
+  syncModelPill(req.dragModel ?? 'G1', isCustomModel, results, req);
 
   resetCrosshairState();
   _readoutCache = null;
