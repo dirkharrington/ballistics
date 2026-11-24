@@ -742,7 +742,7 @@ export function syncModelPill(dragModel = 'G1', isCustom = false, results = null
     if (fallbacks.length > 0) {
       const names = fallbacks.map(r => r.bullet.name ?? r.bullet.id).join(', ');
       modelEl.textContent = `MODEL: ${req.dragModel} · G1 FALLBACK ×${fallbacks.length}`;
-      modelEl.title = `${req.dragModel}/G7 BC not set for: ${names}`;
+      modelEl.title = `${req.dragModel} BC not set for: ${names}`;
       return;
     }
   }

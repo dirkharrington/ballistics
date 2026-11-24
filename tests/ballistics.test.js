@@ -1258,23 +1258,36 @@ describe('init', () => {
 // ADR-011: F5 physics notice
 // ─────────────────────────────────────────────────────────────────────────────
 describe('ADR-011: F5 physics re-truing notice', () => {
-  test('shows #physicsNotice when trued records present and key unset', () => {
+  test('shows #physicsNotice with <ul>/<li> names when trued records present', () => {
     const r = makeCustomRecord({ name: '175gr SMK (trued)' });
     localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
     mod.init();
     const noticeEl = document.getElementById('physicsNotice');
     expect(noticeEl.hidden).toBe(false);
-    expect(noticeEl.textContent).toContain('175gr SMK (trued)');
+    expect(noticeEl.querySelector('li').textContent).toBe('175gr SMK (trued)');
     expect(document.getElementById('physicsNoticeDismiss')).not.toBeNull();
   });
 
-  test('dismiss button hides notice and sets localStorage key', () => {
+  test('dismiss button hides notice, sets localStorage key, and moves focus', () => {
     const r = makeCustomRecord({ name: 'My Load (trued-BC)' });
     localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
     mod.init();
     document.getElementById('physicsNoticeDismiss').click();
     expect(document.getElementById('physicsNotice').hidden).toBe(true);
     expect(localStorage.getItem('bv_physicsNotice')).toBe('adr011');
+    // focus moves to #addCustomBulletBtn
+    expect(document.activeElement).toBe(document.getElementById('addCustomBulletBtn'));
+  });
+
+  test('dismiss moves focus to document.body when #addCustomBulletBtn is absent', () => {
+    const r = makeCustomRecord({ name: 'My Load (trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    const btn = document.getElementById('addCustomBulletBtn');
+    btn.remove();
+    mod.init();
+    document.getElementById('physicsNoticeDismiss').click();
+    expect(document.getElementById('physicsNotice').hidden).toBe(true);
+    document.body.appendChild(btn);
   });
 
   test('skips notice when bv_physicsNotice is already adr011', () => {
@@ -1285,18 +1298,19 @@ describe('ADR-011: F5 physics re-truing notice', () => {
     expect(document.getElementById('physicsNotice').hidden).toBe(true);
   });
 
-  test('skips notice when no trued records present', () => {
+  test('no trued records → sets key so future trued bullets never show notice', () => {
     const r = makeCustomRecord({ name: '175gr SMK handload' });
     localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
     mod.init();
     expect(document.getElementById('physicsNotice').hidden).toBe(true);
+    expect(localStorage.getItem('bv_physicsNotice')).toBe('adr011');
   });
 
   test('uses singular form for one trued bullet', () => {
     const r = makeCustomRecord({ name: 'Single (trued)' });
     localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
     mod.init();
-    expect(document.getElementById('physicsNotice').textContent).toContain('Your trued bullet (');
+    expect(document.getElementById('physicsNotice').textContent).toContain('Your trued bullet were');
   });
 
   test('uses plural form for two trued bullets', () => {
@@ -1304,7 +1318,42 @@ describe('ADR-011: F5 physics re-truing notice', () => {
     const r2 = makeCustomRecord({ id: 'usr-bbbbbbbbbbbbbbbb', name: 'Second (trued-BC)' });
     localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r1, r2]));
     mod.init();
-    expect(document.getElementById('physicsNotice').textContent).toContain('Your trued bullets (');
+    expect(document.getElementById('physicsNotice').textContent).toContain('Your trued bullets were');
+    const items = document.getElementById('physicsNotice').querySelectorAll('li');
+    expect(items).toHaveLength(2);
+  });
+
+  test('shows "…and N more" <li> when more than 10 trued bullets', () => {
+    const recs = Array.from({ length: 12 }, (_, i) => makeCustomRecord({
+      id: `usr-${String(i).padStart(16, '0')}`,
+      name: `Bullet ${i} (trued)`,
+    }));
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify(recs));
+    mod.init();
+    const items = [...document.getElementById('physicsNotice').querySelectorAll('li')];
+    expect(items).toHaveLength(11); // 10 shown + 1 "…and 2 more"
+    expect(items[10].textContent).toContain('2 more');
+  });
+
+  test('bullet name with XSS payload renders as text, not HTML', () => {
+    const r = makeCustomRecord({ name: '<img onerror=alert(1)> (trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    expect(document.getElementById('physicsNotice').querySelector('img')).toBeNull();
+    const li = document.getElementById('physicsNotice').querySelector('li');
+    expect(li.textContent).toContain('<img');
+  });
+
+  test('localStorage.getItem throws → no notice shown, no error thrown', () => {
+    const r = makeCustomRecord({ name: '175gr SMK (trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    jest.spyOn(Storage.prototype, 'getItem').mockImplementation((key) => {
+      if (key === 'bv_physicsNotice') throw new DOMException('blocked', 'SecurityError');
+      return null;
+    });
+    expect(() => mod.init()).not.toThrow();
+    expect(document.getElementById('physicsNotice').hidden).toBe(true);
+    jest.restoreAllMocks();
   });
 });
 

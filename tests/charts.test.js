@@ -593,7 +593,7 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     syncModelPill('G7', false, fakeResults, req);
     const el = document.getElementById('modelStatus');
     expect(el.textContent).toBe('MODEL: G7 · G1 FALLBACK ×1');
-    expect(el.title).toContain('Sierra 175');
+    expect(el.title).toBe('G7 BC not set for: Sierra 175');
   });
 
   test('ADR-011: syncModelPill shows fallback for G5 drag model', () => {
@@ -604,7 +604,7 @@ describe('chart performance helpers, stat cards, subtitle, buildChartConfig, and
     syncModelPill('G5', false, fakeResults, req);
     const el = document.getElementById('modelStatus');
     expect(el.textContent).toBe('MODEL: G5 · G1 FALLBACK ×1');
-    expect(el.title).toContain('G5');
+    expect(el.title).toBe('G5 BC not set for: VLD 90gr');
   });
 
   test('ADR-011: syncModelPill no fallback when all results use the requested model', () => {

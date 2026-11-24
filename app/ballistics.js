@@ -1153,13 +1153,27 @@ function init() {
     try { noticeKey = localStorage.getItem('bv_physicsNotice'); } catch (_) { noticeKey = 'skip'; }
     if (noticeKey !== 'adr011') {
       const truedRecords = customRecords.filter(r => / \(trued(?:-BC)?\)$/.test(r.name));
-      if (truedRecords.length > 0) {
+      if (truedRecords.length === 0) {
+        try { localStorage.setItem('bv_physicsNotice', 'adr011'); } catch (_) { /* ignore */ }
+      } else {
         const noticeEl = document.getElementById('physicsNotice');
         /* istanbul ignore else -- #physicsNotice is always present in the app shell */
         if (noticeEl) {
-          const names = truedRecords.slice(0, 10).map(r => r.name);
+          const shown = truedRecords.slice(0, 10);
+          const overflow = truedRecords.length - shown.length;
           const msgEl = document.createElement('span');
-          msgEl.textContent = `Your trued bullet${names.length > 1 ? 's' : ''} (${names.join(', ')}) were saved with the previous physics. Re-run MV truing to update them for the new drag model.`;
+          msgEl.textContent = `Your trued bullet${truedRecords.length > 1 ? 's' : ''} were saved with the previous physics. Re-run MV truing to update them for the new drag model.`;
+          const listEl = document.createElement('ul');
+          shown.forEach(r => {
+            const li = document.createElement('li');
+            li.textContent = r.name;
+            listEl.appendChild(li);
+          });
+          if (overflow > 0) {
+            const li = document.createElement('li');
+            li.textContent = `…and ${overflow} more`;
+            listEl.appendChild(li);
+          }
           const dismissBtn = document.createElement('button');
           dismissBtn.type = 'button';
           dismissBtn.id = 'physicsNoticeDismiss';
@@ -1167,9 +1181,12 @@ function init() {
           dismissBtn.addEventListener('click', () => {
             try { localStorage.setItem('bv_physicsNotice', 'adr011'); } catch (_) { /* ignore */ }
             noticeEl.hidden = true;
+            const focusTarget = document.getElementById('addCustomBulletBtn') ?? document.body;
+            focusTarget.focus();
           }, { signal });
           noticeEl.textContent = '';
           noticeEl.appendChild(msgEl);
+          noticeEl.appendChild(listEl);
           noticeEl.appendChild(dismissBtn);
           noticeEl.hidden = false;
         }

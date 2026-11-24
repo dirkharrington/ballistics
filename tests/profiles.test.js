@@ -91,6 +91,10 @@ describe('isValidProfile', () => {
     expect(isValidProfile(validProfile({ savedAt: '2026-01-01T00:00:00.000Z'.padEnd(41, '0') }))).toBe(false);
   });
 
+  test('accepts dragModel G5', () => {
+    expect(isValidProfile(validProfile({ params: validParams({ dragModel: 'G5' }) }))).toBe(true);
+  });
+
   test('rejects invalid params shapes, bulletIds, dragModel, and numeric ranges', () => {
     expect(isValidProfile(validProfile({ params: null }))).toBe(false);
     expect(isValidProfile(validProfile({ params: [] }))).toBe(false);
