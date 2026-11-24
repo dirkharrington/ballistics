@@ -29,7 +29,7 @@ const {
 
 const BULLET_CATALOG = require('./__mocks__/bullet-catalog.js');
 const { decodeState } = require('../app/url-state.js');
-const { simulate } = require('../app/physics/engine.ts');
+const { simulate, TrajectoryInputError } = require('../app/physics/engine.ts');
 
 // ── Sample records ─────────────────────────────────────────────────────────────
 function makeRecord(overrides = {}) {
@@ -801,7 +801,7 @@ describe('Simulate compatibility (real engine)', () => {
   ];
 
   cornerCases.forEach(({ label, bwg, bcG1, dia, mv }) => {
-    test(`${label} does not throw and returns finite points`, () => {
+    test(`${label} terminates and either returns finite points or throws TrajectoryInputError`, () => {
       const rec = makeRecord({
         bulletWeightGrains:     bwg,
         ballisticCoefficientG1: bcG1,
@@ -810,15 +810,23 @@ describe('Simulate compatibility (real engine)', () => {
         ballisticCoefficientG7: null,
       });
       const bullet = toBullet(rec);
-      const result = simulate(bullet, { ...baseParams, bulletWeightGrams: bullet.bulletWeightGrams, muzzleVelocityMps: bullet.muzzleVelocityMps, ballisticCoefficient: bullet.ballisticCoefficient, bulletDiameterMm: bullet.bulletDiameterMm });
-      expect(result.points.length).toBeGreaterThan(0);
-      result.points.forEach(p => {
-        expect(Number.isFinite(p.dropCm)).toBe(true);
-        expect(Number.isFinite(p.velocityMps)).toBe(true);
-      });
+      let threw = false;
+      let result;
+      try {
+        result = simulate(bullet, { ...baseParams, bulletWeightGrams: bullet.bulletWeightGrams, muzzleVelocityMps: bullet.muzzleVelocityMps, ballisticCoefficient: bullet.ballisticCoefficient, bulletDiameterMm: bullet.bulletDiameterMm });
+        expect(result.points.length).toBeGreaterThan(0);
+        result.points.forEach(p => {
+          expect(Number.isFinite(p.dropCm)).toBe(true);
+          expect(Number.isFinite(p.velocityMps)).toBe(true);
+        });
+      } catch (e) {
+        threw = true;
+        expect(e).toBeInstanceOf(TrajectoryInputError);
+      }
+      expect(threw || result != null).toBe(true);
     });
 
-    test(`${label} with G7 via bulletForDragModel does not throw`, () => {
+    test(`${label} with G7 via bulletForDragModel terminates without hanging`, () => {
       const rec = makeRecord({
         bulletWeightGrains:     bwg,
         ballisticCoefficientG1: bcG1,
@@ -828,8 +836,16 @@ describe('Simulate compatibility (real engine)', () => {
       });
       const bullet = toBullet(rec);
       const g7Bullet = bulletForDragModel(bullet, 'G7');
-      const result = simulate(g7Bullet, { ...baseParams, dragModel: 'G7', bulletWeightGrams: g7Bullet.bulletWeightGrams, muzzleVelocityMps: g7Bullet.muzzleVelocityMps, ballisticCoefficient: g7Bullet.ballisticCoefficient, bulletDiameterMm: g7Bullet.bulletDiameterMm });
-      expect(result.points.length).toBeGreaterThan(0);
+      let threw = false;
+      let result;
+      try {
+        result = simulate(g7Bullet, { ...baseParams, dragModel: 'G7', bulletWeightGrams: g7Bullet.bulletWeightGrams, muzzleVelocityMps: g7Bullet.muzzleVelocityMps, ballisticCoefficient: g7Bullet.ballisticCoefficient, bulletDiameterMm: g7Bullet.bulletDiameterMm });
+        expect(result.points.length).toBeGreaterThan(0);
+      } catch (e) {
+        threw = true;
+        expect(e).toBeInstanceOf(TrajectoryInputError);
+      }
+      expect(threw || result != null).toBe(true);
     });
   });
 });

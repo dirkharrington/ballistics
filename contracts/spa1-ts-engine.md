@@ -1,6 +1,6 @@
 # Contract: TypeScript Physics Engine (SPA-1)
 
-Version: 1.0.0 — 2026-11-15
+Version: 1.1.0 — 2026-11-23 (§11.3 item 1 baseline superseded by ADR 011; 1.0.0 was 2026-11-15)
 Status: **Proposed** (pending user review)
 ADR: [`../docs/adr/008-typescript-sole-physics-engine.md`](../docs/adr/008-typescript-sole-physics-engine.md)
 Supersedes on merge: `wasm-integration.md` (removed) §3–§8 and §10 (engine client, fallback chain, async facade, overlay, WASM Jest strategy). Retires its mitigations M2, M3, M4, M6 (WASM part), M7, and M8 (§12.3).
@@ -428,6 +428,8 @@ The requirement is 100% statements, branches, functions, and lines, global, in J
 - **`init()`:** `data-engine-tier` is not set, and no `pagehide` engine listener is registered.
 
 ### 11.3 Golden fixture (behaviour lock)
+
+> **SUPERSEDED in part (2026-11-23) by ADR 011 / `engine-drag-calibration.md` §7.3.** The `a63f361` `simulateBulletJS` baseline encoded near-vacuum drag. The fixture is re-baselined once under the calibrated drag model. The exact-equality lock (items 3–4) stays in force from the new baseline.
 1. **Before** deleting `simulateBulletJS`, generate `src/test/js/fixtures/spa1-golden.json` from the current implementation using a throwaway script or test. Don't commit the script. The fixture records `generatedFrom: "a63f361 ballistics.js simulateBulletJS"`.
 2. Matrix (21 cases):
    - Bullets: `223-rem-55gr`, `308-win-168gr`, `65-creedmoor-140gr`, copied from `bullets.yaml`.

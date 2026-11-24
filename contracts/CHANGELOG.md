@@ -3,6 +3,30 @@
 This file tracks internal interface contract changes. All physics runs in
 the browser; there is no server-side API.
 
+## 2026-11-24: Engine drag calibration, stability amendment
+
+| Contract | Version | Change | Breaking |
+|---|---|---|---|
+| `engine-drag-calibration.md` | 1.1.1 | Adds the V4 stability guard for extreme custom-table inputs (devsecops Medium finding, PR #221). Before `findZeroAngleFps`, `simulate()` throws `TrajectoryInputError` when `CD_TO_RETARD·rho·maxCd·mvFps·DT_S/divisor > 0.5`. The field is `bullet.bulletDiameterMm` for custom runs, otherwise the BC field in use. `solveBC` starts its search at `max(0.001, bcStable)`. New `@internal` `STABILITY_LIMIT` and `maxCd()`. Tests: N16 (V4 a–f) and N16a. | Internal: **yes**. Tightened validation: inputs that previously produced divergent output now throw. Public API signatures: unchanged. Wire: **none** |
+| `adr-engine-drag-calibration.md` | ADR 011 (amended) | §5.3: unstable-integration threat and its V4 mitigation. §5.2: R5c. | n/a |
+
+---
+
+## 2026-11-23: Engine drag calibration (ADR 011)
+
+| Contract | Version | Change | Breaking |
+|---|---|---|---|
+| `engine-drag-calibration.md` | 1.1.0 | Records the user's Q1–Q4 decisions and adds a frontend task list (F1–F6).<br>**Q1:** new optional `Bullet.ballisticCoefficientG5`. The engine `resolveDrag()` picks the G5/G7 BC and falls back to G1 when one is absent; `result.dragModel` reports the resolved model; the UI `bulletForDragModel` swap is removed.<br>**Q2:** custom C_d tables divide by sectional density, derived and not stored; `bulletDiameterMm` is required with a table.<br>**Q3:** the zero bracket expands to 0.5 rad, and an unreachable zero now throws `TrajectoryInputError('zeroRangeMeters')` instead of clamping.<br>**Q4:** one-time "(trued)" re-truing notice (`bv_physicsNotice`).<br>Also: `simulationCacheKey` gains G5/G7 BCs and the diameter for custom runs; `G5` is accepted in profiles and URL state; new validation rules V1–V3; golden G7 cases gain `ballisticCoefficientG7`, and 2 G5 cases are added. | Internal: **yes**. `ballisticCoefficient` now always means the G1 BC; there is a new thrown error; custom-run results change. Public API signatures: unchanged. New optional field. Wire: **none** |
+| `adr-engine-drag-calibration.md` | ADR 011 (Proposed, revised) | Decisions §7 added. §4.1 items 7–9 added. R3–R5 resolved; R5a and R5b added. Threat model extended. | n/a |
+| `adr-engine-drag-calibration.md` | ADR 011 (Proposed) | New. Replaces the near-vacuum drag (`F(v)·rho/BC`, with no v² term and no unit constant) with standard point-mass retardation `a = 2.08551e-4 · rho · Cd(M) · v² / BC`. Standard BRL G1/G5/G7 Mach→Cd tables. Mach is converted per run at the ambient sound speed. | n/a |
+| `engine-drag-calibration.md` | 1.0.0 | New. YAML keys `g1Table`/`g5Table`/`g7Table` `{v,f}` become `g1CdTable`/`g5CdTable`/`g7CdTable` `{mach,cd}`. The `virtual:physics-tables` exports `G1_TABLE`/`G5_TABLE`/`G7_TABLE` become `G1_CD_TABLE`/`G5_CD_TABLE`/`G7_CD_TABLE`. New `@internal` `CD_TO_RETARD` and `referenceDragTable(model, soundFps)`. The RK4 drag expression changes at 12 sites. The loop stop moves from total speed to `vx` (hang guard). `solveBC` gets a feasible-lower-bound search and a temperature-matched G1 table. Public API signatures are unchanged. The golden fixture is re-baselined. | Internal: **yes** (virtual-module export names and shapes; every numeric engine output). Public API: **no** (same signatures). Wire: **none** |
+| `feat3-custom-drag-ts.md` | 1.1.0 | §3.4 "physics limitation" note SUPERSEDED by ADR 011. Custom `cd` is the bullet's own C_d, divided by sectional density (since contract 1.1.0). | No |
+| `spa1-ts-engine.md` | 1.1.0 | §11.3 item 1 baseline (`a63f361`) SUPERSEDED. The fixture is re-baselined under ADR 011, and the exact-equality lock stays. | No |
+
+User-visible: every trajectory output changes: drop, velocity, TOF, energy, wind drift, spin drift, Coriolis, supersonic limit, DOPE, MPBR, and the MV/BC truing tools. Results are now physically realistic. Wire-visible: none.
+
+---
+
 ## 2026-11-17: Sprint 10 physics features (FEAT-1 to FEAT-3, stacked)
 
 | Contract | Version | Change | Breaking |
