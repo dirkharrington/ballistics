@@ -4,8 +4,8 @@ import { resultSpeedOfSound, formatMach } from './mach.js';
 
 /** Bullet-level numeric fields copied from imported JSON. */
 const BULLET_NUMERIC_FIELDS = [
-  'muzzleVelocityMps', 'ballisticCoefficient', 'ballisticCoefficientG7', 'bulletWeightGrams',
-  'bulletDiameterMm', 'muzzleEnergyJoules',
+  'muzzleVelocityMps', 'ballisticCoefficient', 'ballisticCoefficientG7', 'ballisticCoefficientG5',
+  'bulletWeightGrams', 'bulletDiameterMm', 'muzzleEnergyJoules',
 ];
 
 /** Result-level numeric fields copied from imported JSON. */
@@ -170,15 +170,19 @@ export function exportPNG(chartId) {
   a.click();
 }
 
-function _copyFiniteFields(src, fieldNames, labelPrefix) {
+const NULLABLE_BULLET_FIELDS = new Set(['ballisticCoefficientG5', 'ballisticCoefficientG7']);
+const _EMPTY_SET = new Set();
+
+function _copyFiniteFields(src, fieldNames, labelPrefix, nullable = NULLABLE_BULLET_FIELDS) {
   const out = {};
   for (const field of fieldNames) {
-    if (src[field] !== undefined) {
-      if (!Number.isFinite(src[field])) {
-        return { error: `Import failed: ${labelPrefix}${field} must be a finite number.` };
-      }
-      out[field] = src[field];
+    const val = src[field];
+    if (val === undefined) continue;
+    if (val === null && nullable.has(field)) continue;
+    if (!Number.isFinite(val)) {
+      return { error: `Import failed: ${labelPrefix}${field} must be a finite number.` };
     }
+    out[field] = val;
   }
   return { fields: out };
 }
@@ -219,7 +223,7 @@ function _sanitizeResult(item, hexColorRe) {
   const bulletRes = _sanitizeBullet(item.bullet, hexColorRe);
   if (bulletRes.error) return { error: bulletRes.error };
 
-  const resultNumeric = _copyFiniteFields(item, RESULT_NUMERIC_FIELDS, '');
+  const resultNumeric = _copyFiniteFields(item, RESULT_NUMERIC_FIELDS, '', _EMPTY_SET);
   if (resultNumeric.error) return { error: resultNumeric.error };
 
   const points = [];
@@ -227,7 +231,7 @@ function _sanitizeResult(item, hexColorRe) {
     if (!pt || typeof pt !== 'object') {
       return { error: 'Import failed: each point must be an object.' };
     }
-    const pointNumeric = _copyFiniteFields(pt, POINT_NUMERIC_FIELDS, 'point.');
+    const pointNumeric = _copyFiniteFields(pt, POINT_NUMERIC_FIELDS, 'point.', _EMPTY_SET);
     if (pointNumeric.error) return { error: pointNumeric.error };
     points.push(pointNumeric.fields);
   }

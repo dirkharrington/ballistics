@@ -256,7 +256,7 @@ describe('importResultsFromFile', () => {
     ['non-string bullet.name', JSON.stringify([{ bullet: { id: 'x', name: 2 }, points: [] }]), /bullet\.name/],
     ['long bullet.name', JSON.stringify([{ bullet: { id: 'x', name: 'y'.repeat(201) }, points: [] }]), /bullet\.name/],
     ['non-finite bullet numeric field', JSON.stringify([{ bullet: { id: 'x', name: 'A', muzzleVelocityMps: 'NaN' }, points: [] }]), /bullet\.muzzleVelocityMps/],
-    ['non-finite bullet.ballisticCoefficientG7', JSON.stringify([{ bullet: { id: 'x', name: 'A', ballisticCoefficientG7: null }, points: [] }]), /bullet\.ballisticCoefficientG7/],
+    ['non-finite bullet.ballisticCoefficientG7 (string value)', JSON.stringify([{ bullet: { id: 'x', name: 'A', ballisticCoefficientG7: 'bad' }, points: [] }]), /bullet\.ballisticCoefficientG7/],
     ['non-finite result numeric field', JSON.stringify([{ bullet: { id: 'x', name: 'A' }, points: [], maxOrdinateCm: null }]), /maxOrdinateCm/],
     ['null point', JSON.stringify([{ bullet: { id: 'x', name: 'A' }, points: [null] }]), /each point must be an object/],
     ['primitive point', JSON.stringify([{ bullet: { id: 'x', name: 'A' }, points: ['bad'] }]), /each point must be an object/],
@@ -289,6 +289,24 @@ describe('importResultsFromFile', () => {
       bullet: { id: 'x', name: 'Test', muzzleVelocityMps: 800, ballisticCoefficientG7: 0.224 },
       points: [{ rangeMeters: 0, dropCm: 0, coriolisVerticalCm: 1.2 }],
       maxOrdinateCm: 5,
+    }]);
+  });
+
+  test('accepts null for optional BC fields (G5/G7) and omits them from imported bullet', async () => {
+    const payload = JSON.stringify([{
+      bullet: { id: 'x', name: 'Test', muzzleVelocityMps: 800, ballisticCoefficientG7: null, ballisticCoefficientG5: null },
+      points: [],
+    }]);
+    mockReaderWithText(payload);
+    const setError = jest.fn();
+    const onImported = jest.fn().mockResolvedValue(undefined);
+    await io.importResultsFromFile({ size: payload.length }, {
+      hexColorRe: HEX_COLOR_RE, setError, onImported,
+    });
+    expect(setError).toHaveBeenCalledWith(null);
+    expect(onImported).toHaveBeenCalledWith([{
+      bullet: { id: 'x', name: 'Test', muzzleVelocityMps: 800 },
+      points: [],
     }]);
   });
 

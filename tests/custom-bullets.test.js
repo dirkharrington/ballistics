@@ -23,13 +23,13 @@ const {
   validateCustomBulletInput, isValidCustomBulletRecord, isValidCustomDragTable,
   loadCustomBullets, saveCustomBullets, migrateLegacyCustomRounds,
   upsertCustomBullet, removeCustomBullet,
-  toBullet, mergeCatalog, bulletForDragModel,
+  toBullet, mergeCatalog,
   renderCustomBulletGroup, syncCustomDeleteGuards, syncCustomRovingTabindex,
 } = require('../app/custom-bullets.js');
 
 const BULLET_CATALOG = require('./__mocks__/bullet-catalog.js');
 const { decodeState } = require('../app/url-state.js');
-const { simulate } = require('../app/physics/engine.ts');
+const { simulate, TrajectoryInputError } = require('../app/physics/engine.ts');
 
 // ── Sample records ─────────────────────────────────────────────────────────────
 function makeRecord(overrides = {}) {
@@ -40,6 +40,7 @@ function makeRecord(overrides = {}) {
     bulletWeightGrains:     175,
     ballisticCoefficientG1: 0.505,
     ballisticCoefficientG7: 0.243,
+    ballisticCoefficientG5: null,
     bulletDiameterInches:   0.308,
     muzzleVelocityFps:      2600,
     ...overrides,
@@ -54,6 +55,7 @@ function makeRecord2() {
     bulletWeightGrains:     220,
     ballisticCoefficientG1: 0.608,
     ballisticCoefficientG7: null,
+    ballisticCoefficientG5: null,
     bulletDiameterInches:   0.308,
     muzzleVelocityFps:      1010,
   };
@@ -202,6 +204,18 @@ describe('validateCustomBulletInput', () => {
     const result = validateCustomBulletInput(validRaw({ ballisticCoefficientG7: '' }), baseCtx);
     expect(result.ok).toBe(true);
     expect(result.value.ballisticCoefficientG7).toBeNull();
+  });
+
+  test('G5 filled in => parsed as number', () => {
+    const result = validateCustomBulletInput(validRaw({ ballisticCoefficientG5: '0.21' }), baseCtx);
+    expect(result.ok).toBe(true);
+    expect(result.value.ballisticCoefficientG5).toBe(0.21);
+  });
+
+  test('G5 blank => null', () => {
+    const result = validateCustomBulletInput(validRaw({ ballisticCoefficientG5: '' }), baseCtx);
+    expect(result.ok).toBe(true);
+    expect(result.value.ballisticCoefficientG5).toBeNull();
   });
 
   // Missing required fields
@@ -513,6 +527,32 @@ describe('isValidCustomBulletRecord', () => {
   test('ballisticCoefficientG7 NaN => false', () => {
     expect(isValidCustomBulletRecord(makeRecord({ ballisticCoefficientG7: NaN }))).toBe(false);
   });
+
+  test('ballisticCoefficientG5 missing key => passes (legacy records accepted)', () => {
+    const r = makeRecord();
+    delete r.ballisticCoefficientG5;
+    expect(isValidCustomBulletRecord(r)).toBe(true);
+  });
+
+  test('ballisticCoefficientG5 null => passes', () => {
+    expect(isValidCustomBulletRecord(makeRecord({ ballisticCoefficientG5: null }))).toBe(true);
+  });
+
+  test('ballisticCoefficientG5 valid number => passes', () => {
+    expect(isValidCustomBulletRecord(makeRecord({ ballisticCoefficientG5: 0.21 }))).toBe(true);
+  });
+
+  test('ballisticCoefficientG5 wrong type => false', () => {
+    expect(isValidCustomBulletRecord(makeRecord({ ballisticCoefficientG5: '0.21' }))).toBe(false);
+  });
+
+  test('ballisticCoefficientG5 NaN => false', () => {
+    expect(isValidCustomBulletRecord(makeRecord({ ballisticCoefficientG5: NaN }))).toBe(false);
+  });
+
+  test('ballisticCoefficientG5 out of range => false', () => {
+    expect(isValidCustomBulletRecord(makeRecord({ ballisticCoefficientG5: 1.21 }))).toBe(false);
+  });
 });
 
 // ── G: loadCustomBullets ───────────────────────────────────────────────────────
@@ -801,7 +841,7 @@ describe('Simulate compatibility (real engine)', () => {
   ];
 
   cornerCases.forEach(({ label, bwg, bcG1, dia, mv }) => {
-    test(`${label} does not throw and returns finite points`, () => {
+    test(`${label} terminates and either returns finite points or throws TrajectoryInputError`, () => {
       const rec = makeRecord({
         bulletWeightGrains:     bwg,
         ballisticCoefficientG1: bcG1,
@@ -810,15 +850,23 @@ describe('Simulate compatibility (real engine)', () => {
         ballisticCoefficientG7: null,
       });
       const bullet = toBullet(rec);
-      const result = simulate(bullet, { ...baseParams, bulletWeightGrams: bullet.bulletWeightGrams, muzzleVelocityMps: bullet.muzzleVelocityMps, ballisticCoefficient: bullet.ballisticCoefficient, bulletDiameterMm: bullet.bulletDiameterMm });
-      expect(result.points.length).toBeGreaterThan(0);
-      result.points.forEach(p => {
-        expect(Number.isFinite(p.dropCm)).toBe(true);
-        expect(Number.isFinite(p.velocityMps)).toBe(true);
-      });
+      let threw = false;
+      let result;
+      try {
+        result = simulate(bullet, { ...baseParams, bulletWeightGrams: bullet.bulletWeightGrams, muzzleVelocityMps: bullet.muzzleVelocityMps, ballisticCoefficient: bullet.ballisticCoefficient, bulletDiameterMm: bullet.bulletDiameterMm });
+        expect(result.points.length).toBeGreaterThan(0);
+        result.points.forEach(p => {
+          expect(Number.isFinite(p.dropCm)).toBe(true);
+          expect(Number.isFinite(p.velocityMps)).toBe(true);
+        });
+      } catch (e) {
+        threw = true;
+        expect(e).toBeInstanceOf(TrajectoryInputError);
+      }
+      expect(threw || result != null).toBe(true);
     });
 
-    test(`${label} with G7 via bulletForDragModel does not throw`, () => {
+    test(`${label} with G7 BC terminates without hanging`, () => {
       const rec = makeRecord({
         bulletWeightGrains:     bwg,
         ballisticCoefficientG1: bcG1,
@@ -827,45 +875,16 @@ describe('Simulate compatibility (real engine)', () => {
         muzzleVelocityFps:      mv,
       });
       const bullet = toBullet(rec);
-      const g7Bullet = bulletForDragModel(bullet, 'G7');
-      const result = simulate(g7Bullet, { ...baseParams, dragModel: 'G7', bulletWeightGrams: g7Bullet.bulletWeightGrams, muzzleVelocityMps: g7Bullet.muzzleVelocityMps, ballisticCoefficient: g7Bullet.ballisticCoefficient, bulletDiameterMm: g7Bullet.bulletDiameterMm });
-      expect(result.points.length).toBeGreaterThan(0);
-    });
-  });
-});
-
-// ── L: bulletForDragModel ──────────────────────────────────────────────────────
-describe('bulletForDragModel', () => {
-  test('G7 + number G7 BC => new object with G7 BC as ballisticCoefficient', () => {
-    const b = { ...toBullet(makeRecord()), ballisticCoefficientG7: 0.243 };
-    const result = bulletForDragModel(b, 'G7');
-    expect(result).not.toBe(b);
-    expect(result.ballisticCoefficient).toBe(0.243);
-    expect(result.ballisticCoefficientG1).toBe(b.ballisticCoefficientG1);
-  });
-
-  test('G7 + null G7 BC => same reference', () => {
-    const b = { ...toBullet(makeRecord({ ballisticCoefficientG7: null })) };
-    expect(bulletForDragModel(b, 'G7')).toBe(b);
-  });
-
-  test('G7 + undefined G7 BC => same reference', () => {
-    const b = { ...BULLET_CATALOG[0], ballisticCoefficientG7: undefined };
-    expect(bulletForDragModel(b, 'G7')).toBe(b);
-  });
-
-  test('G1 drag model => same reference', () => {
-    const b = toBullet(makeRecord());
-    expect(bulletForDragModel(b, 'G1')).toBe(b);
-  });
-
-  test('built-in bullet under G7 => switches ballisticCoefficient to ballisticCoefficientG7', () => {
-    BULLET_CATALOG.forEach(builtIn => {
-      const result = bulletForDragModel(builtIn, 'G7');
-      expect(result).not.toBe(builtIn);
-      expect(result.ballisticCoefficient).toBe(builtIn.ballisticCoefficientG7);
-      expect(result.ballisticCoefficient).toBeGreaterThan(0);
-      expect(result.ballisticCoefficient).toBeLessThan(builtIn.ballisticCoefficient);
+      let threw = false;
+      let result;
+      try {
+        result = simulate(bullet, { ...baseParams, dragModel: 'G7', bulletWeightGrams: bullet.bulletWeightGrams, muzzleVelocityMps: bullet.muzzleVelocityMps, ballisticCoefficient: bullet.ballisticCoefficient, bulletDiameterMm: bullet.bulletDiameterMm });
+        expect(result.points.length).toBeGreaterThan(0);
+      } catch (e) {
+        threw = true;
+        expect(e).toBeInstanceOf(TrajectoryInputError);
+      }
+      expect(threw || result != null).toBe(true);
     });
   });
 });
@@ -940,6 +959,13 @@ describe('renderCustomBulletGroup', () => {
     renderCustomBulletGroup(listEl, [b], makeCtx());
     const specs = listEl.querySelector('.bullet-specs').textContent;
     expect(specs).toContain('G7');
+  });
+
+  test('spec line with G5 when not null', () => {
+    const b = toBullet(makeRecord({ ballisticCoefficientG5: 0.21 }));
+    renderCustomBulletGroup(listEl, [b], makeCtx());
+    const specs = listEl.querySelector('.bullet-specs').textContent;
+    expect(specs).toContain('G5 0.21');
   });
 
   test('--bullet-color equals customColor(id)', () => {

@@ -524,6 +524,7 @@ function truedBulletFields(bullet, mvMps) {
     bulletWeightGrains:     String(Math.round(bullet.bulletWeightGrams / G_PER_GRAIN * 100) / 100),
     ballisticCoefficientG1: String(bullet.ballisticCoefficient),
     ballisticCoefficientG7: bullet.ballisticCoefficientG7 == null ? '' : String(bullet.ballisticCoefficientG7),
+    ballisticCoefficientG5: bullet.ballisticCoefficientG5 == null ? '' : String(bullet.ballisticCoefficientG5),
     bulletDiameterInches:   String(Math.round(bullet.bulletDiameterMm / MM_PER_INCH * 1000) / 1000),
     muzzleVelocityFps:      String(Math.round(mvMps / MPS_PER_FPS * 10) / 10),
   };

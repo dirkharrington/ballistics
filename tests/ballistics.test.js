@@ -46,6 +46,7 @@ function buildDOM() {
         <input id="cbBulletWeightGrains" /><small id="cbBulletWeightGrains-error" class="field-error"></small>
         <input id="cbBcG1" /><small id="cbBcG1-error" class="field-error"></small>
         <input id="cbBcG7" /><small id="cbBcG7-error" class="field-error"></small>
+        <input id="cbBcG5" /><small id="cbBcG5-error" class="field-error"></small>
         <input id="cbBulletDiameterInches" /><small id="cbBulletDiameterInches-error" class="field-error"></small>
         <input id="cbMuzzleVelocityFps" /><small id="cbMuzzleVelocityFps-error" class="field-error"></small>
         <input type="file" id="cbDragCsv" accept=".csv,text/csv" />
@@ -95,6 +96,7 @@ function buildDOM() {
       <span>Auto-compute on change</span>
     </label>
     <div id="simulationError" class="simulation-error" hidden aria-live="assertive" role="alert"></div>
+    <div class="notice" id="physicsNotice" hidden></div>
     <div id="chartsPanel" class="charts-panel active"></div>
     <div id="dataPanel"   class="data-panel"></div>
     <div id="emptyState"  style="display:block"></div>
@@ -1332,6 +1334,126 @@ describe('init', () => {
   });
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-011: F5 physics notice
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ADR-011: F5 physics re-truing notice', () => {
+  test('shows #physicsNotice with <ul>/<li> names when trued records present', () => {
+    const r = makeCustomRecord({ name: '175gr SMK (trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    const noticeEl = document.getElementById('physicsNotice');
+    expect(noticeEl.hidden).toBe(false);
+    expect(noticeEl.querySelector('li').textContent).toBe('175gr SMK (trued)');
+    expect(document.getElementById('physicsNoticeDismiss')).not.toBeNull();
+  });
+
+  test('dismiss button hides notice, sets localStorage key, and moves focus', () => {
+    const r = makeCustomRecord({ name: 'My Load (trued-BC)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    document.getElementById('physicsNoticeDismiss').click();
+    expect(document.getElementById('physicsNotice').hidden).toBe(true);
+    expect(localStorage.getItem('bv_physicsNotice')).toBe('adr011');
+    // focus moves to #addCustomBulletBtn
+    expect(document.activeElement).toBe(document.getElementById('addCustomBulletBtn'));
+  });
+
+  test('dismiss moves focus to document.body when #addCustomBulletBtn is absent', () => {
+    const r = makeCustomRecord({ name: 'My Load (trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    const btn = document.getElementById('addCustomBulletBtn');
+    btn.remove();
+    mod.init();
+    document.getElementById('physicsNoticeDismiss').click();
+    expect(document.getElementById('physicsNotice').hidden).toBe(true);
+    document.body.appendChild(btn);
+  });
+
+  test('skips notice when bv_physicsNotice is already adr011', () => {
+    localStorage.setItem('bv_physicsNotice', 'adr011');
+    const r = makeCustomRecord({ name: '175gr SMK (trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    expect(document.getElementById('physicsNotice').hidden).toBe(true);
+  });
+
+  test('no trued records → sets key so future trued bullets never show notice', () => {
+    const r = makeCustomRecord({ name: '175gr SMK handload' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    expect(document.getElementById('physicsNotice').hidden).toBe(true);
+    expect(localStorage.getItem('bv_physicsNotice')).toBe('adr011');
+  });
+
+  test('shows contract notice text for one trued bullet', () => {
+    const r = makeCustomRecord({ name: 'Single (trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    expect(document.getElementById('physicsNotice').textContent).toContain('Drag physics were corrected');
+  });
+
+  test('shows contract notice text for two trued bullets', () => {
+    const r1 = makeCustomRecord({ id: 'usr-aaaaaaaaaaaaaaaa', name: 'First (trued)' });
+    const r2 = makeCustomRecord({ id: 'usr-bbbbbbbbbbbbbbbb', name: 'Second (trued-BC)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r1, r2]));
+    mod.init();
+    expect(document.getElementById('physicsNotice').textContent).toContain('Drag physics were corrected');
+    const items = document.getElementById('physicsNotice').querySelectorAll('li');
+    expect(items).toHaveLength(2);
+  });
+
+  test('matches (Trued) with capital T (case-insensitive regex)', () => {
+    const r = makeCustomRecord({ name: 'Sierra 175 (Trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    expect(document.getElementById('physicsNotice').hidden).toBe(false);
+    expect(document.getElementById('physicsNotice').querySelector('li').textContent).toBe('Sierra 175 (Trued)');
+  });
+
+  test('matches (trued) mid-name with trailing text', () => {
+    const r = makeCustomRecord({ name: 'my bullet (trued) v2' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    expect(document.getElementById('physicsNotice').hidden).toBe(false);
+    expect(document.getElementById('physicsNotice').querySelector('li').textContent).toBe('my bullet (trued) v2');
+  });
+
+  test('shows "…and N more" <li> when more than 10 trued bullets', () => {
+    const recs = Array.from({ length: 12 }, (_, i) => makeCustomRecord({
+      id: `usr-${String(i).padStart(16, '0')}`,
+      name: `Bullet ${i} (trued)`,
+    }));
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify(recs));
+    mod.init();
+    const items = [...document.getElementById('physicsNotice').querySelectorAll('li')];
+    expect(items).toHaveLength(11); // 10 shown + 1 "…and 2 more"
+    expect(items[10].textContent).toContain('2 more');
+  });
+
+  test('bullet name with XSS payload renders as text, not HTML', () => {
+    const r = makeCustomRecord({ name: '<img onerror=alert(1)> (trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    mod.init();
+    expect(document.getElementById('physicsNotice').querySelector('img')).toBeNull();
+    const li = document.getElementById('physicsNotice').querySelector('li');
+    expect(li.textContent).toContain('<img');
+  });
+
+  test('localStorage.getItem throws → no notice shown, no error thrown', () => {
+    const r = makeCustomRecord({ name: '175gr SMK (trued)' });
+    localStorage.setItem(CUSTOM_BULLETS_KEY, JSON.stringify([r]));
+    const realGetItem = Storage.prototype.getItem.bind(localStorage);
+    jest.spyOn(Storage.prototype, 'getItem').mockImplementation((key) => {
+      if (key === 'bv_physicsNotice') throw new DOMException('blocked', 'SecurityError');
+      return realGetItem(key);
+    });
+    expect(() => mod.init()).not.toThrow();
+    expect(document.getElementById('physicsNotice').hidden).toBe(true);
+    jest.restoreAllMocks();
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // sight height (task 2)
@@ -3448,6 +3570,7 @@ function makeCustomRecord(overrides = {}) {
     bulletWeightGrains:     175,
     ballisticCoefficientG1: 0.505,
     ballisticCoefficientG7: 0.243,
+    ballisticCoefficientG5: null,
     bulletDiameterInches:   0.308,
     muzzleVelocityFps:      2600,
     ...overrides,
@@ -3535,6 +3658,18 @@ describe('UX-1: openCustomBulletEdit', () => {
     mod._setCustomRecords([makeCustomRecord({ ballisticCoefficientG7: null })]);
     mod.openCustomBulletEdit('usr-3f2b8c1e9a4d4e6f');
     expect(document.getElementById('cbBcG7').value).toBe('');
+  });
+
+  test('pre-fills cbBcG5 when G5 BC is set', () => {
+    mod._setCustomRecords([makeCustomRecord({ ballisticCoefficientG5: 0.21 })]);
+    mod.openCustomBulletEdit('usr-3f2b8c1e9a4d4e6f');
+    expect(document.getElementById('cbBcG5').value).toBe('0.21');
+  });
+
+  test('leaves cbBcG5 blank when G5 BC is null', () => {
+    mod._setCustomRecords([makeCustomRecord({ ballisticCoefficientG5: null })]);
+    mod.openCustomBulletEdit('usr-3f2b8c1e9a4d4e6f');
+    expect(document.getElementById('cbBcG5').value).toBe('');
   });
 });
 
@@ -5233,7 +5368,7 @@ describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CS
     await flushMicrotasks();
     capturedOnload({ target: { result: csvText } });
     expect(document.getElementById('cbDragCsvStatus').hasAttribute('hidden')).toBe(false);
-    expect(document.getElementById('cbDragCsvName').textContent).toBe('g7-custom.csv (3 rows)');
+    expect(document.getElementById('cbDragCsvName').textContent).toBe('g7-custom.csv (3 rows) — uses sectional density, not BC.');
 
     // 3. Submit custom bullet with attached drag curve, select it, and computeClientSide forwards customDragTable
     document.getElementById('cbName').value = 'My CSV Load';
@@ -5257,7 +5392,7 @@ describe('ENH-5: profiles, atmosphere/Eotvos controls, and custom bullet drag CS
     // 4. Edit custom bullet restores customDragTable UI ("Custom curve (3 rows)") and Clear removes it
     mod.openCustomBulletEdit(added.id);
     expect(document.getElementById('cbDragCsvStatus').hasAttribute('hidden')).toBe(false);
-    expect(document.getElementById('cbDragCsvName').textContent).toBe('Custom curve (3 rows)');
+    expect(document.getElementById('cbDragCsvName').textContent).toBe('Custom curve (3 rows) — uses sectional density, not BC.');
     document.getElementById('cbDragCsvClearBtn').click();
     expect(document.getElementById('cbDragCsvStatus').hasAttribute('hidden')).toBe(true);
     document.getElementById('customBulletForm').dispatchEvent(new Event('submit', { cancelable: true }));

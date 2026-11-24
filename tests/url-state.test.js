@@ -111,6 +111,11 @@ describe('encodeState', () => {
     expect(new URLSearchParams(qs).get('dragModel')).toBe('G7');
   });
 
+  test('preserves dragModel G5 in encode/decode round-trip', () => {
+    const qs = encodeState({ ...BASE_STATE, dragModel: 'G5' });
+    expect(new URLSearchParams(qs).get('dragModel')).toBe('G5');
+  });
+
   test('never emits latitudeDeg or azimuthDeg (SEC-LAT-URL)', () => {
     const qs = encodeState({ ...BASE_STATE, latitudeDeg: 45, azimuthDeg: 180 });
     const params = new URLSearchParams(qs);

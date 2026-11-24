@@ -1377,6 +1377,15 @@ tr:hover td { background: var(--bg3); }
   color: #f87171;
 }
 
+/* Physics re-truing notice (ADR 011) */
+.notice {
+  border: 1px solid #f87171;
+  border-radius: 4px;
+  padding: 8px 12px;
+  background: rgba(248, 113, 113, 0.08);
+  margin-bottom: 8px;
+}
+
 /* Card action row on custom bullet cards */
 .bullet-card--custom .bullet-card-actions {
   display: flex;

@@ -7,7 +7,6 @@ import {
   mergeCatalog, isCustomBulletId,
   renderCustomBulletGroup, syncCustomDeleteGuards, syncCustomRovingTabindex,
   upsertCustomBullet, removeCustomBullet, validateCustomBulletInput,
-  bulletForDragModel,
 } from './custom-bullets.js';
 import {
   PREF_DEFAULTS,
@@ -259,7 +258,7 @@ function _getTruingContext() {
   const req = baseBullet.customDragTable?.length
     ? { ...lastReq, customDragTable: baseBullet.customDragTable }
     : lastReq;
-  return { baseBullet, bullet: bulletForDragModel(baseBullet, lastReq.dragModel), req };
+  return { baseBullet, bullet: baseBullet, req };
 }
 
 /** Save (or refresh) the "<name> (trued)" custom bullet; never touches catalog bullets. */
@@ -375,7 +374,7 @@ async function computeClientSide(req, signal) {
     const bullet = _bulletById.get(id);
     if (!bullet) return null;
     const resolved = applyMvSensitivity(
-      bulletForDragModel(bullet, req.dragModel), req.mvSensMps, req.temperatureC,
+      bullet, req.mvSensMps, req.temperatureC,
     );
     const bulletReq = bullet.customDragTable?.length
       ? { ...req, customDragTable: bullet.customDragTable }
@@ -1155,6 +1154,53 @@ function init() {
   }
   _syncBulletIndex(bullets);
 
+  // F5: one-time re-truing notice for (trued) and (trued-BC) bullets
+  {
+    let noticeKey;
+    try { noticeKey = localStorage.getItem('bv_physicsNotice'); } catch (_) { noticeKey = 'adr011'; }
+    if (noticeKey !== 'adr011') {
+      const truedRecords = customRecords.filter(r => /\(trued(?:-BC)?\)/i.test(r.name));
+      if (truedRecords.length === 0) {
+        try { localStorage.setItem('bv_physicsNotice', 'adr011'); } catch (_) { /* ignore */ }
+      } else {
+        const noticeEl = document.getElementById('physicsNotice');
+        /* istanbul ignore else -- #physicsNotice is always present in the app shell */
+        if (noticeEl) {
+          const shown = truedRecords.slice(0, 10);
+          const overflow = truedRecords.length - shown.length;
+          const msgEl = document.createElement('span');
+          msgEl.textContent = 'Drag physics were corrected in this version. These trued bullets were calculated with the old model — re-run MV/BC truing to update them:';
+          const listEl = document.createElement('ul');
+          shown.forEach(r => {
+            const li = document.createElement('li');
+            li.textContent = r.name;
+            listEl.appendChild(li);
+          });
+          if (overflow > 0) {
+            const li = document.createElement('li');
+            li.textContent = `…and ${overflow} more`;
+            listEl.appendChild(li);
+          }
+          const dismissBtn = document.createElement('button');
+          dismissBtn.type = 'button';
+          dismissBtn.id = 'physicsNoticeDismiss';
+          dismissBtn.textContent = 'Got it';
+          dismissBtn.addEventListener('click', () => {
+            try { localStorage.setItem('bv_physicsNotice', 'adr011'); } catch (_) { /* ignore */ }
+            noticeEl.hidden = true;
+            const focusTarget = document.getElementById('addCustomBulletBtn') ?? document.body;
+            focusTarget.focus();
+          }, { signal });
+          noticeEl.textContent = '';
+          noticeEl.appendChild(msgEl);
+          noticeEl.appendChild(listEl);
+          noticeEl.appendChild(dismissBtn);
+          noticeEl.hidden = false;
+        }
+      }
+    }
+  }
+
   // Restore bullet selection: URL params take precedence over saved prefs (capped at MAX_SELECTED_BULLETS)
   {
     let usedUrlBullets = false;
@@ -1414,8 +1460,8 @@ function _syncCbDragCsvUI(errMsg) {
   if (nameEl) {
     nameEl.textContent = _cbPendingDragTable
       ? (_cbPendingDragName
-        ? `${_cbPendingDragName} (${_cbPendingDragTable.length} rows)`
-        : `Custom curve (${_cbPendingDragTable.length} rows)`)
+        ? `${_cbPendingDragName} (${_cbPendingDragTable.length} rows) — uses sectional density, not BC.`
+        : `Custom curve (${_cbPendingDragTable.length} rows) — uses sectional density, not BC.`)
       : '';
   }
   /* istanbul ignore else -- #cbDragCsv is always present in the app shell */
@@ -1434,13 +1480,13 @@ export function openCustomBulletAdd() {
   /* istanbul ignore else -- #customBulletForm is always present in the app shell */
   if (form) {
     form.removeAttribute('hidden');
-    ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7',
+    ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7','cbBcG5',
      'cbBulletDiameterInches','cbMuzzleVelocityFps'].forEach(id => {
       const el = document.getElementById(id);
       /* istanbul ignore else -- field inputs are always present in the app shell */
       if (el) { el.value = ''; el.removeAttribute('aria-invalid'); }
     });
-    ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7',
+    ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7','cbBcG5',
      'cbBulletDiameterInches','cbMuzzleVelocityFps'].forEach(id => {
       const errEl = document.getElementById(id + '-error');
       /* istanbul ignore else -- error elements are always present in the app shell */
@@ -1484,9 +1530,10 @@ export function openCustomBulletEdit(id) {
     set('cbBulletWeightGrains',   String(record.bulletWeightGrains));
     set('cbBcG1',                 String(record.ballisticCoefficientG1));
     set('cbBcG7',                 record.ballisticCoefficientG7 != null ? String(record.ballisticCoefficientG7) : '');
+    set('cbBcG5',                 record.ballisticCoefficientG5 != null ? String(record.ballisticCoefficientG5) : '');
     set('cbBulletDiameterInches', String(record.bulletDiameterInches));
     set('cbMuzzleVelocityFps',    String(record.muzzleVelocityFps));
-    ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7',
+    ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7','cbBcG5',
      'cbBulletDiameterInches','cbMuzzleVelocityFps'].forEach(fid => {
       const errEl = document.getElementById(fid + '-error');
       /* istanbul ignore else -- error elements are always present in the app shell */
@@ -1519,7 +1566,7 @@ export function closeCustomBulletForm() {
     addBtn.setAttribute('aria-expanded', 'false');
     addBtn.focus();
   }
-  ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7',
+  ['cbName','cbShortName','cbBulletWeightGrains','cbBcG1','cbBcG7','cbBcG5',
    'cbBulletDiameterInches','cbMuzzleVelocityFps'].forEach(id => {
     const el = document.getElementById(id);
     /* istanbul ignore else -- field inputs are always present in the app shell */
@@ -1588,6 +1635,7 @@ function _handleCustomBulletSubmit() {
     bulletWeightGrains:     getVal('cbBulletWeightGrains'),
     ballisticCoefficientG1: getVal('cbBcG1'),
     ballisticCoefficientG7: getVal('cbBcG7'),
+    ballisticCoefficientG5: getVal('cbBcG5'),
     bulletDiameterInches:   getVal('cbBulletDiameterInches'),
     muzzleVelocityFps:      getVal('cbMuzzleVelocityFps'),
   };
@@ -1599,13 +1647,14 @@ function _handleCustomBulletSubmit() {
   });
 
   const fieldOrder = ['name','shortName','bulletWeightGrains','ballisticCoefficientG1',
-                      'ballisticCoefficientG7','bulletDiameterInches','muzzleVelocityFps'];
+                      'ballisticCoefficientG7','ballisticCoefficientG5','bulletDiameterInches','muzzleVelocityFps'];
   const inputIdMap = {
     name:                   'cbName',
     shortName:              'cbShortName',
     bulletWeightGrains:     'cbBulletWeightGrains',
     ballisticCoefficientG1: 'cbBcG1',
     ballisticCoefficientG7: 'cbBcG7',
+    ballisticCoefficientG5: 'cbBcG5',
     bulletDiameterInches:   'cbBulletDiameterInches',
     muzzleVelocityFps:      'cbMuzzleVelocityFps',
   };

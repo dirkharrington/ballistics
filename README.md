@@ -46,13 +46,15 @@ The trajectory solver uses a zero-allocation **4th-order Runge-Kutta (RK4)** int
 
 ### Drag
 
-Both **G1** and **G7** standard drag functions (plus optional custom `Mach,CD` drag tables) are compiled into flat `Float64Array` lookup structures (`app/data/physics-tables.yaml`) with O(1) amortized local-bracket interpolation:
+**G1**, **G5**, and **G7** BRL standard drag tables (plus optional custom `Mach,CD` drag tables) are compiled into flat `Float64Array` lookup structures (`app/data/physics-tables.yaml`) with O(1) amortized local-bracket interpolation. The standard drag formula applied at each RK4 step is:
 
 ```
-Cd = interpolate_drag(|v|) × ρ/BC
+a = ρ_ratio · CD_TO_RETARD · Cd(M) · v² / BC
 ```
 
-where `ρ` is the air density ratio corrected for altitude, temperature, station pressure, and relative humidity.
+where `CD_TO_RETARD = 2.08551×10⁻⁴` ft⁻¹ is the unit-conversion constant, `v` is the total bullet speed (fps), `M` is the Mach number, and `ρ_ratio` is the air density ratio corrected for altitude, temperature, station pressure, and relative humidity.
+
+**BC model selection:** if `ballisticCoefficientG7` is set, the G7 table is used; if `ballisticCoefficientG5` is set (and no G7), the G5 table is used; otherwise G1 is used. A custom drag CSV overrides all standard tables and uses sectional density (`SD = weight_lb / diameter_in²`) as the BC denominator.
 
 ### Atmosphere model
 

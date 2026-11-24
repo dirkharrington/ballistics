@@ -550,6 +550,29 @@ describe('PERF-29: engine.worker.ts zero-copy Transferable protocol', () => {
     expect(new Set([kBase, kPress, kHum, kEot]).size).toBe(4);
   });
 
+  test('N19 (ADR 011): simulationCacheKey differentiates G7/G5 BC and diameterMm with custom table', () => {
+    const kBase = simulationCacheKey(bullet, params);
+
+    // Different G7 BC → different key
+    const kG7 = simulationCacheKey({ ...bullet, ballisticCoefficientG7: 0.224 }, params);
+    expect(kG7).not.toBe(kBase);
+
+    // Different G5 BC → different key
+    const kG5 = simulationCacheKey({ ...bullet, ballisticCoefficientG5: 0.300 }, params);
+    expect(kG5).not.toBe(kBase);
+
+    // Different diameterMm WITH customDragTable → different key
+    const customTable = [{ mach: 0, cd: 0.3 }, { mach: 1, cd: 0.5 }, { mach: 3, cd: 0.3 }];
+    const kDiaCust1 = simulationCacheKey({ ...bullet, bulletDiameterMm: 7.82 }, { ...params, customDragTable: customTable });
+    const kDiaCust2 = simulationCacheKey({ ...bullet, bulletDiameterMm: 8.00 }, { ...params, customDragTable: customTable });
+    expect(kDiaCust1).not.toBe(kDiaCust2);
+
+    // Different diameterMm WITHOUT custom table AND without twist → same key
+    const kDiaA = simulationCacheKey({ ...bullet, bulletDiameterMm: 7.82 }, params);
+    const kDiaB = simulationCacheKey({ ...bullet, bulletDiameterMm: 8.00 }, params);
+    expect(kDiaA).toBe(kDiaB);
+  });
+
   test('handles solveBC and TrajectoryInputError messages cleanly', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: { type: 'solveBC', id: 9, bcParams: { weightG: 10.89, mvMps: 807, measuredDropCm: -188.6, rangeM: 500, altM: 0, tempC: 15 } },
