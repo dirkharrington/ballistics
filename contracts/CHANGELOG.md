@@ -3,6 +3,15 @@
 This file tracks internal interface contract changes. All physics runs in
 the browser; there is no server-side API.
 
+## 2026-11-24: Engine drag calibration, stability amendment
+
+| Contract | Version | Change | Breaking |
+|---|---|---|---|
+| `engine-drag-calibration.md` | 1.1.1 | Adds the V4 stability guard for extreme custom-table inputs (devsecops Medium finding, PR #221). Before `findZeroAngleFps`, `simulate()` throws `TrajectoryInputError` when `CD_TO_RETARD·rho·maxCd·mvFps·DT_S/divisor > 0.5`. The field is `bullet.bulletDiameterMm` for custom runs, otherwise the BC field in use. `solveBC` starts its search at `max(0.001, bcStable)`. New `@internal` `STABILITY_LIMIT` and `maxCd()`. Tests: N16 (V4 a–f) and N16a. | Internal: **yes**. Tightened validation: inputs that previously produced divergent output now throw. Public API signatures: unchanged. Wire: **none** |
+| `adr-engine-drag-calibration.md` | ADR 011 (amended) | §5.3: unstable-integration threat and its V4 mitigation. §5.2: R5c. | n/a |
+
+---
+
 ## 2026-11-23: Engine drag calibration (ADR 011)
 
 | Contract | Version | Change | Breaking |
