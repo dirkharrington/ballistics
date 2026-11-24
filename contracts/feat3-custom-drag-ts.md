@@ -128,7 +128,7 @@ Because rule 1 runs whenever the table is non-null, a non-null non-array (for ex
 
 ### 3.4 Physics limitation (document it in the JSDoc on `toDragTable`)
 
-> **SUPERSEDED (2026-11-23) by ADR 011 / `engine-drag-calibration.md`.** The engine now uses standard retardation `a = 2.08551e-4 · rho · Cd(M) · v² / BC` with true G1/G5/G7 C_d tables. A custom `cd` is a true reference drag coefficient, still scaled by the bullet's BC. For a bullet-specific Doppler curve, BC = sectional density (lb/in²). The text below is kept for history only.
+> **SUPERSEDED (2026-11-23) by ADR 011 / `engine-drag-calibration.md`.** The engine now uses standard retardation `a = 2.08551e-4 · rho · Cd(M) · v² / BC` with true G1/G5/G7 C_d tables. A custom `cd` is the bullet's own drag coefficient. The divisor is the **sectional density** (lb/in²) derived from `bulletWeightGrams` and `bulletDiameterMm` (form factor 1), not the BC, and `bulletDiameterMm` is required with a table (ADR 011, Q2). The text below is kept for history only.
 
 The engine's G1/G7 columns are scaled form-factor values F(v), about 0.05–0.20. They are not true drag coefficients. The custom `cd` drops into the same slot and is still divided by the bullet's BC, with no Cd→retardation conversion. Results are self-consistent and respond correctly to the shape of the curve. Because the engine's drag is very weak overall (the near-vacuum behaviour noted in WA-13), the absolute effect of a custom curve is small. This contract does not try to calibrate it. See Open questions in the main-session summary.
 

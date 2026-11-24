@@ -1,11 +1,11 @@
 # Contract: engine drag calibration (standard point-mass retardation)
 
-**Version:** 1.0.0
-**Status:** Proposed. Needs user approval of ADR 011 and of open questions Q1–Q4 (§11) before the builder starts.
+**Version:** 1.1.0. 1.0.0 was the engine-only draft. 1.1.0 records the user's Q1–Q4 decisions (§11) and adds the G5 BC, sectional density for custom curves, zero-angle bracket expansion, and the re-truing notice.
+**Status:** Proposed. Q1–Q4 were decided by the user on 2026-11-23. ADR 011 still needs final approval.
 **Date:** 2026-11-23
 **Author:** Architect
 **ADR:** [`adr-engine-drag-calibration.md`](adr-engine-drag-calibration.md) (ADR 011)
-**Owner:** backend builder (engine and tests). There is no UI change.
+**Owners:** backend builder for the engine, `engine-async.ts`, engine tests and the golden fixture (§12.1). Frontend builder for the custom-bullet form, storage and IO, drag-model resolution call sites, profiles and URL state, copy, and the re-truing notice (§12.2). The two task lists are independent and can be built in parallel against this contract.
 **Suggested branch:** `claude/engine-drag-calibration` from `main`. It must merge **before** S24-4 (PR #219). #219 then rebases and re-pins its numbers.
 **Supersedes:** `feat3-custom-drag-ts.md` §3.4 and `spa1-ts-engine.md` §11.3 item 1 (the `a63f361` baseline). Both carry banners.
 
@@ -20,27 +20,44 @@ Builders implement this contract exactly. To change it, propose the change to th
 | D1 | "Whether the YAML table values need rescaling or the formula needs a different constant" | **Both, and rescaling isn't enough.** Replace the tables with the standard Mach-keyed C_d tables **and** change the formula (add v² and `CD_TO_RETARD`). | No single factor can fix it. The missing v² makes the error depend on velocity, and the old table shapes are not G1/G5/G7 (ADR §1.3). |
 | D2 | "Keep the RK4 structure" | It is kept. **One addition:** the three loop stop checks move from total speed to horizontal speed `vx` (§3.4). | With real drag, low-BC inputs reachable from the UI would otherwise loop forever (ADR §4.1 item 5, R6a). |
 | D3 | (not mentioned) | `solveBC` gains a feasible-lower-bound search (§3.7). | With real drag, BC 0.001 never reaches the range, and the current code would return `null` for **every** input. That would break the BC solver card and S24-4. |
-| D4 | "Same public API" | The public API is unchanged. The **module** surface of `virtual:physics-tables` changes (`G1_TABLE` becomes `G1_CD_TABLE` and so on, with `{mach, cd}` rows). | Renaming makes any stale caller fail loudly. Only `engine.ts`, the Vite plugin and the Jest mock consume the module. |
+| D4 | "Same public API" | Function signatures are unchanged. The **module** surface of `virtual:physics-tables` changes (`G1_TABLE` becomes `G1_CD_TABLE` and so on, with `{mach, cd}` rows). Since 1.1.0, `Bullet` also gains an optional field (D5), and `simulate()` can throw one new `TrajectoryInputError` (D7). | Renaming makes any stale caller fail loudly. Only `engine.ts`, the Vite plugin and the Jest mock consume the module. |
+| D5 | Q1: "Add `ballisticCoefficientG5` … use it when dragModel is G5" | Add `Bullet.ballisticCoefficientG5?: number \| null`. The **engine** now picks the BC for the drag model (§3.9): G5 uses `ballisticCoefficientG5` and G7 uses `ballisticCoefficientG7`. If the selected model's BC is absent, **that bullet falls back to G1 with its G1 BC**, and `result.dragModel` reports `'G1'`. `ballisticCoefficient` always means the G1 BC. | **Architect decisions, flagged for awareness:** (a) **G7 gets the same rule.** Today a missing G7 BC sends the G1 BC through the G7 table, the same bug class as Q1. (b) **The fallback is G1, not an error.** No catalog bullet has a published G5 BC, so an error would make G5 unusable for the whole catalog. (c) **The engine resolves the BC, not the UI.** This keeps one source of truth, and the existing `result.dragModel` tells the UI what was actually used. |
+| D6 | Q2: "When dragModel is custom, divide by sectional density" | With a non-empty `customDragTable`, the drag divisor is SD = (`bulletWeightGrams` / 453.592) / (`bulletDiameterMm` / 25.4)², in lb/in² (§3.9). It is **derived on every run and not stored**. `ballisticCoefficient` is still required and validated, but it is ignored for custom runs. `bulletDiameterMm` becomes required ([1, 30]) whenever a custom table is present. | Deriving SD from two fields that are already stored can't drift out of sync. A stored SD would need a migration and could disagree with the stored weight and diameter. |
+| D7 | Q3: "Widen the bracket or use a smarter search" | The upper bracket doubles from 0.05 rad up to `ZERO_ANGLE_MAX = 0.5` rad. Unreachable zeros return `NaN` from `findZeroAngleFps`. `simulate()` then throws `TrajectoryInputError('zeroRangeMeters', …)`, and `solveBC` treats the case as infeasible (§3.10). | It keeps the PERF-16/30 secant solver and costs at most 4 extra evaluations, only when they're needed. The silent clamp is gone. |
+| D8 | Q4: "One-time notice for '(trued)' / '(trued-BC)' bullets" | This is a frontend-only task (§12.2 F5). It is shown once per browser, gated by `localStorage['bv_physicsNotice'] = 'adr011'`. | — |
 
 ## 1. Scope
 
 ### 1.1 In scope
+**Backend** (§12.1):
 - `app/data/physics-tables.yaml`: table data and keys (§2.1).
 - `vite.config.mjs`: `physicsTablesPlugin()` body only (§2.2).
 - `tests/__mocks__/physics-tables.js` (§2.3).
 - `app/physics/virtual-physics-tables.d.ts` (§2.4).
 - `app/physics/engine.ts` (§3).
-- `app/physics/types.ts`: comments only (§4).
-- Tests and the golden fixture (§7). `README.md` "Drag" subsection and `BACKLOG.md` (§8).
+- `app/physics/types.ts` (§4): one new optional `Bullet` field, plus comments.
+- `app/physics/engine-async.ts`: `simulationCacheKey` only (§3.11).
+- Engine tests and the golden fixture (§7). `README.md` "Drag" subsection (§8).
 
-### 1.2 Don't touch
+**Frontend** (§12.2):
+- `app/custom-bullets.js`, `app/ballistics.js`, `app/index.html`, `app/io.js`, `app/tools.js`, `app/sweep.js`, `app/profiles.js`, `app/url-state.js`, any CSS needed for the notice, and their tests.
+
+**Shared:** `BACKLOG.md` (§8). Each PR updates its own entry.
+
+### 1.2 Out of scope
+- Publishing G5 BCs for catalog bullets in `bullets.yaml`. That is a data-sourcing task: catalog bullets fall back to G1 under G5 (D5).
+- Automatic migration or recomputation of "(trued)" bullets. Q4 asks for a notice only.
+- A notice for "(trued)" bullets arriving through JSON import. The notice is checked once, at app init (F5).
+- Any change to `solveBC`'s model (it stays G1 only) or to its UI card.
+
+### 1.3 Don't touch
 - The RK4 scheme: 4 stages, `DT_S = 0.0005`, the `sixthDt` combination, position update `x += vx*DT_S`, and the order of the `t` update.
 - Bracket tracking (`findBracket`, the in-loop `while` walks), `compileDragTable`, `CompiledDragTable`, and the `WeakMap` compile cache mechanism.
-- The zero-angle solver algorithm (PERF-16/30: bracket ±0.05 rad, hint logic, secant with bisection fallback). Only the `kDrag` value passed in changes.
+- The zero-angle solver's iteration (PERF-16/30 hint logic, and secant with bisection fallback). Only the bracket setup and the non-finite guard change (§3.10).
 - `solveBC`'s secant/Illinois iteration. Only the bracket setup changes (§3.7).
-- Atmosphere functions (`airDensityRatio`, `stationAirDensityRatio`), `soundSpeedFps`, spin drift, Coriolis/Eötvös, wind-drift lag formula, rounding of output fields, density-altitude calculation, validation rules and messages.
-- Public exports and their signatures: `simulate`, `solveBC`, `soundSpeedFps`, `TrajectoryInputError`, and all types in `types.ts`. Existing `@internal` exports keep their signatures (`findZeroAngleFps`, `integrateTrajectoryFps`, `toDragTable`, `compileDragTable`, `findBracket`, and the rest).
-- `engine-async.ts`, `engine.worker.ts`, and every `app/*.js` UI module.
+- Atmosphere functions (`airDensityRatio`, `stationAirDensityRatio`), `soundSpeedFps`, spin drift, Coriolis/Eötvös, wind-drift lag formula, rounding of output fields, density-altitude calculation, and existing validation rules and messages. Validation rules are **added** in §3.9. Existing ones are unchanged.
+- Function signatures of public exports (`simulate`, `solveBC`, `soundSpeedFps`, `TrajectoryInputError`) and of existing `@internal` exports (`findZeroAngleFps`, `integrateTrajectoryFps`, `toDragTable`, `compileDragTable`, `findBracket`, and the rest).
+- `engine.worker.ts`. In `engine-async.ts`, everything except `simulationCacheKey`.
 
 ## 2. Data and module surface
 
@@ -165,13 +182,14 @@ In `evalDropCmAtRange`, `vel` is still computed and used for drag. Rationale: |v
 The parameter lists and order are otherwise unchanged.
 
 ### 3.6 `simulate()`
-Replace the `dragTable` selection with:
+Replace the `dragModel` / `dragTable` selection and the `bc` constant with the §3.9 resolver:
 ```ts
-const dragTable = useCustom
-  ? toDragTable(custom, soundFps)
-  : referenceDragTable(dragModel as ReferenceDragModel, soundFps);
+const { model: dragModel, divisor } = resolveDrag(bullet, params);
+const dragTable = dragModel === 'custom'
+  ? toDragTable(params.customDragTable!, soundFps)
+  : referenceDragTable(dragModel, soundFps);
 ```
-A narrowing helper is fine in place of the cast. `any` is not. Everything else in `simulate()` is unchanged. `rho` stays the station density ratio, and `soundFps` stays `soundSpeedFps(params.temperatureC)`.
+Pass `divisor` everywhere `bc` is passed today (`findZeroAngleFps`, `integrateTrajectoryFps`). After `findZeroAngleFps`, apply the §3.10 NaN check. `TrajectoryResult.dragModel` is the **resolved** `dragModel`. `rho` stays the station density ratio, and `soundFps` stays `soundSpeedFps(params.temperatureC)`. Everything else in `simulate()` is unchanged. TS narrowing is fine. `any` is not.
 
 ### 3.7 `evalDropCmAtRange` and `solveBC`
 `evalDropCmAtRange` (private): replace the `ct: CompiledDragTable` parameter with `dragTable: DragTable` in the same position, and derive `const ct = getCompiledDragTable(dragTable);` inside. Pass `dragTable`, not `G1_TABLE`, to `findZeroAngleFps`. Apply §3.3 and §3.4.
@@ -198,13 +216,94 @@ After that the code is unchanged, except:
 
 There are at most 12 evaluations in the doubling loop. Each infeasible one ends early under §3.4. `measuredDropCm` keeps its meaning: **bore-line** drop in cm, negative down, the same quantity as `TrajectoryPoint.dropCm`.
 
+In `evalDropCmAtRange`, immediately after the `findZeroAngleFps` call, add `if (Number.isNaN(angle)) return null;` (§3.10). This makes an unreachable zero infeasible for the doubling loop.
+
 ### 3.8 Comments
 - Header block: add `CD_TO_RETARD` with its derivation (§3.1).
 - Remove every remaining reference to "form factor F(v)" or "near-vacuum".
 
-## 4. Types (`app/physics/types.ts`), comments only
+### 3.9 Drag-model and divisor resolution (Q1 and Q2; D5 and D6)
+Add these `@internal` exports:
+```ts
+/** Sectional density in lb/in² (form factor 1). Used as the drag divisor for custom Cd curves (ADR 011, Q2). @internal */
+export function sectionalDensityLbIn2(weightGrams: number, diameterMm: number): number {
+  const dIn = diameterMm / MM_PER_INCH;
+  return (weightGrams / G_PER_LB) / (dIn * dIn);
+}
+
+/**
+ * Resolves the effective drag model and the divisor in `kDrag = CD_TO_RETARD·rho/divisor` (ADR 011).
+ * Order: custom table → sectional density; G7 + numeric G7 BC → G7; G5 + numeric G5 BC → G5; otherwise G1 + G1 BC.
+ * @internal
+ */
+export function resolveDrag(bullet: Bullet, params: TrajectoryParams): { model: EffectiveDragModel; divisor: number } {
+  const custom = params.customDragTable;
+  if (custom != null && custom.length > 0)
+    return { model: 'custom', divisor: sectionalDensityLbIn2(bullet.bulletWeightGrams, bullet.bulletDiameterMm) };
+  if (params.dragModel === 'G7' && bullet.ballisticCoefficientG7 != null)
+    return { model: 'G7', divisor: bullet.ballisticCoefficientG7 };
+  if (params.dragModel === 'G5' && bullet.ballisticCoefficientG5 != null)
+    return { model: 'G5', divisor: bullet.ballisticCoefficientG5 };
+  return { model: 'G1', divisor: bullet.ballisticCoefficient };
+}
+```
+- Use the existing constants `G_PER_LB` (453.592) and `MM_PER_INCH` (25.4). For the worked bullet (10.89 g, 7.82 mm): SD = 0.024009 / 0.307874² = **0.25329 lb/in²**.
+- `ballisticCoefficient` is **always the G1 BC** from now on. Update the `Bullet` comment (§4).
+- **The UI's G7 swap becomes redundant.** Today `bulletForDragModel` copies the G7 BC into `ballisticCoefficient`. If it still does, the engine sees a G7 bullet whose `ballisticCoefficientG7` is the same value, and the result is identical. So the backend PR doesn't depend on the frontend PR. F2 removes the swap.
+
+**Validation additions** to `validate()`. Append them after the existing `bullet.*` checks, in this order. Each throws `TrajectoryInputError(field, expected)`.
+| # | Rule | field | `expected` |
+|---|---|---|---|
+| V1 | If `bullet.ballisticCoefficientG7 != null`: finite and > 0 | `bullet.ballisticCoefficientG7` | `'a finite number greater than 0'` |
+| V2 | If `bullet.ballisticCoefficientG5 != null`: finite and > 0 | `bullet.ballisticCoefficientG5` | `'a finite number greater than 0'` |
+| V3 | If `customDragTable` is non-empty (checked after the existing table rules): `bulletDiameterMm` is finite and in [1, 30] | `bullet.bulletDiameterMm` | `'a finite number between 1 and 30'` (same text as the twist rule) |
+
+### 3.10 Zero-angle bracket expansion (Q3, D7)
+Add these constants: `export const ZERO_ANGLE_MIN = -0.05;` and `export const ZERO_ANGLE_MAX = 0.5;` (rad, 28.6°, below the roughly 30–35° maximum-range elevation of rifle bullets under drag). Both are `@internal`.
+
+**`evalHeightAtZero`.** After the loop, return `x >= zeroFt ? y : Number.NEGATIVE_INFINITY`. The loop can only end early through the §3.4 `vx` stop, so this flags "never reached the zero range".
+
+**`findZeroAngleFps`.** The signature is unchanged. The return value is either the angle, or `NaN` when there is no root in [`ZERO_ANGLE_MIN`, `ZERO_ANGLE_MAX`]. Make exactly these changes:
+```ts
+let lo = ZERO_ANGLE_MIN, hi = 0.05;            // initial bracket unchanged
+// hint path: clamp hLo/hHi to [ZERO_ANGLE_MIN, ZERO_ANGLE_MAX] (was ±0.05); logic otherwise unchanged
+if (!hit) {
+  fLo = evalHeightAtZero(lo, ...) - sightHtFt;
+  if (fLo >= 0) return Number.NaN;               // was: return lo   (no silent clamp)
+  fHi = evalHeightAtZero(hi, ...) - sightHtFt;
+  while (fHi < 0 && hi < ZERO_ANGLE_MAX) {       // NEW: upward expansion 0.05 → 0.1 → 0.2 → 0.4 → 0.5
+    lo = hi; fLo = fHi;
+    hi = Math.min(hi * 2, ZERO_ANGLE_MAX);
+    fHi = evalHeightAtZero(hi, ...) - sightHtFt;
+  }
+  if (fHi < 0) return Number.NaN;                // was: return hi   (no silent clamp)
+}
+// secant/bisection loop unchanged except the secant candidate:
+const secant = Number.isFinite(fLo) ? hi - fHi * (span / (fHi - fLo)) : Number.NaN;   // NaN → bisection
+```
+`fHi` is always finite (≥ 0) once bracketed. `fLo` can be `-Infinity` (stall), and the guard sends that case to bisection. At most 4 extra evaluations happen, and only when the root is above 0.05 rad.
+
+**Callers:**
+- `simulate()`: `if (Number.isNaN(angle)) throw new TrajectoryInputError('zeroRangeMeters', 'within reach of this projectile (no launch angle between -0.05 and 0.5 rad zeroes it)');`
+- `evalDropCmAtRange`: returns `null` (§3.7).
+
+### 3.11 `engine-async.ts` → `simulationCacheKey` (backend)
+The key must cover every input that `resolveDrag` reads. Change:
+- `twist != null ? bullet.bulletDiameterMm : null` to `(twist != null || custom != null) ? bullet.bulletDiameterMm : null`.
+- Add `bullet.ballisticCoefficientG7 ?? null` and `bullet.ballisticCoefficientG5 ?? null` immediately after `bullet.ballisticCoefficient`.
+
+Nothing else in the file changes.
+
+## 4. Types (`app/physics/types.ts`)
+- **New field** in `Bullet`, right after `ballisticCoefficientG7`:
+  ```ts
+  readonly ballisticCoefficientG5?: number | null; // optional G5 BC (lb/in²); used when dragModel is 'G5' (ADR 011 Q1)
+  ```
+- `Bullet.ballisticCoefficient` comment becomes `// engine input; > 0. G1 BC (lb/in²). Used for G1 runs and as the fallback when the selected model's BC is absent. Ignored for custom-table runs (sectional density is used).`
+- `Bullet.ballisticCoefficientG7` comment: `// optional G7 BC (lb/in²); used when dragModel is 'G7'`.
+- `Bullet.bulletDiameterMm` comment: `// [1, 30]; required when twistRateInchesPerTurn is set or customDragTable is non-empty`.
+- `TrajectoryResult.dragModel` comment: `// resolved model: 'custom' | the requested model if its BC is present | 'G1' fallback (ADR 011)`.
 - `DragTableRow` comment: `[velocity ft/s, reference drag coefficient C_d]. Built per run from a Mach-keyed table (ADR 011).`
-- `Bullet.ballisticCoefficient` comment: append `lb/in², referenced to the selected drag model (G1/G5/G7) or to the custom C_d table`.
 
 ## 5. Data flow
 
@@ -217,7 +316,11 @@ flowchart LR
   S["soundSpeedFps(temperatureC)"] --> R
   S --> T
   T --> K["getCompiledDragTable<br/>(WeakMap)"]
-  K --> RK4["RK4 stage:<br/>k = Cd(v)·kDrag·v<br/>ax = −vx·k, ay = −vy·k − g<br/>kDrag = 2.08551e-4·rho/BC"]
+  B["bullet + params.dragModel"] --> RD["resolveDrag()<br/>custom→SD · G7→BC_G7 · G5→BC_G5 · else G1→BC"]
+  RD --> R
+  RD --> RK4
+  K --> RK4["RK4 stage:<br/>k = Cd(v)·kDrag·v<br/>ax = −vx·k, ay = −vy·k − g<br/>kDrag = 2.08551e-4·rho/divisor"]
+  RK4 --> Z["findZeroAngleFps<br/>bracket −0.05 … 0.5 rad<br/>NaN → zeroRangeMeters error"]
   RK4 --> OUT["simulate() / solveBC()"]
 ```
 
@@ -274,7 +377,7 @@ Extra anchors:
 |---|---|---|
 | A1 Supersonic limit | `maxRangeMeters: 1000, stepMeters: 25` | `supersonicLimitMeters` ∈ [955, 1010] (hand value 982) |
 | A2 Very low BC | `ballisticCoefficient: 0.05, maxRangeMeters: 300, stepMeters: 25` | `supersonicLimitMeters` ∈ [95, 112] (hand value 103) |
-| A3 G7 with the catalog G7 BC | `dragModel: 'G7', ballisticCoefficient: 0.224` | `velocityMps` at 600 m ∈ [445, 461] (hand value 453) |
+| A3 G7 with the catalog G7 BC | `dragModel: 'G7', ballisticCoefficientG7: 0.224` (G1 BC stays 0.475; `result.dragModel === 'G7'`) | `velocityMps` at 600 m ∈ [445, 461] (hand value 453) |
 | A4 BC response | BC ∈ {0.2, 0.3, 0.475, 0.6, 1.0}, 600 m point | `velocityMps` strictly increasing, `dropCm` strictly increasing (less negative), `timeOfFlightSec` strictly decreasing. v(0.475) − v(0.3) > 100 m/s (hand values 475 vs 348) |
 
 ## 7. Tests
@@ -289,10 +392,12 @@ Coverage must stay at **100/100/100/100**. `npm test` (including `tsc --noEmit`)
 | PERF-15 `compileDragTable` / `findBracket` loops (around lines 1210, 1237) | Use the fps reference tables. Extend the sweeps to 6,000 fps so the top clamp is exercised (Mach 5 ≈ 5,582 fps). |
 | PERF-16 reference bisection (around lines 1293–1336) | Mirror §3.3 in `refBisection`: `k = Cd·(2.08551e-4·rho/bc)·v; ax = −vx·k; ay = −vy·k − 32.174`. Use the `vx < 50` stop (§3.4). Use the fps G1 table at 15 °C. Keep the 1e-9 tolerance. |
 | PERF-17 BC recovery (around line 1375) | BC 0.02 at 1000 m is now infeasible. Use BC 0.15 and 0.50 at 500 m. Keep the monotonicity and 4-dp assertions. |
+| PERF-16/30 `findZeroAngleFps` clamp tests (around lines 1352–1356 and 1450–1452) | These encoded the silent clamp, which §3.10 removes. A sight height of −50 ft (root below −0.05) now returns `NaN`. A sight height of +50 ft at 328 ft now returns a real root above 0.05. Assert that it is finite and in (0.05, `ZERO_ANGLE_MAX`), and that calling again with `hintAngle = root + 0.001` returns the same angle to within 1e-12. `evalHeightAtZero` is private, so test through `findZeroAngleFps`. Hints at ±0.04 still fall back. Add a hint near 0.3 to cover the widened hint clamp. |
+| FEAT-3 test 10 and the golden `dragModel` fallback expression | A `dragModel: 'G7'` request on a bullet **without** `ballisticCoefficientG7` now resolves to `'G1'` (D5). Give the bullet a G7 BC where the test means G7, and add an explicit fallback assertion. |
 | PERF-30 clamps (around line 1455) | `-50 cm @ 500 m` still returns 1.5. For `-5000 cm @ 500 m`, assert the result is `0.001·2ⁿ` (rounded to 4 dp) for some n ≥ 1, and that it is < 0.2. Pin the exact value from the engine. |
 | PERF-30 interior roots (around line 1460) | Replace the three pinned cases with measured drops that give roots in (0.1, 1.2) at 500 m and 1000 m. Pin the engine's 4-dp results. Keep the secant and bisection-fallback paths both covered (check the coverage report). |
 | PERF-30 branch tests (around line 1466) | **super-vMax** needs MV > 5 × `soundSpeedFps(15)` / 3.28084 ≈ 1,701 m/s, so use **1,800 m/s** in `simulate` and `solveBC`. **sub-vMin**: a custom table starting at Mach 0.5 is now 558.2 fps, and MV 160 m/s (525 fps) still works. **Upward bracket advance**: the 400 fps row is gone. Pick an MV just below a new row (for example Mach 0.35 = 390.74 fps at 15 °C) with a high BC (1.5) and a long range (≥ 400 m), so that gravity's along-path component beats drag. Confirm the branch in the coverage report. |
-| FEAT-3 test 3, "G1-equivalent custom table" | Build the table as `G1_CD_TABLE.map(r => ({ mach: r.mach, cd: r.cd }))`. Strengthen the assertion from ±0.1 to `toEqual` the plain G1 run: same conversion path, so the result is bit-identical. |
+| FEAT-3 test 3, "G1-equivalent custom table" | Build the table as `G1_CD_TABLE.map(r => ({ mach: r.mach, cd: r.cd }))`. Custom runs divide by SD (D6), so set the bullet's `ballisticCoefficient = sectionalDensityLbIn2(w, d)` for the plain G1 comparison run. Then strengthen the assertion from ±0.1 to `toEqual` the plain G1 run (identical path, so bit-identical). Keep `result.dragModel === 'custom'`. |
 | FEAT-3 test 7 (`toDragTable`) | Unchanged. |
 | Zero-angle and integrate G1-vs-G7 tests (around lines 445, 502) | Pass fps reference tables. Keep the relational assertions. |
 | Spin drift, Coriolis and Eötvös tests with pinned numbers | Re-pin from the engine. They scale with TOF, which is now about 30 % longer at 600 m. Formula tests on `spinDriftInches` and `stabilityFactor` are unchanged. |
@@ -314,19 +419,31 @@ Coverage must stay at **100/100/100/100**. `npm test` (including `tsc --noEmit`)
 | N10 | `solveBC` feasible-lower-bound search: a case where 0.001 is infeasible but a larger BC is feasible returns a non-null value. The existing MV 20 m/s case still returns `null`. |
 | N11 | **Termination in the zero solver and with a heavy custom table (Jest timeout 5,000 ms each).** (a) `simulate` with BC 0.01, MV 91.44 m/s (300 fps, the UI minimum), zero 100 m, max 1000 m: returns. With these inputs v_term ≈ 80 fps, which is above the old 50 fps zero-solver stop, and the 100 m zero is out of reach, so the old code hangs in `evalHeightAtZero`. `points.length` is ≥ 1 and < the full count. Every field is finite. (b) `simulate` with custom table `cd: 2.0` at Mach 0/1/3, BC 0.01, MV 800 m/s, zero 100 m, max 5000 m: returns. (c) `findZeroAngleFps` with the N11(a) inputs (fps G1 table at 15 °C) returns a finite angle in [−0.05, 0.05]. (d) `solveBC` with `weightG: 10, mvMps: 100, measuredDropCm: -100, rangeM: 3000`: returns (null or a number). |
 | N12 | **Termination in `integrateTrajectoryFps` (Jest timeout 5,000 ms).** `simulate` with BC 0.02, MV 800 m/s, G1, zero 100 m, max 1000 m, step 25 (the old PERF-17 inputs). Here v_term ≈ 113 fps, which is above the old 100 fps stop, and the downrange limit is about 350 m. Assert that the call returns, the last point's `rangeMeters` < 1000, and the last point's `velocityMps` > 100 / 3.28084. That last check shows the old `vel < MIN_VEL_FPS` stop could never have fired, which is the reason the guard exists. If the hand estimates are off, pick inputs where all three hold. |
+| N13 | **G5 BC (Q1).** The §6.1 bullet plus `ballisticCoefficientG5: 0.30`, with `dragModel: 'G5'`: `result.dragModel === 'G5'`. The points differ from the G1 run. Raising the G5 BC to 0.40 gives a higher 600 m `velocityMps`. Without `ballisticCoefficientG5` and with `dragModel: 'G5'`: `result.dragModel === 'G1'`, and the points `toEqual` the plain G1 run. |
+| N14 | **G7 fallback (D5a).** `dragModel: 'G7'` without `ballisticCoefficientG7`: `result.dragModel === 'G1'` and the result equals the G1 run. With `ballisticCoefficientG7` set: `'G7'`. A bullet that already has the G7 BC copied into `ballisticCoefficient` (the legacy UI swap) gives an identical result to one with only `ballisticCoefficientG7` set to the same value. |
+| N15 | **Sectional density (Q2).** `sectionalDensityLbIn2(10.89, 7.82)` is `toBeCloseTo(0.25329, 4)`. For a custom-table run, changing `ballisticCoefficient` (0.2 vs 0.8) gives `toEqual` points. Changing `bulletDiameterMm` (7.82 vs 8.00) changes the points: larger diameter, lower SD, more drop. `resolveDrag` returns `{ model: 'custom', divisor: SD }`. |
+| N16 | **Validation V1–V3.** G7/G5 BC of `0`, `-1`, `NaN` or `Infinity` throws with the matching field. `null` and absent pass. A custom table with `bulletDiameterMm` `0`, `31` or `NaN` (no twist set) throws `bullet.bulletDiameterMm`. A custom table with a valid diameter passes. |
+| N17 | **Zero bracket expansion (Q3).** .223 55 gr catalog bullet (G1 0.243, 987.6 m/s), `zeroRangeMeters: 3000`, `maxRangeMeters: 3000`: either it returns with the 3000 m point's bore-line drop matched to the sight line (path within ±1 cm of 0), or, if out of reach, it throws `TrajectoryInputError` with `field === 'zeroRangeMeters'`. **It never silently clamps.** Also: an input whose zero angle is known to be > 0.05 (for example the §6.1 bullet at MV 300 m/s, zero 800 m) gets a resolved angle > 0.05 and the zero-range path within ±1 cm of the sight line. An input that is clearly unreachable (BC 0.01, MV 91.44 m/s, zero 1000 m) throws `zeroRangeMeters`. |
+| N18 | **`evalDropCmAtRange` and `solveBC` with an unreachable zero.** `solveBC` at very low MV, where every BC's zero is unreachable, returns `null` and doesn't throw. |
+| N19 | **`simulationCacheKey`** (`tests/physics/engine-async.test.ts`). Keys differ when only `ballisticCoefficientG7` differs, when only `ballisticCoefficientG5` differs, and when only `bulletDiameterMm` differs with a custom table and no twist. Keys are equal when `bulletDiameterMm` differs with neither a custom table nor twist. |
 
 ### 7.3 Golden fixture re-baseline (`tests/fixtures/spa1-golden.json`)
 Do this **last**, after N1–N12 pass.
 1. Generate it with a throwaway script or test. **Don't commit the script.**
-2. Keep every case's `name`, `bullet` and `params` byte-identical. Replace only the `expected` values. Keep the existing `expected` keys, including `expected.dragModel` on the custom cases.
+2. Keep every case's `name` and `params` byte-identical. In `bullet`, make exactly one change: for each case whose `params.dragModel` is `'G7'`, add `"ballisticCoefficientG7"` from `bullets.yaml` (`223-rem-55gr` 0.124, `308-win-168gr` 0.224, `65-creedmoor-140gr` 0.326). Without it those cases would silently resolve to G1 (D5) and lose G7 coverage. Replace the `expected` values. Keep the existing `expected` keys, including `expected.dragModel` on the custom cases.
+2a. Append 2 cases (`.308 168 gr`, `condA` params, `dragModel: "G5"`):
+   - `"308-win-168gr condA G5"`: bullet plus `"ballisticCoefficientG5": 0.300` (a **synthetic** regression value, not published data), `expected.dragModel: "G5"`.
+   - `"308-win-168gr condA G5-fallback"`: no G5 BC, `expected.dragModel: "G1"`.
+2b. The golden loop's `dragModel` fallback expression, `expected.dragModel ?? (params.dragModel === 'G7' ? 'G7' : 'G1')`, **stays as it is**. G7 cases now carry a G7 BC, and the G5 cases carry an explicit `expected.dragModel`.
 3. Set `generatedFrom` to `"<short-sha of the commit before the fixture commit> engine.ts simulate (ADR 011 drag calibration)"`.
-4. Append to `amendments`: `"ADR 011: all expected values re-baselined under standard drag (CD_TO_RETARD, BRL G1/G5/G7 Cd tables, vx stop)"`.
+4. Append to `amendments`: `"ADR 011: all expected values re-baselined under standard drag (CD_TO_RETARD, BRL G1/G5/G7 Cd tables, vx stop, SD for custom, zero bracket to 0.5 rad); G7 cases gain ballisticCoefficientG7; 2 G5 cases appended"`.
 5. Spot check: in case `308-win-168gr condA G1` (MV 807.7), the 600.x m point has `velocityMps` within ±1 % of 475.8 and `windDriftCm` > 90. If that fails, stop: the physics is wrong, not the fixture.
 6. The golden loop assertion is unchanged (exact `toEqual`).
 
 ## 8. Docs
 - `README.md` §"Drag": replace the `Cd = interpolate_drag(|v|) × ρ/BC` block with the §3.1 formula and one sentence on Mach-keyed standard tables converted at the ambient speed of sound. Line 291's comment becomes `# G1/G5/G7 reference Cd tables (Mach-keyed) + atmosphere constants`.
-- `BACKLOG.md`: add this story under Sprint 24, marked done in the same PR. Note that S24-4 (PR #219) depends on it.
+- `README.md` §"Drag": also document G5/G7 BC selection with the G1 fallback, and that custom C_d curves use sectional density.
+- `BACKLOG.md`: add the story under Sprint 24 as two entries, engine (§12.1) and UI (§12.2). Each PR marks its own entry done. Note that S24-4 (PR #219) depends on both.
 
 ## 9. Threat model
 See ADR 011 §5.3. Required mitigations, and where this contract covers each:
@@ -335,20 +452,71 @@ See ADR 011 §5.3. Required mitigations, and where this contract covers each:
 | Termination guard against worker hang (DoS) | §3.4, tests N11 and N12 |
 | Integrity of constants and tables (tampering or silent regression) | N5, N6, N1–N4 bands, §7.3 exact golden lock |
 | Bounded `solveBC` work | §3.7 (at most 12 extra evaluations) |
+| Bounded zero search | §3.10 (at most 4 extra evaluations) |
+| No silent wrong zero (integrity) | §3.10, N17 |
+| Tampered `localStorage` or imported G5 BC | Engine V1–V2 (§3.9), plus UI limits and record validation (F1) |
+| Results cache poisoning across drag inputs (stale result for a different BC or diameter) | §3.11, N19 |
+| Bullet names in the re-truing notice (DOM injection) | F5 builds the list with `textContent` and `createElement` only. No `innerHTML` |
 | Custom-table validation | Unchanged (FEAT-3 §3.3) |
 
 ## 10. Acceptance criteria
-1. §2–§4 are implemented exactly. `git diff` shows no change to the RK4 combination lines, `findBracket`, `compileDragTable`, the zero-solver iteration, or the `solveBC` secant loop body.
-2. No identifier `rhoOverBc`, `G1_TABLE`, `G5_TABLE`, `G7_TABLE` or `G1_COMPILED` remains under `app/` or `tests/`.
-3. N1–N12 pass. The golden fixture is re-baselined per §7.3. `npm test` is green at 100/100/100/100. The E2E suite passes against `dist/`.
-4. Manual check (`npm run dev`): select the .308 168 gr with G1 at default conditions. The table shows velocity falling to about 475 m/s at 600 m. Changing BC visibly changes drop. The BC back-calculator returns a BC near 0.475 when given that run's 500 m `dropCm`.
-5. Files changed are limited to §1.1.
 
-## 11. Open questions (need the user)
-- **Q1 – G5 with a G1 BC.** There is no G5 BC field. `bulletForDragModel` only swaps in G7, so G5 runs use the G1 BC and will under-predict drag by about 37 %. Recommend a follow-up story: add `ballisticCoefficientG5`, or disable G5 when no G5 BC is set. Not in this contract.
-- **Q2 – Custom C_d curves and BC.** This contract keeps FEAT-3 semantics: the curve is divided by the bullet's BC. For Doppler-derived curves the user must enter sectional density (lb/in²) as the BC. Should a follow-up add help text, or auto-use sectional density when a custom table is active?
-- **Q3 – Zero-angle bracket ±0.05 rad.** Long zeros (up to the 3,000 m validation limit) with low-BC bullets may now need more elevation, and the solver silently clamps. Recommend a follow-up: widen the bracket, or surface "zero unreachable".
-- **Q4 – Stale trued bullets.** `(trued)` custom bullets saved by the MV truing tool were solved under near-vacuum drag, so their MVs are biased low. Release note only, or flag them for re-truing?
+### 10.1 Backend PR
+1. §2–§4, §3.9–§3.11 are implemented exactly. `git diff` shows no change to the RK4 combination lines, `findBracket`, `compileDragTable`, the zero solver's secant/bisection loop (apart from the §3.10 `secant` guard), or the `solveBC` secant loop body.
+2. No identifier `rhoOverBc`, `G1_TABLE`, `G5_TABLE`, `G7_TABLE` or `G1_COMPILED` remains under `app/` or `tests/`.
+3. N1–N19 pass. The golden fixture is re-baselined per §7.3. `npm test` is green at 100/100/100/100. The E2E suite passes against `dist/`.
+4. Manual check (`npm run dev`): select the .308 168 gr with G1 at default conditions.
+   - The table shows velocity falling to about 475 m/s at 600 m.
+   - Changing BC visibly changes drop.
+   - The BC back-calculator returns about 0.475 when given that run's 500 m `dropCm`.
+   - A 3000 m zero on the .223 either works or shows the `zeroRangeMeters` error. It never silently mis-zeroes.
+5. Files changed are limited to the backend list in §1.1.
+
+### 10.2 Frontend PR
+1. F1–F6 (§12.2) are implemented. Jest is at 100/100/100/100. The E2E suite passes against `dist/`.
+2. Custom bullets saved **before** this change (no `ballisticCoefficientG5` key) still load, display, export and simulate unchanged.
+3. Manual checks:
+   - Create a custom bullet with a G5 BC, select G5, and the MODEL pill shows `G5`.
+   - Select G5 with a catalog bullet, and the pill shows the G1 fallback indicator (F3).
+   - Save a profile and share a URL with G5. Both round-trip.
+   - Seed `localStorage` with a "(trued)" record and no `bv_physicsNotice`. The notice appears once. After **Got it** it doesn't reappear on reload.
+4. Files changed are limited to the frontend list in §1.1.
+
+## 11. Decisions (user, 2026-11-23)
+| Q | Decision | Where |
+|---|---|---|
+| Q1 G5 BC | Add `ballisticCoefficientG5` and use it for G5. The same rule is applied to G7, and a missing BC falls back to G1 (architect detail, D5) | §3.9, §4, F1–F4 |
+| Q2 Custom C_d | Divide by sectional density, derived from weight and diameter on each run and not stored | §3.9 (D6), F6 |
+| Q3 Zero bracket | Fixed in this story: upward expansion to 0.5 rad, and an error instead of a clamp | §3.10 (D7) |
+| Q4 Trued bullets | One-time UI notice for "(trued)" / "(trued-BC)" custom bullets | F5 (D8) |
+
+There are no open questions left for this story. The remaining known gap, catalog G5 BCs, is out of scope (§1.2).
+
+## 12. Task split
+
+### 12.1 Backend tasks (engine; branch `claude/engine-drag-calibration`)
+| # | Task | Acceptance |
+|---|---|---|
+| B1 | Tables and module surface (§2.1–§2.4) | Appendix A data matches exactly. N6 passes |
+| B2 | Retardation formula, `CD_TO_RETARD`, `referenceDragTable` (§3.1–§3.3, §3.5) | N1–N5, N7, N8 pass |
+| B3 | `vx` termination guard (§3.4) | N11 and N12 pass within their timeouts |
+| B4 | Drag resolution: G5/G7 BC with G1 fallback, sectional density for custom, validation V1–V3 (§3.9, §4) | N13–N16 pass. `result.dragModel` reports the resolved model |
+| B5 | Zero bracket expansion and the unreachable-zero error (§3.10, §3.6) | N17 and N18 pass. Updated PERF-16/30 tests pass |
+| B6 | `solveBC` feasible lower bound and temperature-matched G1 (§3.7) | N9, N10, N18 pass |
+| B7 | `simulationCacheKey` (§3.11) | N19 passes |
+| B8 | Test updates (§7.1), then the golden re-baseline (§7.3), then README (§8) | §10.1 |
+
+### 12.2 Frontend tasks (UI; branch `claude/drag-calibration-ui`, which can be built in parallel)
+The frontend PR doesn't depend on the backend PR's numbers. It must not assert engine-derived numeric values. Mock `simulateAsync` as existing UI tests do.
+
+| # | Task | Acceptance |
+|---|---|---|
+| F1 | **G5 BC on custom bullets.** In `custom-bullets.js`: `CUSTOM_BULLET_LIMITS.ballisticCoefficientG5 = { min: 0.01, max: 1.2 }`; parse an optional `ballisticCoefficientG5` exactly like G7 (blank → `null`); add the field to the record, and to the bullet built from the record. **Record validation:** a missing key means `null`. Existing records **must not** be rejected, which differs from how G7 is handled at line 213. When present, the value must be `null` or a number within the limits. The storage key and version are unchanged. Bullet list spec text: append ` · G5 <bc>` when set. In `index.html`: `#cbBcG5` (label "BC G5 (optional)", `type=number`, `min=0.01 max=1.2 step=0.001`, `inputmode=decimal`, `aria-describedby="cbBcG5-error"`, with a `<small class="field-error" id="cbBcG5-error">`) placed after `#cbBcG7`. In `ballistics.js`: form fill, read and field maps next to every `cbBcG7` / `ballisticCoefficientG7` entry. In `io.js`: add `'ballisticCoefficientG5'` to the export/import field list, and accept imports that lack it. In `tools.js` `truedBulletFields`: copy the G5 BC like G7 | Round-trip tests: form → record → storage → reload → export → import, with and without G5. A legacy record without the key loads. Values out of the limits are rejected with a field error |
+| F2 | **Remove the UI BC swap.** Delete `bulletForDragModel` and pass the base bullet at its three call sites (`ballistics.js` `computeClientSide` and `_getTruingContext`, and `sweep.js`). The engine resolves the BC (§3.9). Keep `applyMvSensitivity` | No reference to `bulletForDragModel` remains. Tests updated. G7 runs still use the G7 BC, verified through the request passed to the mocked `simulateAsync` (the bullet carries `ballisticCoefficientG7`) |
+| F3 | **Show the effective model.** In `charts.js` (`syncModelPill` and its caller): when `req.dragModel` is `G5` or `G7` and any non-custom result has `r.dragModel === 'G1'`, the pill text becomes `` `MODEL: ${req.dragModel} · G1 FALLBACK ×${n}` ``. Set the pill's `title` with `setAttribute` to `G5 BC not set for: <names>` (or `G7 BC …`). Update the drag-model ℹ tooltip in `index.html` to: "G1: standard flat-base/spitzer. G5/G7: boat-tail standards — uses the bullet's G5/G7 BC; bullets without one are computed with G1." | Tests for: no fallback, partial fallback (count and title), and a custom run (pill stays `CUSTOM`) |
+| F4 | **G5 accepted in persisted state.** `profiles.js` (line 60) and `url-state.js` (line 38) accept `'G5'` as well as `'G1'` and `'G7'` | Profile save/load and URL encode/decode round-trip `G5`. Invalid values are still rejected |
+| F5 | **Re-truing notice (Q4).** At app init, after custom records load: read `localStorage['bv_physicsNotice']`. If it is already `'adr011'`, do nothing. Otherwise collect custom records whose `name` matches `/\(trued(?:-BC)?\)/i`. If there are none, set the key to `'adr011'` and stop: trued bullets made later use the new physics. If there are some, show `#physicsNotice`: a `<div class="notice" role="status" hidden>` placed above the results area, with the text "Drag physics were corrected in this version. These trued bullets were calculated with the old model — re-run MV/BC truing to update them:", a `<ul>` of up to 10 names (then "…and N more"), and a `<button id="physicsNoticeDismiss" type="button">Got it</button>`. **Clicking Got it** hides the notice and sets the key to `'adr011'`. Until then it reappears on each load. Build the DOM with `createElement` and `textContent` only. If `localStorage` throws, skip the notice silently | Tests: no key with trued records → shown, and names rendered as text (a name containing `<img onerror>` renders literally). Dismiss → key set and hidden. Key already set → not shown. No trued records → key set and not shown. `localStorage` throws → no notice, no error. Keyboard: the button is reachable and focus stays sensible after dismiss |
+| F6 | **Custom-table copy (Q2).** Replace every help or status string that describes the custom drag table's effect (`#dragTableHelp` in `index.html`, and the matching strings in `ballistics.js`) with: "Mach,CD columns — this bullet's own drag curve. Computed from sectional density (weight ÷ diameter²); the BC fields are ignored for this bullet." Also update the CSV-loaded success message to end with "— uses sectional density, not BC." | Updated string assertions. No logic change |
 
 ---
 

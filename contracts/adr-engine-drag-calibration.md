@@ -1,10 +1,10 @@
 # ADR 011: Calibrate the engine's drag model to standard point-mass retardation
 
-**Status:** Proposed (needs user approval before the builder starts)
-**Date:** 2026-11-23
+**Status:** Proposed. The user decided open questions Q1–Q4 on 2026-11-23 (§7). The ADR itself still needs final approval before builders start.
+**Date:** 2026-11-23 (revised the same day with the Q1–Q4 decisions)
 **Author:** Architect
 **Contract:** [`engine-drag-calibration.md`](engine-drag-calibration.md)
-**Supersedes:** `feat3-custom-drag-ts.md` §3.4 (the "physics limitation" note). It also supersedes the "bit-identical to `simulateBulletJS` at `a63f361`" lock in ADR 008 and `spa1-ts-engine.md` §11.3. The golden fixture is re-baselined once. The lock itself stays in force from the new baseline.
+**Supersedes:** `feat3-custom-drag-ts.md` §3.4 (the "physics limitation" note, and the rule that custom tables divide by BC). It also supersedes the "bit-identical to `simulateBulletJS` at `a63f361`" lock in ADR 008 and `spa1-ts-engine.md` §11.3. The golden fixture is re-baselined once. The lock itself stays in force from the new baseline.
 **Blocks:** S24-4 BC truing (PR #219). That PR rebases on this change.
 
 ---
@@ -89,7 +89,15 @@ The reference C_G(M) tables are the standard BRL / JBM G1, G5 and G7 tables (79,
 5. **Loop termination guard (mandatory).** With real drag, a low-BC projectile ends up falling at terminal velocity. Its horizontal speed decays towards 0, so `x` approaches a finite limit. Its total speed tends to v_term = √(g / (kDrag·C_d)), and on the way it can dip below that value. For example, a custom bullet at the UI minimum BC of 0.01 has v_term ≈ 79 fps, which is above the zero solver's 50 fps stop. If that limit is short of the zero or target range, the loops `while (x < zeroFt)`, `while (x < targetFt)` and `while (x/3 <= maxRangeYd + stepYd)` **never end**, and the worker hangs. Today's near-vacuum drag can't reach this state. The three stop checks therefore change from total speed to **horizontal speed** (`vx`). Because |vx| ≤ v, the new check fires in every case where the old one fired, and also when the bullet stops travelling downrange. vx decreases monotonically and stays positive, so termination is guaranteed.
 6. **`solveBC`.** It uses the G1 table at the solve's own temperature. Its lower bracket now searches for the smallest feasible BC. With real drag, BC = 0.001 stops the bullet within metres, and today's code would then return `null` for every input.
 
-**Custom drag tables keep their FEAT-3 semantics.** The user's `cd` column goes through the same formula and is divided by the bullet's BC. A user-supplied curve is a reference drag function, like G1/G7. For a bullet-specific (Doppler-derived) C_d curve, the user enters BC = sectional density in lb/in². That makes the form factor 1. Whether to automate this is open question Q2.
+7. **Drag divisor resolution (Q1, Q2).** The engine now resolves both the effective model and the divisor in `kDrag = CD_TO_RETARD·rho/divisor`:
+   - **custom table:** divisor = sectional density SD = (weight lb) / (diameter in)², the form factor-1 convention for bullet-specific C_d curves. It is derived on every run from `bulletWeightGrams` and `bulletDiameterMm`, and **not stored**. `bulletDiameterMm` becomes required with a custom table.
+   - **G7 with `ballisticCoefficientG7`:** G7 table and G7 BC.
+   - **G5 with the new `ballisticCoefficientG5`:** G5 table and G5 BC.
+   - **otherwise:** G1 table and G1 BC (`ballisticCoefficient` always means G1). `TrajectoryResult.dragModel` reports the resolved model.
+
+   The UI's G7 swap (`bulletForDragModel`) is removed, so one place decides.
+8. **Zero-angle bracket (Q3).** The upper bracket doubles from 0.05 rad up to 0.5 rad. An unreachable zero raises `TrajectoryInputError('zeroRangeMeters', …)` from `simulate()` and makes the BC infeasible in `solveBC`. There is no silent clamp at either end.
+9. **Stale trued bullets (Q4).** A one-time, dismissible UI notice lists custom bullets named "(trued)" or "(trued-BC)", gated by `localStorage['bv_physicsNotice'] = 'adr011'`. There is no automatic recomputation.
 
 ### 4.2 Worked check at the muzzle (.308 168 gr, G1 BC 0.475, 807 m/s, 15 °C, sea level)
 
@@ -119,9 +127,11 @@ The full table is in contract §6. The 600 m values are ≈ 475 m/s, 0.972 s, �
 |---|---|---|
 | R1 | **Every numeric engine expectation changes.** The golden fixture (28 cases, about 1,000 values), the `solveBC` expected BCs, the reference RK4 in the PERF-16 test, the row-targeted branch-coverage tests (400 fps, 4,000 fps, 1,125 fps), and any UI test that runs the real `simulate()` against hard-coded numbers. | The contract (§7) lists each affected test. The golden is regenerated **only after** new physics-band tests pass (contract §6), so it can't lock in a wrong answer. Coverage stays at 100 %. |
 | R2 | **E2E tests.** They are tolerant today. S24-3b accepts "Mach 1.x" or "Beyond max range". Results now differ visibly. | Run the full E2E suite against the built `dist/`. Update only assertions that hard-code engine numbers. |
-| R3 | **G5 runs use the G1 BC.** There is no G5 BC field, and `bulletForDragModel` only swaps in G7. Once drag is real, a G5 run with a G1 BC under-predicts drag by about 37 % at Mach 2.4. Today this is masked. | Open question Q1. Recommend a follow-up: add a G5 BC, or hide G5 unless one is given. |
-| R4 | **Zero-angle bracket is ±0.05 rad (2.86°).** Long zeros at the validation limit (3,000 m) with low-BC bullets can now need more elevation. `findZeroAngleFps` silently clamps. | Open question Q3. Recommend a follow-up to widen the bracket or report "zero unreachable". It is out of scope here so the solver contract (PERF-16/30) stays unchanged. |
-| R5 | **Stale user data.** Custom "(trued)" bullets saved by the MV truing tool (S23-4) were solved under near-vacuum drag. Their MVs are biased low. | No automatic migration, because the app can't tell a trued MV from an entered one. Open question Q4: release note, or flag `(trued)` records for re-truing. |
+| R3 | **BC on the wrong table.** A G5 run fed a G1 BC under-predicts drag by about 37 % at Mach 2.4. The same applies to G7 when a bullet has no G7 BC. | **Resolved (Q1):** a G5 BC field, engine-side resolution, and a G1 fallback that `result.dragModel` reports and the UI shows (contract D5, F3). Remaining gap: no catalog bullet has a published G5 BC, so catalog bullets compute G5 requests as G1. |
+| R4 | **Zero-angle bracket ±0.05 rad.** Long zeros silently clamp. | **Resolved (Q3):** expansion to 0.5 rad, and an error instead of a clamp (contract §3.10). |
+| R5 | **Stale user data.** Custom "(trued)" bullets were solved under near-vacuum drag. | **Resolved (Q4):** one-time notice (contract F5). No automatic migration, because the app can't recompute without the user's field observation. |
+| R5a | **Custom-curve results change meaning.** Custom-table runs switch from BC to sectional density. For a typical .308 bullet, SD 0.253 vs G1 BC 0.475. Users who had tuned BC to compensate will see different results. | Intended (Q2). F6 copy says BC is ignored for custom curves. |
+| R5b | **Old G7 golden cases have no G7 BC.** They would silently become G1. | The golden fixture adds `ballisticCoefficientG7` to its G7 cases (contract §7.3). |
 | R6 | **Bullets now stall.** Very low BC at long range can fall below `MIN_VEL_FPS` (100 fps), so `points` can be shorter than `maxRangeMeters / stepMeters`. | This was always legal. Gravity bounds terminal velocity well above 100 fps for catalog bullets. The contract adds a test that a short `points` array is valid output. UI code already iterates `points` without assuming a length. |
 | R6a | **Worker hang (DoS).** Real drag plus a low BC, or a heavy custom C_d curve, can leave the RK4 loops spinning forever (§4.1 item 5). The PERF-17 test (BC 0.02 to 1000 m) is a likely trigger once the formula changes. | The horizontal-speed termination guard is **mandatory**. Contract §7.2 adds non-termination regression tests with a Jest timeout. |
 | R7 | **Stale bundle.** A service-worker-cached bundle could serve old physics after deploy. | Vite content-hashes assets. Navigations are network-first (PERF-12). No action needed. |
@@ -131,9 +141,22 @@ The full table is in contract §6. The 600 m values are ≈ 475 m/s, 0.972 s, �
 - **Trust boundaries:** the YAML is bundled at build time. Custom tables come from the user (FEAT-3 validation, unchanged).
 - **T (tampering / integrity):** a silent regression in the constants or tables. **Mitigation:** contract §6 physics-band tests against independently derived values; table row-count and spot-value tests (contract §7.2); the regenerated golden as an exact lock.
 - **D (denial of service):** (a) **Infinite RK4 loop.** A projectile settles into terminal-velocity fall short of the zero or target range. The inputs that reach this are all in the UI: BC down to 0.01, or custom C_d up to 2.0. **Mitigation:** the `vx`-based stop in all three loops (contract §3.4), plus regression tests with a timeout. (b) The `solveBC` lower-bound search adds evaluations. **Mitigation:** at most 12 extra evaluations, and each infeasible one stops early under (a).
-- There are no new inputs, storage, network calls or URL parameters.
+- **T (tampering):** a G5 BC from tampered `localStorage` or an import. **Mitigation:** UI record validation plus engine validation (V1–V2).
+- **T / integrity:** a cached result reused after a G5 or G7 BC, or the diameter, changes. **Mitigation:** those fields are added to `simulationCacheKey`.
+- **I / injection:** user bullet names are rendered in the re-truing notice. **Mitigation:** `textContent` only.
+- **I (integrity):** a silent wrong zero. **Mitigation:** the zero search reports unreachable instead of clamping.
+- New persisted state is one `localStorage` flag (`bv_physicsNotice`) and one optional custom-bullet field. There are no network calls or URL parameters, apart from `G5` now being accepted where `G1`/`G7` already are.
+
+## 7. Decisions on open questions (user, 2026-11-23)
+| Q | Decision |
+|---|---|
+| Q1 | Add a dedicated `ballisticCoefficientG5` and use it when the drag model is G5. The architect extended the same rule to G7 and chose a G1 fallback over an error. |
+| Q2 | Custom C_d curves divide by sectional density, computed from weight and diameter (derived, not stored). |
+| Q3 | Fix the zero bracket in this story. |
+| Q4 | Flag previously trued bullets with a one-time UI notice. |
 
 ## 6. Compliance with existing decisions
 - ADR 008 (TypeScript is the only engine): unchanged. The golden fixture is re-baselined once under this ADR and stays an exact-equality lock.
-- PERF-15/16/17/30 (compiled tables, secant zero solver, `solveBC`): the algorithms and signatures are unchanged. Only the drag expression inside each RK4 stage changes, plus the `solveBC` lower-bracket search.
+- PERF-15/16/17/30 (compiled tables, secant zero solver, `solveBC`): the iteration algorithms and signatures are unchanged. What changes: the drag expression inside each RK4 stage; the zero solver's bracket setup (expansion to 0.5 rad, `NaN` instead of a clamp, and a non-finite guard on the secant step); and the `solveBC` lower-bracket search.
+- FEAT-3 (custom drag): validation is unchanged, but the drag divisor changes from BC to sectional density, and `bulletDiameterMm` is required with a table.
 - S24-1 (temperature-dependent sound speed): now applies to the reference tables too.
