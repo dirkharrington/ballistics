@@ -294,6 +294,11 @@ async function _ensureToolsLoaded() {
       loadSimulate: () => import('./physics/engine.ts').then(m => m.simulate),
       saveTrued: (baseBullet, mvMps) => _saveTruedBullet(toolsMod.truedBulletFields(baseBullet, mvMps), baseBullet),
     });
+    toolsMod.initBcTruing({
+      getContext: _getTruingContext,
+      loadSimulate: () => _bcLoadSimulateFn(),
+      saveTrued: (baseBullet, bc, useG7) => _saveTruedBullet(toolsMod.truedBcBulletFields(baseBullet, bc, useG7), baseBullet),
+    });
   }
   toolsMod.setToolsUnitSystem(unitSystem);
   return toolsMod;
@@ -819,6 +824,7 @@ async function renderResults(rawResults, req, activeUnits = unitSystem) {
       _dopeDirty = false;
       toolsMod.renderDopeCard(results, req, sys);
       toolsMod.renderMpbrTool(results, sys);
+      toolsMod.refreshBcTruing();
     } catch (_) {
       _setSimulationError(TOOLS_LOAD_ERROR_MSG);
     }
@@ -842,6 +848,7 @@ async function switchTab(name, el) {
         toolsMod.renderDopeCard(pendingResults, _pendingDopeReq, unitSystem);
         toolsMod.renderMpbrTool(pendingResults, unitSystem);
       }
+      toolsMod.refreshBcTruing();
     } catch (_) {
       _setSimulationError(TOOLS_LOAD_ERROR_MSG);
     }
@@ -1750,6 +1757,9 @@ function _setSelectedIds(s)         { selectedIds = s; }
 function _setLastResults(r)         { lastResults = r; }
 function _setCustomRecords(r)       { customRecords = r; }
 function _setCustomStorageStatus(s) { customStorageStatus = s; }
+const _defaultBcLoadSimulate = () => import('./physics/engine.ts').then(m => m.simulate);
+let _bcLoadSimulateFn = _defaultBcLoadSimulate;
+function _setBcLoadSimulate(fn)     { _bcLoadSimulateFn = fn ?? _defaultBcLoadSimulate; }
 
 // Auto-initialize in browser (modules are deferred, so DOM is ready).
 // Guard prevents spurious calls when imported by tests before buildDOM().
@@ -1769,7 +1779,7 @@ export {
   openSidebar, closeSidebar,
   currentState, syncUrl, copyLink,
   updateSweepButtonVisibility, runSweep, clearSweep, renderSweepCharts, _loadSweep,
-  _getState, _resetState, _setBullets, _setSelectedIds, _setLastResults,
+  _getState, _resetState, _setBullets, _setSelectedIds, _setLastResults, _setBcLoadSimulate,
   _loadIo, _loadTools, _loadDragCsv,
   debounce,
   _setCustomRecords, _setCustomStorageStatus,

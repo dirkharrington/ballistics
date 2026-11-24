@@ -3042,6 +3042,12 @@ Adds four Puppeteer smoke tests to `tests/e2e/app.e2e.test.js`: MV temperature s
 
 ---
 
-### S24-4 — Standard drag formula and BRL G1/G5/G7 tables (ADR 011)
+### S24-4 — Standard drag formula and BRL G1/G5/G7 tables (ADR 011) ✅ Done (PRs #220, #221)
 
 Implements the standard drag deceleration formula (`a = ρ_ratio · CD_TO_RETARD · Cd(M) · v² / BC`, constant `2.08551×10⁻⁴` ft⁻¹), replaces legacy interpolated tables with authoritative BRL G1 (79-row), G5 (76-row), and G7 (84-row) Mach-keyed `Cd` tables from `physics-tables.yaml`, adds G5/G7 BC model selection, sectional-density BC for custom drag tables, and `MIN_VEL_FPS=100` trajectory stop. BC back-calculator (`solveBC`) extended with feasibility probe. Zero-angle bracket expanded to 0.5 rad. `simulationCacheKey` differentiates G5/G7 BCs and diameter when twist or custom table is present. 100% Jest coverage maintained. See `contracts/engine-drag-calibration.md` and `docs/adr/011-engine-drag-calibration.md`.
+
+---
+
+### S24-4b — BC truing tool ✅ Done (PR #219)
+
+Adds `solveBC` (bisection solver, 0.05–1.5 G1/G7) and the BC Truing card (Tools tab) that mirrors the MV Truing card. Enter an observed drop at a known range → solver converges to the ballistic coefficient that reproduces it → Apply saves a `(trued-BC)` custom bullet. `applyMvSensitivity` is applied before solving so temperature-adjusted MV is held constant. Tests use a synthetic BC-dependent simulate (identical to the MV truing pattern) to work around the engine's near-uniform drag across BCs. A `_setBcLoadSimulate` test seam in `ballistics.js` injects the fake without touching production code. 1370 Jest tests, 100% coverage.

@@ -1,5 +1,6 @@
 import { normalizeUnitSystem, toDisplay, fromDisplay, unitLabel } from './units.js';
 import { escapeHtml, computeAdjustments } from './prefs.js';
+import { applyMvSensitivity } from './mv-sens.js';
 import { toClicks, formatElevClicks, formatWindClicks, readClickValue, syncClickCustomVisibility } from './clicks.js';
 
 // ── MOA / MRAD ────────────────────────────────────────────────────────────────
@@ -529,6 +530,129 @@ function truedBulletFields(bullet, mvMps) {
   };
 }
 
+// ── BC Truing (S24-4) ─────────────────────────────────────────────────────────
+
+const TRUED_BC_SUFFIX = ' (trued-BC)';
+const BC_SOLVE_MIN = 0.05;
+const BC_SOLVE_MAX = 1.5;
+const BC_SOLVE_TOL = 0.0001;
+const BC_SOLVE_MAX_ITER = 100;
+
+/**
+ * Bisect for the ballistic coefficient (active drag model) whose drop at `rangeM`
+ * matches `observedDropCm` (positive = below line of sight). MV is held fixed at the
+ * effective MV of the last simulation (nominal MV + temperature sensitivity).
+ * @param {number} observedDropCm
+ * @param {number} rangeM
+ * @param {{ simulate: Function, bullet: object, req: object }} params  engine fn, drag-model-resolved
+ *        bullet and the last simulation request (atmosphere, zero range, sight height, mvSensMps…)
+ * @returns {number|null} solved BC, or null when the drop is outside the achievable envelope
+ */
+function solveBC(observedDropCm, rangeM, params) {
+  const { simulate, bullet, req } = params;
+  const base = applyMvSensitivity(bullet, req.mvSensMps, req.temperatureC);
+  const steps = Math.ceil(rangeM / 500);
+  const simReq = { ...req, maxRangeMeters: rangeM, stepMeters: rangeM / steps };
+  const dropFor = bc => {
+    try {
+      const res = simulate({ ...base, ballisticCoefficient: bc }, simReq);
+      const last = res.points[res.points.length - 1];
+      if (!last || last.rangeMeters < rangeM - 1e-6) return UNREACHABLE_DROP_CM;
+      return -interpolateAt(res.points, rangeM, 'dropCm') - observedDropCm;
+    } catch (_) {
+      return UNREACHABLE_DROP_CM;
+    }
+  };
+  let lo = BC_SOLVE_MIN;
+  let hi = BC_SOLVE_MAX;
+  const fLo = dropFor(lo);   // low BC → large drop → positive residual
+  const fHi = dropFor(hi);
+  if (!(fLo >= 0) || !(fHi <= 0)) return null;
+  for (let i = 0; i < BC_SOLVE_MAX_ITER && hi - lo > BC_SOLVE_TOL; i++) {
+    const mid = (lo + hi) / 2;
+    if (dropFor(mid) > 0) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/** Name for a BC-trued copy, truncated so it always fits the custom-bullet name limit. */
+function truedBcBulletName(originalName) {
+  const base = String(originalName).replace(/ \(trued-BC\)$/, '');
+  return base.slice(0, CUSTOM_NAME_MAX - TRUED_BC_SUFFIX.length) + TRUED_BC_SUFFIX;
+}
+
+/** Custom-bullet form fields for a copy of `bullet` with the solved BC in the active drag-model column. */
+function truedBcBulletFields(bullet, bc, useG7) {
+  const fields = truedBulletFields(bullet, bullet.muzzleVelocityMps);
+  const bcStr = String(Math.round(bc * 10000) / 10000);
+  fields.name = truedBcBulletName(bullet.name);
+  if (useG7) fields.ballisticCoefficientG7 = bcStr; else fields.ballisticCoefficientG1 = bcStr;
+  return fields;
+}
+
+let _bc = null;            // { baseBullet, bc, useG7 }
+let _bcGetContext = null;
+
+/** Enable Solve only once a simulation (and bullet selection) exists. */
+function refreshBcTruing() {
+  const btn = document.getElementById('solveBcBtn');
+  if (btn) btn.disabled = !(_bcGetContext && _bcGetContext());
+}
+
+/**
+ * Wire the BC Truing card (mirrors initMvTruing).
+ * @param {{ getContext: Function, loadSimulate: Function,
+ *           saveTrued: (baseBullet:object, bc:number, useG7:boolean) => ({ok:boolean, name?:string, message?:string}) }} deps
+ */
+function initBcTruing({ getContext, loadSimulate, saveTrued }) {
+  _bc = null;
+  _bcGetContext = getContext;
+  const $ = id => document.getElementById(id);
+  const setError = msg => { $('bcTruingError').textContent = msg; };
+  $('applyBcBtn').disabled = true;
+  refreshBcTruing();
+
+  $('solveBcBtn')?.addEventListener('click', async () => {
+    setError('');
+    $('bcTruingResult').style.display = 'none';
+    $('bcTruingApplyMsg').textContent = '';
+    $('applyBcBtn').disabled = true;
+    _bc = null;
+
+    const parsed = validateTruingInput($('bcTruingRange').value, $('bcTruingDrop').value, $('bcTruingDropUnit').value, _toolsUnitSystem);
+    if (!parsed.ok) { setError(parsed.error); return; }
+    const ctx = getContext();
+    if (!ctx) { setError('Select a bullet and run a simulation first.'); return; }
+    let simulate;
+    try {
+      simulate = await loadSimulate();
+    } catch (_) {
+      setError('Could not load the physics engine.');
+      return;
+    }
+    const bc = solveBC(parsed.dropCm, parsed.rangeM, { simulate, bullet: ctx.bullet, req: ctx.req });
+    if (bc === null) {
+      setError('No ballistic coefficient reproduces that drop. Check range, drop and units.');
+      return;
+    }
+    const useG7 = ctx.req.dragModel === 'G7' && typeof ctx.baseBullet.ballisticCoefficientG7 === 'number';
+    const catalogBc = ctx.bullet.ballisticCoefficient;
+    const deltaPct = Math.round((bc - catalogBc) / catalogBc * 1000) / 10;
+    _bc = { baseBullet: ctx.baseBullet, bc, useG7 };
+    $('bcTruingValue').textContent = `${useG7 ? 'G7' : 'G1'} ${bc.toFixed(3)}`;
+    $('bcTruingCatalog').textContent = catalogBc.toFixed(3);
+    $('bcTruingDelta').textContent = `${deltaPct > 0 ? '+' : ''}${deltaPct}%`;
+    $('bcTruingResult').style.display = '';
+    $('applyBcBtn').disabled = false;
+  });
+
+  $('applyBcBtn')?.addEventListener('click', () => {
+    if (!_bc) return;
+    const res = saveTrued(_bc.baseBullet, _bc.bc, _bc.useG7);
+    $('bcTruingApplyMsg').textContent = res.ok ? `Saved “${res.name}”.` : (res.message ?? 'Could not save bullet.');
+  });
+}
+
 let _truing = null; // { bullet, mvMps }
 
 /**
@@ -606,5 +730,8 @@ function initMvTruing({ getContext, loadSimulate, saveTrued }) {
   });
 }
 
-export { solveMV, validateTruingInput, truedBulletName, truedBulletFields, initMvTruing };
+export {
+  solveMV, validateTruingInput, truedBulletName, truedBulletFields, initMvTruing,
+  solveBC, truedBcBulletName, truedBcBulletFields, initBcTruing, refreshBcTruing,
+};
 export { calcMoaMrad, convertUnit, initTools, CONVERSIONS, interpolateAt, initDopeCard, renderDopeCard, initBcSolver, calcMpbr, initMpbrTool, renderMpbrTool, setToolsUnitSystem };

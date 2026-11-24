@@ -1285,6 +1285,8 @@ tr:hover td { background: var(--bg3); }
   margin: 8px 0;
 }
 .tool-calc-btn:hover { background: var(--accent); color: var(--bg); }
+.tool-calc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.tool-calc-btn:disabled:hover { background: transparent; color: var(--accent); }
 
 .tool-results {
   display: flex;

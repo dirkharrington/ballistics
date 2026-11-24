@@ -177,6 +177,13 @@ function buildDOM() {
       <div id="truingResult" style="display:none"><span id="truingMV"></span> (<span id="truingDelta"></span>)
         <button id="truingApply">Apply</button><span id="truingApplyMsg"></span></div>
     </section>
+    <section id="bcTruingCard">
+      <input type="number" id="bcTruingRange"><input type="number" id="bcTruingDrop">
+      <select id="bcTruingDropUnit"><option value="cm">cm</option><option value="moa">MOA</option></select>
+      <button id="solveBcBtn" disabled>Solve</button><small id="bcTruingError"></small>
+      <div id="bcTruingResult" style="display:none"><span id="bcTruingValue"></span><span id="bcTruingCatalog"></span>
+        <span id="bcTruingDelta"></span><button id="applyBcBtn" disabled>Apply</button><span id="bcTruingApplyMsg"></span></div>
+    </section>
     <div id="bcCalcCard">
       <input id="bcCalcWeightG" value="" />
       <input id="bcCalcMvMps"   value="" />
@@ -582,6 +589,80 @@ describe('S23-4: MV truing wiring', () => {
     await tick();
     jest.useFakeTimers();
     expect(document.getElementById('truingError').textContent).toBe('');
+  });
+});
+
+describe('S24-4: BC truing wiring', () => {
+  const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+  const tick = () => new Promise(r => { jest.useRealTimers(); setTimeout(r, 0); });
+  const bulletId = '308-win-168gr';
+  // BC-dependent fake: drop(cm) = -(500 / bc), range-independent
+  const fakeSim = (b, params) => ({
+    points: [
+      { rangeMeters: 0, dropCm: 0 },
+      { rangeMeters: params.maxRangeMeters, dropCm: -(500 / b.ballisticCoefficient) },
+    ],
+  });
+
+  beforeEach(() => { mod._setBcLoadSimulate(() => Promise.resolve(fakeSim)); });
+  afterEach(() => { mod._setBcLoadSimulate(null); });
+
+  async function openTools(simulated) {
+    mod._setBullets(mod.getBuiltInBullets());
+    mod._setSelectedIds(new Set([bulletId]));
+    if (simulated) {
+      await mod.runSimulation();
+      jest.runAllTimers();
+    }
+    await mod.switchTab('tools', document.getElementById('tab-tools'));
+    await flush();
+  }
+
+  test('Solve is disabled before a simulation has run', async () => {
+    await openTools(false);
+    expect(document.getElementById('solveBcBtn').disabled).toBe(true);
+  });
+
+  test('Solve enables after a simulation; a successful solve renders the result and Apply saves "(trued-BC)"', async () => {
+    await openTools(true);
+    expect(document.getElementById('solveBcBtn').disabled).toBe(false);
+    const b = mod.getBuiltInBullets().find(x => x.id === bulletId);
+    // Target drop for BC*1.1 under fakeSim: 500 / (bc * 1.1)
+    const targetDrop = 500 / (b.ballisticCoefficient * 1.1);
+    document.getElementById('bcTruingRange').value = '400';
+    document.getElementById('bcTruingDrop').value = String(targetDrop);
+    document.getElementById('solveBcBtn').click();
+    await tick();
+    jest.useFakeTimers();
+    expect(document.getElementById('bcTruingError').textContent).toBe('');
+    expect(document.getElementById('bcTruingResult').style.display).toBe('');
+    expect(document.getElementById('bcTruingValue').textContent).toMatch(/^G1 0\.\d{3}$/);
+    expect(document.getElementById('bcTruingDelta').textContent).toMatch(/^\+\d/);
+    document.getElementById('applyBcBtn').click();
+    expect(mod._getState().customRecords[0].name).toBe('.308 Win 168gr BTHP (trued-BC)');
+    expect(document.getElementById('bcTruingApplyMsg').textContent).toMatch(/Saved/);
+  });
+
+  test('an unreachable drop shows an error', async () => {
+    await openTools(true);
+    document.getElementById('bcTruingRange').value = '400';
+    document.getElementById('bcTruingDrop').value = '99999';
+    document.getElementById('solveBcBtn').click();
+    await tick();
+    jest.useFakeTimers();
+    expect(document.getElementById('bcTruingError').textContent).toMatch(/No ballistic coefficient/);
+  });
+
+  test('falls back to the real physics engine when override is cleared', async () => {
+    mod._setBcLoadSimulate(null); // restore _defaultBcLoadSimulate
+    await openTools(true);
+    document.getElementById('bcTruingRange').value = '400';
+    document.getElementById('bcTruingDrop').value = '10';
+    document.getElementById('solveBcBtn').click();
+    await tick();
+    jest.useFakeTimers();
+    // Real engine has near-uniform drops across BCs — solver can't bracket, error shown
+    expect(document.getElementById('bcTruingError').textContent).toBeTruthy();
   });
 });
 
