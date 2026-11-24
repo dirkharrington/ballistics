@@ -1,4 +1,3 @@
-import { bulletForDragModel } from './custom-bullets.js';
 import { applyMvSensitivity } from './mv-sens.js';
 import { simulateAsync } from './physics/engine-async.ts';
 import { TrajectoryInputError } from './physics/errors.ts';
@@ -189,7 +188,7 @@ export async function runSweep({
   try {
     results = await Promise.all(
       requests.map(r => simulateAsync(
-        applyMvSensitivity(bulletForDragModel(bullet, r.dragModel), r.mvSensMps, r.temperatureC),
+        applyMvSensitivity(bullet, r.mvSensMps, r.temperatureC),
         r,
         signal ? { signal } : undefined,
       )),

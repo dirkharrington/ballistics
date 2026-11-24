@@ -81,7 +81,7 @@ describe('trued bullet naming and fields', () => {
     }, 800);
     expect(f).toEqual({
       name: 'Base (trued)', shortName: 'B*', bulletWeightGrains: '168.06', ballisticCoefficientG1: '0.475',
-      ballisticCoefficientG7: '0.24', bulletDiameterInches: '0.308', muzzleVelocityFps: '2624.7',
+      ballisticCoefficientG7: '0.24', ballisticCoefficientG5: '', bulletDiameterInches: '0.308', muzzleVelocityFps: '2624.7',
     });
   });
   test('missing short name / G7 BC fall back; long short names are clipped', () => {
@@ -92,6 +92,14 @@ describe('trued bullet naming and fields', () => {
     expect(f.ballisticCoefficientG7).toBe('');
     expect(f.shortName).toBe('A very long bul*');
     expect(f.shortName.length).toBeLessThanOrEqual(16 + 1);
+  });
+
+  test('non-null G5 BC is converted to string', () => {
+    const f = truedBulletFields({
+      name: 'Base', shortName: 'B', bulletWeightGrams: 10.89, ballisticCoefficient: 0.475,
+      ballisticCoefficientG7: null, ballisticCoefficientG5: 0.21, bulletDiameterMm: 7.82, muzzleVelocityMps: 807,
+    }, 800);
+    expect(f.ballisticCoefficientG5).toBe('0.21');
   });
 });
 

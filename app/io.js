@@ -4,8 +4,8 @@ import { resultSpeedOfSound, formatMach } from './mach.js';
 
 /** Bullet-level numeric fields copied from imported JSON. */
 const BULLET_NUMERIC_FIELDS = [
-  'muzzleVelocityMps', 'ballisticCoefficient', 'ballisticCoefficientG7', 'bulletWeightGrams',
-  'bulletDiameterMm', 'muzzleEnergyJoules',
+  'muzzleVelocityMps', 'ballisticCoefficient', 'ballisticCoefficientG7', 'ballisticCoefficientG5',
+  'bulletWeightGrams', 'bulletDiameterMm', 'muzzleEnergyJoules',
 ];
 
 /** Result-level numeric fields copied from imported JSON. */

@@ -15,6 +15,7 @@ export const CUSTOM_BULLET_LIMITS  = Object.freeze({
   bulletWeightGrains:     { min: 1,    max: 1000 },
   ballisticCoefficientG1: { min: 0.01, max: 1.2  },
   ballisticCoefficientG7: { min: 0.01, max: 1.0  },
+  ballisticCoefficientG5: { min: 0.01, max: 1.2  },
   bulletDiameterInches:   { min: 0.1,  max: 1.0  },
   muzzleVelocityFps:      { min: 300,  max: 5000 },
 });
@@ -137,6 +138,11 @@ export function validateCustomBulletInput(raw, ctx) {
   if (bcG7Raw !== '') {
     ballisticCoefficientG7 = parseNumericField('ballisticCoefficientG7', 'BC G7', false);
   }
+  const bcG5Raw                = (raw.ballisticCoefficientG5 ?? '').trim();
+  let   ballisticCoefficientG5 = null;
+  if (bcG5Raw !== '') {
+    ballisticCoefficientG5 = parseNumericField('ballisticCoefficientG5', 'BC G5', false);
+  }
   const bulletDiameterInches   = parseNumericField('bulletDiameterInches',   'Diameter',        true);
   const muzzleVelocityFps      = parseNumericField('muzzleVelocityFps',      'Muzzle velocity', true);
 
@@ -155,6 +161,7 @@ export function validateCustomBulletInput(raw, ctx) {
       bulletWeightGrains,
       ballisticCoefficientG1,
       ballisticCoefficientG7: bcG7Raw === '' ? null : ballisticCoefficientG7,
+      ballisticCoefficientG5: bcG5Raw === '' ? null : ballisticCoefficientG5,
       bulletDiameterInches,
       muzzleVelocityFps,
     },
@@ -220,6 +227,17 @@ export function isValidCustomBulletRecord(obj) {
     if (g7 < lim.min || g7 > lim.max) return false;
   }
 
+  // ballisticCoefficientG5: optional — missing key means null (legacy records accepted)
+  if ('ballisticCoefficientG5' in obj) {
+    const g5 = obj.ballisticCoefficientG5;
+    if (g5 !== null) {
+      if (typeof g5 !== 'number') return false;
+      if (!Number.isFinite(g5)) return false;
+      const lim = CUSTOM_BULLET_LIMITS.ballisticCoefficientG5;
+      if (g5 < lim.min || g5 > lim.max) return false;
+    }
+  }
+
   // customDragTable: optional; when present and non-null, must be valid
   if (obj.customDragTable !== undefined && obj.customDragTable !== null) {
     if (!isValidCustomDragTable(obj.customDragTable)) return false;
@@ -269,6 +287,7 @@ export function loadCustomBullets() {
         bulletWeightGrains:     item.bulletWeightGrains,
         ballisticCoefficientG1: item.ballisticCoefficientG1,
         ballisticCoefficientG7: item.ballisticCoefficientG7,
+        ballisticCoefficientG5: item.ballisticCoefficientG5 ?? null,
         bulletDiameterInches:   item.bulletDiameterInches,
         muzzleVelocityFps:      item.muzzleVelocityFps,
         ...(item.customDragTable ? { customDragTable: item.customDragTable.map(p => ({ mach: p.mach, cd: p.cd })) } : {}),
@@ -365,6 +384,7 @@ export function migrateLegacyCustomRounds(builtInNames = []) {
           bulletWeightGrains:     clamp(Math.round((weightG / GRAINS_TO_GRAMS) * 10) / 10, CUSTOM_BULLET_LIMITS.bulletWeightGrains),
           ballisticCoefficientG1: clamp(Math.round(bc * 1000) / 1000, CUSTOM_BULLET_LIMITS.ballisticCoefficientG1),
           ballisticCoefficientG7: null,
+          ballisticCoefficientG5: null,
           bulletDiameterInches:   clamp(Math.round((diaMm / INCH_TO_MM) * 1000) / 1000, CUSTOM_BULLET_LIMITS.bulletDiameterInches),
           muzzleVelocityFps:      clamp(Math.round(mvMps / FPS_TO_MPS), CUSTOM_BULLET_LIMITS.muzzleVelocityFps),
           ...(legacyDrag ? { customDragTable: legacyDrag.map(pt => ({ mach: pt.mach, cd: pt.cd })) } : {}),
@@ -442,6 +462,7 @@ export function toBullet(record) {
     // Extension properties
     shortName:                record.shortName,
     ballisticCoefficientG7:   record.ballisticCoefficientG7,
+    ballisticCoefficientG5:   record.ballisticCoefficientG5 ?? null,
     source:                   'custom',
     ...(record.customDragTable ? { customDragTable: record.customDragTable } : {}),
   };
@@ -457,19 +478,6 @@ export function mergeCatalog(builtIns, records) {
     .filter(r => !builtInIds.has(r.id))
     .map(toBullet);
   return [...builtIns, ...customs];
-}
-
-// ── Drag-model BC resolution ──────────────────────────────────────────────────
-
-/**
- * If dragModel is 'G7' and the bullet has a numeric G7 BC, return a copy with
- * ballisticCoefficient replaced by the G7 value. Otherwise return the same ref.
- */
-export function bulletForDragModel(bullet, dragModel) {
-  if (dragModel === 'G7' && typeof bullet.ballisticCoefficientG7 === 'number') {
-    return { ...bullet, ballisticCoefficient: bullet.ballisticCoefficientG7 };
-  }
-  return bullet;
 }
 
 // ── DOM rendering (custom group, no innerHTML) ────────────────────────────────
@@ -566,6 +574,9 @@ export function renderCustomBulletGroup(listEl, customBullets, ctx) {
     let specText = `${b.shortName} · ${displayGrains} gr · ${displayFps} fps · G1 ${displayBcG1}`;
     if (b.ballisticCoefficientG7 != null) {
       specText += ` · G7 ${b.ballisticCoefficientG7}`;
+    }
+    if (b.ballisticCoefficientG5 != null) {
+      specText += ` · G5 ${b.ballisticCoefficientG5}`;
     }
     if (b.customDragTable) {
       specText += ' · CSV';

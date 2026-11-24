@@ -35,7 +35,7 @@ const VALIDATORS = {
   step:            v => v > 0 && v <= 500,
   sightHeight:     v => v > 0 && v <= 150,
   angle:           v => v >= -45 && v <= 45,
-  dragModel:       v => v === 'G1' || v === 'G7',
+  dragModel:       v => v === 'G1' || v === 'G7' || v === 'G5',
   pressureHpa:     v => v >= 500 && v <= 1100,
   humidityPercent: v => v >= 0 && v <= 100,
   units:           v => v === 'metric' || v === 'imperial',

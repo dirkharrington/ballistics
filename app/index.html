@@ -163,7 +163,7 @@
       </div>
       <div class="param-row">
         <div class="param-group">
-          <label>Drag Model <span title="G1: standard flat-base/spitzer bullets. G5: secant-ogive long boattail (VLD). G7: long boattail long-range. Use G5 or G7 only when BC is rated against that standard.">ℹ</span></label>
+          <label>Drag Model <span title="G1: standard flat-base/spitzer. G5/G7: boat-tail standards — uses the bullet's G5/G7 BC; bullets without one are computed with G1.">ℹ</span></label>
           <select id="dragModel">
             <option value="G1" selected>G1 (standard)</option>
             <option value="G5">G5 (VLD long boattail)</option>
@@ -245,6 +245,16 @@
               <small class="field-error" id="cbBcG7-error"></small>
             </div>
           </div>
+          <!-- Row B2: BC G5 -->
+          <div class="param-row">
+            <div class="param-group">
+              <label for="cbBcG5">BC G5 (optional)</label>
+              <input type="number" id="cbBcG5" name="cbBcG5"
+                     min="0.01" max="1.2" step="0.001" inputmode="decimal"
+                     aria-describedby="cbBcG5-error">
+              <small class="field-error" id="cbBcG5-error"></small>
+            </div>
+          </div>
           <!-- Row C: Diameter + MV -->
           <div class="param-row">
             <div class="param-group">
@@ -264,7 +274,7 @@
           </div>
           <!-- Row D: Optional custom drag curve CSV -->
           <div class="param-group">
-            <label for="cbDragCsv">Drag CSV (Mach,CD optional)</label>
+            <label for="cbDragCsv">Drag CSV (Mach,CD optional) <span id="dragTableHelp" title="Mach,CD columns — this bullet's own drag curve. Computed from sectional density (weight ÷ diameter²); the BC fields are ignored for this bullet.">ℹ</span></label>
             <input type="file" id="cbDragCsv" name="cbDragCsv" accept=".csv,text/csv" aria-describedby="cbDragCsv-error">
             <div id="cbDragCsvStatus" class="cb-drag-csv-status" hidden>
               <span id="cbDragCsvName"></span>
@@ -328,6 +338,9 @@
       <div class="tab" id="tab-data">Data Table</div>
       <div class="tab" id="tab-tools">Tools</div>
     </div>
+
+    <!-- Physics re-truing notice (F5) -->
+    <div class="notice" role="status" id="physicsNotice" hidden></div>
 
     <!-- CHARTS PANEL -->
     <div id="chartsPanel" class="charts-panel active">
