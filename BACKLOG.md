@@ -3051,3 +3051,551 @@ Implements the standard drag deceleration formula (`a = ρ_ratio · CD_TO_RETARD
 ### S24-4b — BC truing tool ✅ Done (PR #219)
 
 Adds `solveBC` (bisection solver, 0.05–1.5 G1/G7) and the BC Truing card (Tools tab) that mirrors the MV Truing card. Enter an observed drop at a known range → solver converges to the ballistic coefficient that reproduces it → Apply saves a `(trued-BC)` custom bullet. `applyMvSensitivity` is applied before solving so temperature-adjusted MV is held constant. Tests use a synthetic BC-dependent simulate (identical to the MV truing pattern) to work around the engine's near-uniform drag across BCs. A `_setBcLoadSimulate` test seam in `ballistics.js` injects the fake without touching production code. 1370 Jest tests, 100% coverage.
+
+---
+
+## Sprint 26 — App Experience Optimization
+
+_(Numbered Sprint 26 to preserve Sprint 25 for `docs/backlog-sprint25` — Post-ADR 011 Follow-Through & Analysis Tools.)_
+
+**Sprint Goal:** Eliminate mobile, layout, light-theme, keyboard-accessibility, and daily workflow friction across the SPA so desktop and field-mobile shooters get scrollable panels at every viewport, legible charts in both themes, actionable hover/tap holdovers, organized parameters, frictionless DOPE/truing tools, and clear visual feedback — while preserving 100/100/100/100 Jest coverage, `knip` cleanliness, and strict CSP compliance.
+
+**Measured post-Sprint-24 UX & layout baseline (`main` @ `596df07`):**
+- **Viewport clipping & mobile controls (`app/ballistics.css`):** `.main` (`lines 637–643`) sets `overflow: hidden` inside `height: calc(100dvh - 70px)`, while `.tools-panel` (`lines 1218–1222`) lacks `flex: 1; min-height: 0; overflow-y: auto` — clipping lower cards among the 7 Tools cards with no scrollbar. At `@media (max-width: 500px)` (`line 948`), `.header-status { display: none }` hides `#unitToggle` (Metric/Imperial), `#themeToggle` (Light/Dark for outdoor glare), and `#modelStatus` on phones. `.sidebar-tools` (`lines 276–283`) uses `position: sticky; bottom: 0` without bounded height/scroll, causing `#customBulletForm` (~420 px tall) to cover the sidebar and clip fields on shorter viewports. At `≤ 900px`, the slide-up `.sidebar` sheet (`lines 885–900`) covers `#paramsToggle` and provides neither an in-drawer Close/Done button, `Escape`-to-close, `aria-expanded`, nor focus restoration.
+- **Light-theme chart legibility & Range Readout (`app/charts.js`, `app/prefs.js`):** `buildChartConfig()` (`lines 536–586`), `adjustChart` (`lines 955–958`), and `crosshairPlugin` (`line 134`) hardcode dark-theme palette values (`legend.labels.color: '#c8dde8'` → **1.36:1** contrast on `#ffffff` light panels; ticks/titles `#3a5060`; grid `rgba(30,48,64,0.6)`), and `_applyChartTheme()` (`lines 709–724`) updates only tooltips. `initThemeToggle()` (`app/prefs.js:306`) ignores `prefers-color-scheme: light` when `bv_theme` is unset. `#rangeReadout` (`app/index.html:368–386`, `app/charts.js:182–256`) omits MOA/MRAD elevation holdovers, appends unlabelled `<td>` cells (`spinCell`, `corCell`) without matching `<th>` headers when Spin Drift or Coriolis are active, and `_attachTouchForwarder()` (`line 145`) forwards `touchmove` but not single-tap `touchstart`.
+- **Keyboard semantics, navigation & visual feedback (`app/index.html`, `app/ballistics.js`, `app/prefs.js`):** `.tabs` (`app/index.html:336–340`) uses non-focusable `<div>`s with no `role="tablist"`/`tab`/`tabpanel` or arrow-key support, and active tab state is lost on reload. `.export-dropdown` (`lines 318–325`) lacks `type="button"`, `aria-expanded`, `Escape` close, close-on-selection, and empty-state `disabled`, while `#exportCsvBtn` (`line 388`) exports a legacy 5-column `Drop (m)` CSV (`exportTrajectoryCSV`) inconsistent with the sidebar's 10-column unit-aware `exportCSV`. Since `UX-11` removed `#runBtn`, in-flight worker simulations and initial Chart.js chunk loads show zero visual busy indicator, and `showToast()` (`app/prefs.js:152–163`) uses untracked `setTimeout`s that truncate rapid consecutive toasts.
+- **Sidebar & Tools ergonomics (`app/index.html`, `app/tools.js`, `app/custom-bullets.js`):** `.params` (`lines 91–194`) flattens 17 inputs without grouping, a Reset button, `<label for>` on 8 controls, or keyboard/touch-accessible `ℹ` tooltips. `#customBulletForm` forces Imperial-only (`gr`, `in`, `fps`) entry with no "Copy from round…" starter. `#dopeCard` (`app/tools.js:173–237`) has no way to remove/reset distances, does not convert distances on unit toggle, and gives no toast on `COPY TEXT`. `#bcCalcCard` uses negative drop (`-45.0`) adjacent to positive-drop MV/BC Truing cards (`45.0`), requires manual re-entry of active round/atmosphere specs, and MOA/MRAD + Unit Converter require manual button clicks instead of reactive updates.
+
+**Merge & execution order:**
+- **Wave 1 — Core Layout, Mobile & Visual Polish (`[Must Have]`):** `S26-1` (Tools scroll, `≤500px` header controls, sticky custom-bullet form overflow) → `S26-2` (mobile drawer close/Escape/ARIA/focus) & `S26-3` (light/dark Chart.js theme fidelity + `prefers-color-scheme`) & `S26-4` (Range Readout MOA/MRAD, header parity & tap-to-inspect) in parallel.
+- **Wave 2 — Accessibility, Navigation & Feedback (`[Must Have]`):** `S26-5` (ARIA `tablist` + URL tab state + Export menu keyboard UX & unified CSV) → `S26-6` (non-blocking compute indicator & race-free `showToast`).
+- **Wave 3 — Sidebar & Tools Workflow Ergonomics (`[Should Have]`):** `S26-7` (grouped/collapsible parameters, Reset defaults, inline validation & accessible `ℹ` tips), `S26-8` (unit-aware Custom Bullet form + clone starter), `S26-9` (DOPE distance delete/reset/copy toast, BC prefill & drop-sign consistency, live calculators) in parallel.
+- **Wave 4 — Catalog Filtering & E2E UX Gate (`[Could Have]`):** `S26-10` (quick-filter chips & Puppeteer mobile/UX regression suite, stacked after Waves 1–3).
+
+---
+
+### S26-1 — Fix Tools tab scrolling, `≤ 500px` mobile header controls & sticky custom-bullet form overflow · FE · Size S [Must Have]
+
+**As a** shooter on a phone or laptop screen, **I want** every card in the Tools tab, the Metric/Imperial and Light/Dark toggles in the mobile header, and the full Custom Bullet form to remain reachable without clipping, **so that** core app controls never disappear off-screen.
+
+**Work items:**
+1. **`app/ballistics.css` (`.tools-panel`, `lines 1218–1222`):** Update `.tools-panel.active` to `display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;` so `#toolsPanel` scrolls independently inside `.main` (`overflow: hidden`), while keeping the `@media print` override (`display: block !important; overflow: visible`) intact.
+2. **`app/ballistics.css` (`@media (max-width: 500px)`, `line 948`):** Remove `.header-status { display: none; }`. Style `.header-status` compactly (`gap: 6px; flex-shrink: 0`) so `#unitToggle` and `#themeToggle` remain visible and tappable on narrow phone viewports (`≤ 500px`), hiding or compacting `.status-pill` only if horizontal space requires.
+3. **`app/ballistics.css` (`.sidebar-tools`, `lines 276–283`):** Bound `.sidebar-tools` when `#customBulletForm` is expanded (e.g., `max-height: min(65dvh, 460px); overflow-y: auto; overscroll-behavior: contain;` or releasing `position: sticky` when `#customBulletForm:not([hidden])`) so all 8 custom-bullet fields, CSV upload, and `SAVE`/`CANCEL` buttons can be scrolled into view on `≤ 900px` desktop heights and inside the `80vh` mobile drawer.
+4. **`tests/css-perf.test.js`:** Add regression assertions verifying `.tools-panel.active` sets `overflow-y: auto`, `@media (max-width: 500px)` does not set `.header-status { display: none }`, and all existing `CLN-4` CSS token/keyframe hygiene checks pass.
+
+**Coverage:** 100% Jest (`tests/css-perf.test.js`).
+
+**Acceptance criteria:**
+- On a `1280×720` or `375×667` viewport, activating `#tab-tools` allows scrolling from `COME-UPS / DOPE` all the way down to `Unit Converter`.
+- At `375×667`, `#unitToggle` and `#themeToggle` are visible (`display !== 'none'`) and functional in `<header>`.
+- Opening `+ ADD CUSTOM BULLET` on a `375×667` or `1280×700` viewport allows scrolling to `#customBulletSaveBtn` and `#customBulletCancelBtn` without clipping.
+- `npm test`, `npm run knip`, and `npm run build` pass at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### S26-2 — Mobile parameter drawer ergonomics: close button, `Escape` key, ARIA state & focus management · FE · Size S [Must Have]
+
+**As a** mobile shooter adjusting parameters in the slide-up drawer (`≤ 900px`), **I want** an explicit Done/Close button inside the drawer, `Escape` key dismissal, and proper screen-reader/focus state, **so that** I do not have to hunt for the small backdrop strip above the `80vh` sheet to return to my charts.
+
+**Work items:**
+1. **`app/index.html` & `app/ballistics.css`:**
+   - Add `type="button" aria-controls="sidebar" aria-expanded="false"` to `#paramsToggle` (`line 602`).
+   - Add a compact mobile-only header bar at the top of `#sidebar` (`<div class="sidebar-drawer-header"><span class="sidebar-drawer-title">Setup &amp; Parameters</span><button type="button" id="sidebarCloseBtn" class="sidebar-close-btn" aria-label="Close parameters">✕ DONE</button></div>`), hidden on desktop (`@media (min-width: 901px) { .sidebar-drawer-header { display: none; } }`) and sticky at `top: 0` inside `.sidebar` on `≤ 900px` with `min-height: 44px` touch target on coarse pointers.
+2. **`app/ballistics.js` (`openSidebar` / `closeSidebar` / `init`):**
+   - Sync `aria-expanded="true"` / `"false"` on `#paramsToggle` inside `openSidebar()` and `closeSidebar()`.
+   - When opening the drawer, move focus to `#sidebarCloseBtn`; when closing (via `#sidebarCloseBtn`, `#sidebarBackdrop`, or `Escape`), return focus to `#paramsToggle` if focus was inside `#sidebar`.
+   - Wire `#sidebarCloseBtn` click and a document `keydown` listener (`{ signal }`) that calls `closeSidebar()` on `Escape` whenever `#sidebar.classList.contains('open')`.
+3. **`tests/ballistics.test.js`:** Test `openSidebar()` / `closeSidebar()` `aria-expanded` transitions, `#sidebarCloseBtn` click, `Escape` key dismissal when open (and no-op when closed), and focus restoration to `#paramsToggle`.
+
+**Coverage:** 100% Jest (`tests/ballistics.test.js`).
+
+**Acceptance criteria:**
+- Tapping `#paramsToggle` at `≤ 900px` opens `#sidebar`, sets `aria-expanded="true"`, and reveals `#sidebarCloseBtn` at the top of the sheet.
+- Clicking `#sidebarCloseBtn`, clicking `#sidebarBackdrop`, or pressing `Escape` closes `#sidebar`, sets `aria-expanded="false"`, and restores focus cleanly.
+- Desktop layout (`≥ 901px`) shows no `.sidebar-drawer-header`.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None (merges cleanly after `S26-1`).
+
+---
+
+### S26-3 — Full light/dark theme fidelity for Chart.js canvases, crosshair & `prefers-color-scheme` · FE · Size S [Must Have]
+
+**As a** shooter using Light Mode outdoors in bright sunlight, **I want** chart legends, axis titles, tick labels, gridlines, and the hover crosshair to render with high-contrast light-theme colors — and for first-time visits to honor my OS color-scheme preference — **so that** charts are legible without manually toggling or squinting at pale `#c8dde8` labels on a white background.
+
+**Work items:**
+1. **`app/charts.js`:**
+   - Add an exported `getChartThemePalette(theme)` helper returning WCAG AA-compliant colors for `'dark'` and `'light'` (`legendColor`, `axisTitleColor`, `tickColor`, `gridColor`, `tooltipBg`, `tooltipBorder`, `tooltipTitle`, `tooltipBody`, `crosshairColor`, `crosshairPinnedColor`, `maxOrdAnnotationColor`).
+   - Read active theme (`document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'`) inside `buildChartConfig()`, `renderCharts()` (`adjustChart` scales `x`, `yMoa`, `yMrad` and `ORD_COLOR`), `renderSweepCharts()`, and `crosshairPlugin.afterDraw`.
+   - Expand `_applyChartTheme(theme)` (`lines 709–724`) to update `legend.labels.color`, every scale's `title.color`, `ticks.color`, and `grid.color` (preserving `drawOnChartArea: false` on `yMrad`), and tooltip colors across all live `charts` instances before calling `chart.update('none')`.
+2. **`app/prefs.js` (`initThemeToggle` & `applyTheme`, `lines 258–318`):**
+   - When `safeGetItem(THEME_KEY)` is `null`, fall back to `window.matchMedia?.('(prefers-color-scheme: light)')?.matches ? 'light' : 'dark'`.
+   - In `applyTheme(theme)`, update `<meta name="theme-color">` `content` (`#0d1218` / `#00d4ff` for dark vs `#e2e8f0` for light) when present so mobile browser chrome matches the active theme.
+3. **`tests/charts.test.js` & `tests/prefs.test.js`:** Add unit tests verifying light-mode initial chart creation, `_applyChartTheme('light')` / `_applyChartTheme('dark')` updates on legend + scales + `yMrad` grid guard + crosshair color, and `prefers-color-scheme: light` first-visit detection when `bv_theme` is absent.
+
+**Coverage:** 100% Jest (`tests/charts.test.js`, `tests/prefs.test.js`).
+
+**Acceptance criteria:**
+- Toggling `#themeToggle` to Light Mode updates legend labels, axis titles/ticks, gridlines, crosshair, and tooltips on all 5 trajectory charts (and sweep charts when active) to ≥ 4.5:1 text contrast on `#ffffff`.
+- Loading the app in Light Mode from `localStorage` or OS `prefers-color-scheme: light` initializes charts directly with the light palette.
+- `npm test` and `tests/e2e/app.e2e.test.js` (note existing theme-persistence E2E test sets/checks `<html data-theme>` and `bv_theme`) pass at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### S26-4 — Interactive Range Readout upgrade: MOA/MRAD holdovers, dynamic header parity & mobile tap-to-inspect · FE · Size S [Must Have]
+
+**As a** shooter scrubbing or tapping a trajectory chart, **I want** the Range Readout bar to show elevation MOA/MRAD adjustments alongside drop, keep table headers aligned when Spin Drift or Coriolis are active, and respond to single taps on touchscreens, **so that** I can read exact scope come-ups at any range on desktop or mobile.
+
+**Work items:**
+1. **`app/index.html` (`#rangeReadout`, `lines 368–386`) & `app/charts.js` (`_buildReadoutRow`, `updateReadout`, `lines 157–256`):**
+   - Add `<th>Elev</th>` to `.readout-table thead tr` (after `Drop`) and populate an `elevCell` per row in `updateReadout()` using `computeAdjustments(p.dropCm, p.rangeMeters)` formatted concisely (e.g., `+8.4 MOA / +2.4 MRAD`, `0.0 MOA / 0.0 MRAD` at zero/muzzle).
+   - Add `<th id="readoutSpinHeader" hidden>Spin Drift</th>` and `<th id="readoutCorHeader" hidden>Coriolis</th>` to `.readout-table thead tr`. In `updateReadout()`, toggle `hidden` on both headers based on whether any active result at `dataIndex` has `spinDriftCm > 0` or `coriolisDeflectionCm != null`, ensuring every visible row appends matching `<td>` cells so `thead` and `tbody` column counts are always identical; format cell text as concise signed values (`+3.2 cm`) rather than repeating `"Spin Drift:"` inside `<td>`.
+   - Add `type="button" aria-pressed="false"` to `#readoutPin` and sync `aria-pressed` in `_handleChartClick()`, `toggleReadoutPin()`, and `resetCrosshairState()`.
+2. **`app/charts.js` (`_attachTouchForwarder`, `lines 145–153`):** Forward `touchstart` (when `e.touches.length === 1`) in addition to `touchmove` (`{ passive: true }`) so tapping a point on a mobile canvas immediately updates the crosshair and `#rangeReadout`.
+3. **`tests/charts.test.js`:** Assert `Elev` MOA/MRAD cell output, exact `<th>` vs `<td>` column-count parity across combinations of Spin Drift and Coriolis (including multi-bullet comparisons where only one bullet has spin drift), `#readoutPin` `aria-pressed` state, and `touchstart` forwarding.
+
+**Coverage:** 100% Jest (`tests/charts.test.js`).
+
+**Acceptance criteria:**
+- Hovering or tapping any trajectory chart displays `Elev` (`MOA / MRAD`) for every active round in `#rangeReadout`.
+- `.readout-table` `<thead>` visible `<th>` count always equals each visible `<tbody>` row's `<td>` count whether Spin Drift and Coriolis are off, individually enabled, or both enabled.
+- `#readoutPin` toggles `aria-pressed="true"` / `"false"` accurately when pinning/unpinning via chart click or button click.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None (pairs cleanly with `S26-3`).
+
+---
+
+### S26-5 — Accessible WAI-ARIA tabs, active-tab URL state, Export menu keyboard UX & unified CSV export · FE · Size S [Must Have]
+
+**As a** keyboard or power user switching between Charts, Data Table, and Tools or exporting data, **I want** standard ARIA tab navigation, view persistence across reloads, keyboard-operable Export controls, and one consistent CSV format, **so that** every workspace view and export action works predictably with keyboard and mouse.
+
+**Work items:**
+1. **`app/index.html`, `app/ballistics.css` & `app/ballistics.js` (Tabs):**
+   - Convert `#tab-charts`, `#tab-data`, and `#tab-tools` (`app/index.html:336–340`) from `<div>` to `<button type="button" role="tab">` inside `<div class="tabs" role="tablist" aria-label="Workspace views">`, preserving their exact IDs and `.tab` / `.active` classes (`background: none; border-top/left/right: none` in CSS so visual appearance is unchanged).
+   - Add `aria-selected`, `aria-controls`, and roving `tabindex` (`"0"` on active tab, `"-1"` on inactive tabs), plus `role="tabpanel"` and `aria-labelledby` on `#chartsPanel`, `#dataPanel`, and `#toolsPanel`.
+   - Add `ArrowRight`, `ArrowLeft`, `Home`, and `End` keydown navigation on `.tabs` calling `switchTab()` and moving focus to the newly activated tab.
+2. **`app/url-state.js` & `app/ballistics.js` (Active tab persistence):**
+   - Add optional `tab` (`'charts' | 'data' | 'tools'`, omitted from URL when `'charts'`) to `URL_PARAM_KEYS` / `OPTIONAL_URL_KEYS` / `VALIDATORS` in `app/url-state.js`.
+   - Restore non-default `fromUrl.params.tab` during `init()` via `switchTab()`, and call `syncUrl()` inside `switchTab()`.
+3. **`app/index.html`, `app/ballistics.js` & `app/io.js` (Export controls):**
+   - Add `type="button"`, `aria-haspopup="menu"`, and `aria-expanded="false"` to `.export-toggle` (and `type="button"` on `.export-csv-btn`, `.export-json-btn`, `.export-md-btn`), disable `.export-toggle` until `lastResults.length > 0` (enable after `renderResults`), close `.export-dropdown` on menu-item click and on `Escape` (returning focus to `.export-toggle`), and show a brief `showToast('Exported CSV')` / `'Exported JSON'` / `'Exported Markdown'` confirmation.
+   - Route `#exportCsvBtn` (`app/index.html:388`, kept in DOM so existing E2E selector `#exportCsvBtn` continues to work) to the same full 10-column unit-aware `exportCSV` format (with descriptive sanitized filename `trajectory-<round>-<zero><unit>.csv`), retiring the divergent 5-column `Drop (m)` mismatch.
+4. **Tests:** Update `tests/url-state.test.js`, `tests/io.test.js`, and `tests/ballistics.test.js` for ARIA tab attributes, arrow-key tab switching, `tab=` URL round-trips, Export menu `Escape`/auto-close/disabled state, and unified CSV output.
+
+**Coverage:** 100% Jest (`tests/ballistics.test.js`, `tests/url-state.test.js`, `tests/io.test.js`).
+
+**Acceptance criteria:**
+- `#tab-charts`, `#tab-data`, and `#tab-tools` are `<button role="tab">` elements operable via `Tab` + `ArrowLeft`/`ArrowRight`/`Home`/`End` with valid `aria-selected` and `role="tabpanel"` linkage.
+- Refreshing or sharing a link while on `Data Table` (`?…&tab=data`) or `Tools` (`?…&tab=tools`) re-opens directly on that tab; default `Trajectory Charts` omits `tab=` from the URL.
+- `.export-toggle` reflects `aria-expanded`, closes on item selection or `Escape`, is disabled when no results exist, and both CSV entry points emit the full unit-aware trajectory table.
+- `npm test` and `npm run test:e2e` pass at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### S26-6 — Perceived responsiveness: non-blocking compute/chunk loading indicator & race-free toast timer · FE · Size XS [Must Have]
+
+**As a** user changing parameters or loading the app on a slow connection, **I want** a subtle non-blocking busy indicator while workers or lazy chunks run and reliable toast notifications that never cut off early, **so that** the UI always feels responsive and trustworthy.
+
+**Work items:**
+1. **`app/prefs.js` (`showToast`, `lines 152–163`):**
+   - Replace the untracked nested `setTimeout` calls with tracked module-level timer IDs (`_toastVisibleTimer`, `_toastHideTimer`) plus an exported `clearToastTimers()` helper. Calling `showToast()` while a previous toast is visible cancels both prior timers and resets the full 3 000 ms display window cleanly.
+2. **`app/index.html`, `app/ballistics.css` & `app/ballistics.js`:**
+   - Add a lightweight busy state (`data-busy="true"` / `aria-busy="true"` on `#modelStatus` or a slim top progress pulse bar inside `.main`, animated strictly via `opacity`/`transform` and disabled under `prefers-reduced-motion: reduce`) toggled on when `runSimulation()` or `runSweep()` dispatches async work and cleared when the render frame completes, errors, or aborts (guarded by a monotonic run token so an aborted earlier run never clears a newer active run's indicator).
+   - Update `#emptyState p` text during initial boot simulation from `"Select rounds to compute trajectories"` to `"Computing trajectories…"` while a simulation is actively in flight and restore `"Select rounds to compute trajectories"` when `selectedIds.size === 0`.
+3. **`tests/prefs.test.js` & `tests/ballistics.test.js`:**
+   - With `jest.useFakeTimers()`, verify that calling `showToast('First')` then `showToast('Second')` at `t = 2 000 ms` keeps `'Second'` visible until `t = 5 000 ms` instead of hiding it at `t = 3 000 ms`.
+   - Verify the busy indicator activates during in-flight `simulateAsync`, stays active across superseded `AbortError` runs, and clears on completion or `TrajectoryInputError`.
+
+**Coverage:** 100% Jest (`tests/prefs.test.js`, `tests/ballistics.test.js`, `tests/css-perf.test.js`).
+
+**Acceptance criteria:**
+- Consecutive `showToast()` calls within 3 seconds never prematurely dismiss the newest toast.
+- In-flight simulations display a subtle non-blocking busy indicator without shifting layout (`CLS = 0`) and clear deterministically on finish, error, or cancellation.
+- Zero CSS rules use `transition: all`; `prefers-reduced-motion: reduce` disables any pulse animation.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### S26-7 — Sidebar parameter organization: collapsible advanced groups, Reset Defaults, inline validation & accessible `ℹ` tips · FE · Size M [Should Have]
+
+**As a** shooter configuring a load in the sidebar, **I want** everyday range/wind inputs separated from advanced atmospheric and Coriolis controls, a one-click Reset to Defaults button, inline error highlights on invalid fields, and tap/keyboard-readable `ℹ` help tips, **so that** the sidebar is fast to scan on desktop and mobile.
+
+**Work items:**
+1. **`app/index.html` & `app/ballistics.css` (Parameter grouping & Reset):**
+   - Keep core **Range, Wind & Rifle** fields (`zeroRange`, `maxRange`, `windSpeed`, `windDir`, `altitude`, `temperature`, `step`, `sightHeight`, `shootingAngle`, `dragModel`) immediately visible at the top of `.params`.
+   - Group secondary atmospheric overrides (`pressureHpa`, `humidityPercent`, `mvSens`) and long-range **Spin & Coriolis** fields (`twistRate`, `latitudeDeg`, `azimuthDeg`, `includeEotvos`) into clean `<details class="param-accordion">` sections (`#atmoAdvancedGroup`, `#coriolisAdvancedGroup`) with `<summary>` headers showing an `"active"` pill badge whenever any child input has a non-default/non-empty value, and auto-expand on `init()` or `_applyProfile()` when populated. Preserve every existing input `id` and `#coriolisSection` / `#includeEotvos` hook so existing unit and `index-html.test.js` assertions pass untouched.
+   - Add `<button type="button" id="resetParamsBtn" class="clear-btn">Reset</button>` in the `Parameters` `.section-label` row; clicking it restores all parameter inputs to `PREF_DEFAULTS` (in the active `unitSystem`), clears optional fields (`pressureHpa`, `humidityPercent`, `twistRate`, `latitudeDeg`, `azimuthDeg`, `includeEotvos`), clears inline errors, persists prefs/URL, triggers recompute, and calls `showToast('Parameters reset to defaults')`.
+2. **`app/index.html` & `app/ballistics.js` (Labels, accessible `ℹ` tips & inline validation):**
+   - Add missing `for="..."` attributes on `<label>` elements for `windDir`, `shootingAngle`, `dragModel`, `twistRate`, `sweepParam`, `unitValue`, `unitFrom`, and `unitTo`.
+   - Convert `<span title="...">ℹ</span>` elements into keyboard- and touch-accessible `<button type="button" class="info-tip" aria-label="..." data-tip="...">ℹ</button>` controls styled with a pure-CSS/JS `:focus-visible` / `:hover` / toggled tooltip bubble that stays within the sidebar bounds.
+   - Validate `zeroRange`, `maxRange` (`maxRange >= zeroRange`), `step`, and `sightHeight` in `runSimulation()` before worker dispatch, setting `aria-invalid="true"` on the offending input (clearing on next valid edit) alongside `#simulationError` so invalid inputs are visibly highlighted in place.
+3. **Tests:** Add coverage in `tests/ballistics.test.js` and `tests/index-html.test.js` for `#resetParamsBtn`, auto-expansion/active badge on `<details>` groups, `<label for>` completeness across all sidebar/tool inputs, and `aria-invalid` inline flagging.
+
+**Coverage:** 100% Jest (`tests/ballistics.test.js`, `tests/index-html.test.js`, `tests/css-perf.test.js`).
+
+**Acceptance criteria:**
+- Every `<input>` and `<select>` in `app/index.html` has either an explicit `<label for="...">` or `aria-label`.
+- `ℹ` help tooltips are readable via mouse hover, keyboard `Tab` focus, and mobile tap.
+- `#resetParamsBtn` restores default parameters in the active unit system in one click and updates charts/URL.
+- Advanced `<details>` groups stay collapsed by default for clean scanning, auto-open when a loaded URL/profile sets any advanced value, and display an active badge when non-default values are active while collapsed.
+- `npm test` and `npm run test:e2e` pass at 100/100/100/100.
+
+**Dependencies:** `S26-1` (CSS layout baseline).
+
+---
+
+### S26-8 — Custom Bullet form ergonomics: Metric/Imperial unit toggle & "Copy from round…" starter · FE · Size M [Should Have]
+
+**As a** handloader creating a custom bullet, **I want** to pre-fill specs from an existing catalog round and enter weight, diameter, and muzzle velocity in either Imperial (`gr` / `in` / `fps`) or Metric (`g` / `mm` / `m/s`), **so that** I can build custom loads in seconds without manual unit conversion.
+
+**Work items:**
+1. **`app/index.html`, `app/ballistics.js` & `app/custom-bullets.js` ("Copy from round…" starter):**
+   - Add an optional `<select id="cbTemplateSelect" aria-label="Copy specs from existing round">` at the top of `#customBulletForm` (shown in Add mode, hidden in Edit mode) listing `<option value="">— Start blank or copy from round —</option>` followed by all built-in and custom bullets.
+   - Selecting a round populates `#cbName` (`<name> (custom)`), `#cbShortName`, weight, diameter, MV, G1 BC, G7 BC, and G5 BC (converted to the form's active unit mode) and clears field errors so the user only adjusts the changed value (e.g. chronographed MV or bullet weight).
+2. **`app/index.html`, `app/ballistics.js` & `app/custom-bullets.js` (Form unit mode & Metric-aware custom card specs):**
+   - Add a compact segmented unit toggle (`#cbUnitModeToggle`: `gr · in · fps` vs `g · mm · m/s`, defaulting to `gr · in · fps` so reloader conventions and existing Puppeteer E2E test inputs in `tests/e2e/app.e2e.test.js:248–251` remain 100% compatible out of the box, with a one-click switch to `g · mm · m/s`).
+   - Convert displayed values, labels, `min`/`max`/`step` attributes, and validation range messages when `#cbUnitModeToggle` switches, converting Metric inputs back to canonical `CustomBulletRecordV1` fields (`bulletWeightGrains`, `bulletDiameterInches`, `muzzleVelocityFps`) before `upsertCustomBullet()` so `localStorage['ballistics:custom-bullets:v1']` schema is unchanged.
+   - Update `renderCustomBulletGroup()` (`app/custom-bullets.js:521–523, 574`) to accept `unitSystem` in `ctx` and format MV/weight on custom bullet cards consistent with the global `#unitToggle` (`fps`/`gr` in Imperial, `m/s`/`g` in Metric, matching built-in cards).
+3. **Tests:** Expand `tests/custom-bullets.test.js` and `tests/ballistics.test.js` to cover template cloning, Metric (`g`/`mm`/`m/s`) ↔ Imperial (`gr`/`in`/`fps`) form entry/validation/edit round-trips, and `renderCustomBulletGroup` unit-aware spec text.
+
+**Coverage:** 100% Jest (`tests/custom-bullets.test.js`, `tests/ballistics.test.js`).
+
+**Acceptance criteria:**
+- Selecting a round in `#cbTemplateSelect` populates all numeric and name fields ready for immediate save or tweak.
+- Switching `#cbUnitModeToggle` to Metric allows entering e.g. `10.89 g`, `7.82 mm`, `808 m/s` and persists a valid canonical `CustomBulletRecordV1` record.
+- Custom bullet cards in `#bulletList` update their displayed MV/weight units when global `#unitToggle` switches between Metric and Imperial.
+- Existing E2E custom-bullet flow (`tests/e2e/app.e2e.test.js:231–271`) passes unchanged, and `npm test` passes at 100/100/100/100.
+
+**Dependencies:** `S26-1`.
+
+---
+
+### S26-9 — Ballistics Tools workflow polish: DOPE chip editing & copy toast, BC prefill & drop-sign consistency, and live calculators · FE · Size S [Should Have]
+
+**As a** shooter using the Tools tab, **I want** full add/delete/reset control over DOPE distances with clipboard feedback, consistent drop-sign conventions and one-click active-round prefill on BC/Truing cards, and live-updating MOA/MRAD and Unit converters, **so that** every tool card feels cohesive and effortless.
+
+**Work items:**
+1. **`app/tools.js` & `app/index.html` (DOPE Card UX):**
+   - Render each DOPE distance in `#dopeDistanceRow` as a compact chip containing the `<input class="dope-dist-input">` plus a remove `<button type="button" class="dope-dist-remove" aria-label="Remove <d> distance">&times;</button>` (hidden/disabled when only 1 distance remains), disable `#dopeAddDistBtn` when `_dopeDistances.length >= 10`, and add a `Reset` button restoring `[100, 200, 300, 400, 500, 600, 700, 800, 1000]` (converted to active `unitSystem`).
+   - Convert `_dopeDistances` when `setToolsUnitSystem()` transitions between `'metric'` and `'imperial'`, and wire `_copyDopeText()` (`app/tools.js:193–201`) to call `showToast('DOPE copied')` on clipboard success and `showToast("Couldn't copy DOPE")` on failure.
+2. **`app/index.html`, `app/tools.js` & `app/ballistics.js` (BC Back-Calculator & Truing cards):**
+   - Align `#bcCalcCard` drop input convention with `#mvTruingCard` and `#bcTruingCard`: label `"Observed drop (below line of sight)"` (`placeholder="45.0"`), accepting positive drop values (and gracefully normalizing negative inputs or documenting sign clearly — verify `solveBCAsync` sign expectation in `app/physics/engine.ts` where `measuredDropCm < 0` below LoS, converting `-Math.abs(dropCm)` or validating `drop > 0` below LoS consistently).
+   - Add `<button type="button" id="bcCalcPrefillBtn" class="tool-secondary-btn">Use active round &amp; atmosphere</button>` on `#bcCalcCard` to populate weight, MV, altitude, and temperature from the first selected bullet and current sidebar inputs, and display a subtitle (`#mvTruingTarget`, `#bcTruingTarget`) on MV Truing and BC Truing cards naming the active bullet (`"Active round: .308 Win 168gr BTHP"` or `"Select a round first"`).
+3. **`app/index.html` & `app/tools.js` (Reactive MOA/MRAD & Unit Converter):**
+   - Trigger MOA/MRAD calculation automatically on `input`/`change` of `#toolDrop` and `#toolRange`, and trigger unit conversion automatically on `input`/`change` of `#unitValue`, `#unitFrom`, and `#unitTo` (retaining `#toolCalcBtn` and `#unitCalcBtn` click handlers so existing tests and E2E `app.e2e.test.js:175` pass unchanged).
+   - Add `<button type="button" id="unitSwapBtn" aria-label="Swap units">⇄</button>` between `#unitFrom` and `#unitTo`, and extend `CONVERSIONS` + `<select>` options with mass (`g` ↔ `gr`) and energy (`j` ↔ `ftlb`) categories, disabling incompatible target `<option>`s (or auto-selecting the paired unit when switching physical dimension) so users rarely hit `"Unsupported conversion"`.
+4. **Tests:** Update `tests/tools.test.js` and `tests/ballistics.test.js` at 100% branch/line/statement/function coverage.
+
+**Coverage:** 100% Jest (`tests/tools.test.js`, `tests/ballistics.test.js`).
+
+**Acceptance criteria:**
+- DOPE distances support add (up to 10, button disabled at limit), per-distance delete, default reset, Metric/Imperial conversion, and toast confirmation on `COPY TEXT`.
+- `#bcCalcCard`, `#mvTruingCard`, and `#bcTruingCard` use a consistent `"Observed drop (below line of sight)"` positive input convention, `#bcCalcPrefillBtn` populates active bullet/atmosphere values in one click, and Truing cards display the active round's name.
+- Typing into MOA/MRAD Calculator or Unit Converter updates results immediately without requiring a button click, and `#unitSwapBtn` swaps `From` and `To` cleanly.
+- `npm test` and `npm run test:e2e` pass at 100/100/100/100.
+
+**Dependencies:** `S26-6` (uses race-free `showToast`).
+
+---
+
+### S26-10 — Bullet selector quick-filter chips & Puppeteer E2E app-experience regression suite · FE / QA · Size S [Could Have]
+
+**As a** user comparing cartridges across the 37+ round catalog — and as a maintainer guarding UX quality in CI — **I want** one-click filter chips (`All`, `Selected`, `Custom`, caliber families) above the bullet list and automated E2E coverage for mobile drawer, scrolling, keyboard tabs, light-theme charts, and readout pinning, **so that** multi-round comparison stays effortless and UX regressions are caught before merge.
+
+**Work items:**
+1. **`app/index.html`, `app/ballistics.css` & `app/ballistics.js` (Quick-filter chips):**
+   - Add a compact `.bullet-filter-chips` row (`role="toolbar" aria-label="Quick filter rounds"`) between `.bullet-search-wrap` and `.selection-meta` with chips: `All`, `Selected` (shows live count `Selected (N)`), and `Custom` (hidden when `customRecords.length === 0`), combinable with `#bulletSearch` text queries inside `filterBulletList()`.
+   - When `Selected` chip is active and the user deselects the last bullet, automatically fall back to `All` (or show `"No rounds selected"` in `#bulletSearchEmpty`) so the user is never stranded on an empty list.
+2. **`tests/e2e/app.e2e.test.js` (App Experience & Mobile UX E2E suite):**
+   - Add `describe('app experience & mobile UX (Sprint 26)', ...)` covering:
+     1. Mobile viewport (`375×667`): `#unitToggle` and `#themeToggle` are visible in `<header>`; `#paramsToggle` opens `#sidebar`, and `#sidebarCloseBtn` + `Escape` close it cleanly; restoring `1280×900` in `afterAll`/`afterEach`.
+     2. Keyboard WAI-ARIA tabs: focusing `#tab-charts` and pressing `ArrowRight` activates `#tab-data` (`aria-selected="true"`), and pressing `ArrowRight` again activates `#tab-tools` with `#toolsPanel` vertically scrollable (`scrollHeight >= clientHeight`, `overflowY === 'auto'`).
+     3. Light Mode chart theme: clicking `#themeToggle` updates Chart.js legend label color away from dark-mode `#c8dde8`.
+     4. Range Readout pinning: clicking a point on `#dropChart` reveals `#rangeReadout` (`aria-pressed="true"` on `#readoutPin`) with non-empty `Elev` MOA/MRAD text and matching `th` / `td` column counts.
+3. **Tests:** Unit tests for chip filtering in `tests/ballistics.test.js` + full E2E run (`npm run build && npm run test:e2e`).
+
+**Coverage:** 100% Jest (`tests/ballistics.test.js`) + Puppeteer E2E (`tests/e2e/app.e2e.test.js`).
+
+**Acceptance criteria:**
+- `Selected` and `Custom` quick-filter chips filter `#bulletList` instant-locally alongside `#bulletSearch` and maintain valid roving `tabindex`.
+- All new and existing Puppeteer E2E tests pass against production `dist/` with zero `pageerror` or console/CSP errors across both `375×667` and `1280×900` viewports.
+- `npm test`, `npm run knip`, `npm run build`, and `npm run test:e2e` all exit `0`.
+
+**Dependencies:** `S26-1`, `S26-2`, `S26-3`, `S26-4`, `S26-5`.
+
+---
+
+## Sprint 27 — Code Quality, Cleanup & Maintenance
+
+**Sprint Goal:** Pay down post-v3.0.0 structural debt across the codebase, test suite, build/CI pipeline, documentation, and git workspace — eliminating duplicated constants/validators/worker-protocol types, decomposing the 1,789-line `app/ballistics.js` orchestrator and 5,419-line `tests/ballistics.test.js` monolith, moving main-thread truing solvers into the Web Worker, locking `innerHTML` and DOM-fixture parity with automated checks, and pruning stale branches/worktrees while preserving 100/100/100/100 Jest coverage and bit-identical golden physics outputs.
+
+**Measured codebase & maintenance baseline (`main` @ `596df07`):**
+- **Static analysis & CI gaps (`.github/workflows/ci.yml`, `tsconfig.json`, `app/mach.js`):** `app/mach.js:8` carries an unused `const FPS_PER_MPS = 3.28084` missed by both `tsc` (`tsconfig.json:19` only checks `app/physics/**/*.ts`, omitting `app/*.js` and `knip.config.ts`) and `knip` (which checks unused exports, not module-local bindings). `.github/workflows/ci.yml:30–43` omits `'knip.config.ts'` from `paths-filter`, and `e2e-smoke` (`lines 149–156`) repeats `npm ci` + `npm run build` instead of reusing the `dist/` build from `frontend-build`.
+- **Duplicated constants, validators & worker protocol (`app/`, `vite.config.mjs`, `tests/__mocks__/`):** Physical conversion constants (`G_PER_GRAIN` / `GRAINS_TO_GRAMS`, `MM_PER_INCH` / `INCH_TO_MM`, `M_PER_FOOT` / `FPS_TO_MPS` / `FPS_PER_MPS`, `CM_PER_INCH`, `M_PER_YARD`, `J_PER_FTLB`) are defined 4–5 times across `app/units.js`, `app/custom-bullets.js`, `app/tools.js`, `app/mach.js`, and `app/physics/engine.ts`. `FORBIDDEN_CHARS_RE` is duplicated in `app/custom-bullets.js:34` and `app/profiles.js:11`; `calcMoaMrad` (`app/tools.js:14`) duplicates `computeAdjustments` (`app/prefs.js:139`); custom drag-table bounds (`3–100` rows, Mach `[0, 5]`, Cd `[0.001, 2]`, `≤ 0.5` / `≥ 2.0`) are hardcoded in 3 files (`app/drag-csv.js`, `app/custom-bullets.js`, `app/physics/engine.ts`); parameter range validators are duplicated in 3 places (`app/url-state.js`, `app/profiles.js`, `app/ballistics.js`); Web Worker request/response interfaces are duplicated in `app/physics/engine-async.ts:6–44` and `app/physics/engine.worker.ts:7–46`; and `physics-tables.yaml` loading is duplicated between `vite.config.mjs:165–190` and `tests/__mocks__/physics-tables.js`.
+- **Main-thread truing & orchestrator/test monoliths (`app/ballistics.js`, `app/tools.js`, `tests/ballistics.test.js`):** `initMvTruing` and `initBcTruing` (`app/ballistics.js:292–301`, `app/tools.js:551–723`) dynamically `import('./physics/engine.ts')` onto the main thread and run up to 100 synchronous `simulate()` iterations on the UI thread, alongside a `_setBcLoadSimulate` test seam (`app/ballistics.js:1760–1762`) left over from pre-ADR-011 drag. `app/ballistics.js` has grown back to **1,789 lines** and `tests/ballistics.test.js` to **5,419 lines** with a hand-copied `buildDOM()` fixture (`lines 23–155`) that has drifted from `app/index.html` (`temperature="59"`, empty `<aside id="sidebar">`, missing `#machColHeader`), plus **92** `/* istanbul ignore */` comments across `app/`.
+- **Docs, contracts & git sprawl (`docs/`, `contracts/`, `CHANGELOG.md`, `.claude/worktrees/`):** `BACKLOG.md:3047` references non-existent `docs/adr/011-engine-drag-calibration.md` (actual path: `contracts/adr-engine-drag-calibration.md`); `docs/sec2-innerHTML-audit.md` omits `app/ballistics.js:1071`; `contracts/custom-round-library.md` lacks a `SUPERSEDED` banner after `CLN-11` deleted `app/custom-rounds.js`; `contracts/url-state.md` and `CHANGELOG.md` (`[Unreleased]`) omit Sprints 16–22 changes; and local/remote git state carries **36 local branches** (13 merged), **95 remote-tracking refs**, merged detached worktree `.claude/worktrees/focused-kapitsa-3813e6`, and untracked `.DS_Store` files.
+
+**Merge & execution order:**
+- **Wave 1 — Static Gates, Deduplication & Type Safety (`[Must Have]`):** `S27-1` (dead locals, JS unused-locals gate & CI `paths-filter`) → `S27-2` (shared constants, MOA/MRAD & custom-drag bounds), `S27-3` (unified parameter validation schema), and `S27-4` (shared worker protocol types & YAML projection helper) in parallel.
+- **Wave 2 — Worker Consolidation & Orchestrator Decomposition (`[Must Have]` / `[Should Have]`):** `S27-5` (worker-backed MV/BC truing & `_setBcLoadSimulate` removal) → `S27-6` (extract `unit-dom.js`, `profile-bar.js`, `custom-bullet-form.js` from `app/ballistics.js`).
+- **Wave 3 — Test Suite Modernization & Coverage Hygiene (`[Should Have]`):** `S27-7` (canonical `app/index.html` DOM fixture + split `tests/ballistics.test.js` into domain suites) → `S27-8` (`istanbul ignore` audit, `replaceChildren()` cleanup & automated `sec2-innerHTML-audit.md` guard).
+- **Wave 4 — CI Build Reuse, Contract/Doc Sync & Repo Hygiene (`[Should Have]` / `[Could Have]`):** `S27-9` (CI `dist/` artifact reuse, broken ADR path fix, contract/changelog updates) → `S27-10` (closing git branch & worktree prune).
+
+---
+
+### S27-1 — Remove dead JS locals, enforce unused-locals checks across `app/*.js` & include `knip.config.ts` in CI · DX / CI · Size S [Must Have]
+
+**As a** maintainer relying on automated CI gates, **I want** module-local dead variables in `app/*.js` and config changes in `knip.config.ts` caught automatically, **so that** unused constants and config edits cannot bypass static analysis or CI filters.
+
+**Work items:**
+1. **`app/mach.js:8`:** Delete the unused `const FPS_PER_MPS = 3.28084;` declaration.
+2. **`.github/workflows/ci.yml` (`lines 30–43`):** Add `- 'knip.config.ts'` (and any new `tsconfig*.json` files) to the `frontend:` `dorny/paths-filter` list so PRs touching dead-code configuration trigger `frontend-build`.
+3. **Typecheck & unused-locals gate (`tsconfig.json` / `package.json`):**
+   - Include `knip.config.ts` in TypeScript verification (either via a root `tsconfig.node.json` / project reference or dedicated check) so `npm run typecheck` validates `knip.config.ts`.
+   - Add a zero-dependency AST or `tsc --allowJs --noCheck --noUnusedLocals --noUnusedParameters` check covering `app/*.js` (wired into `npm run typecheck` or a dedicated Jest static-hygiene test) that fails on any unused local variable, parameter, or import across `app/**/*.{js,ts}` without requiring full JSDoc type migration of vanilla JS files.
+4. **Tests:** Add/verify test assertions ensuring zero unused locals across `app/`.
+
+**Coverage:** 100% Jest; `npm run typecheck` and `npm run knip` pass with zero warnings.
+
+**Acceptance criteria:**
+- `FPS_PER_MPS` is absent from `app/mach.js`.
+- Introducing a dummy unused `const UNUSED_X = 1` in any `app/*.js` file causes `npm test` (`npm run typecheck`) to fail immediately.
+- `.github/workflows/ci.yml` `paths-filter` includes `'knip.config.ts'`.
+- `npm test`, `npm run knip`, and `npm run build` pass at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### S27-2 — Deduplicate physical conversion constants, string sanitizers, MOA/MRAD math & custom drag-table bounds · FE / Physics · Size S [Must Have]
+
+**As a** developer maintaining unit conversions and input validators, **I want** physical constants, control-character regexes, angular adjustment math, and custom drag-table limits defined in single canonical modules, **so that** bug fixes and boundary updates never drift across copies.
+
+**Work items:**
+1. **Shared conversion & validation constants (`app/units.js` / `app/constants.js`):**
+   - Export canonical conversion constants (`M_PER_YARD = 0.9144`, `CM_PER_INCH = 2.54`, `M_PER_FOOT = 0.3048`, `FPS_PER_MPS = 1 / 0.3048` or `3.28084` — see note on `engine.ts` golden parity below, `MM_PER_INCH = 25.4`, `G_PER_GRAIN = 0.06479891`, `J_PER_FTLB = 1.35582`, `KPH_PER_MPH = 1.609344`, `HPA_PER_INHG = 33.8638866667`) and `FORBIDDEN_CHARS_RE = /[\u0000-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/`.
+   - Import those shared constants in `app/custom-bullets.js`, `app/profiles.js`, and `app/tools.js` (`CONVERSIONS` & truing helpers), removing local duplicate `GRAINS_TO_GRAMS`, `FPS_TO_MPS`, `INCH_TO_MM`, `MPS_PER_FPS`, `G_PER_GRAIN`, `MM_PER_INCH`, and `FORBIDDEN_CHARS_RE` declarations.
+   - **Golden-fixture safeguard (`app/physics/engine.ts`):** Keep `engine.ts` zero-dependency or verify `tests/fixtures/spa1-golden.json` bit-identically before touching `engine.ts:29` (`G_PER_GRAIN = 0.0648` used in `stabilityFactor`) and `engine.ts:34` (`FPS_PER_MPS = 3.28084`) — if changing `0.0648` alters any `spinDriftCm` bit in `spa1-golden.json`, retain `MILLER_G_PER_GRAIN = 0.0648` with an explicit comment documenting the golden-fixture contract.
+2. **Deduplicate `calcMoaMrad` (`app/tools.js:14–21`):** Express `calcMoaMrad` via shared angular conversion constants (or parameterize `computeAdjustments(dropCm, rangeMeters, decimals = 1)` in `app/prefs.js`) so MOA/MRAD trigonometry lives in one place.
+3. **Single source of truth for custom drag-table bounds:** Export `DRAG_TABLE_LIMITS = Object.freeze({ minPoints: 3, maxPoints: 100, machMin: 0, machMax: 5, cdMin: 0.001, cdMax: 2, lowMachThreshold: 0.5, highMachThreshold: 2.0 })` from a shared leaf module imported by `app/drag-csv.js`, `app/custom-bullets.js` (`isValidCustomDragTable`), and `app/physics/engine.ts` (`validate`).
+
+**Coverage:** 100% Jest across all modified modules; `tests/fixtures/spa1-golden.json` passes untouched.
+
+**Acceptance criteria:**
+- `grep -rn 'FORBIDDEN_CHARS_RE\|0\.06479891' app/` reports only the single canonical definition site.
+- Custom drag-table bounds (`3`, `100`, `0.001`, `2.0`, `0.5`, `2.0`) are defined once and imported by `drag-csv.js`, `custom-bullets.js`, and `engine.ts`.
+- `tests/fixtures/spa1-golden.json` passes bit-identically without regeneration, and `npm test` passes at 100/100/100/100.
+
+**Dependencies:** `S27-1`.
+
+---
+
+### S27-3 — Unify parameter validation rules across `url-state.js`, `profiles.js` & `ballistics.js` · FE · Size S [Must Have]
+
+**As a** developer adding or adjusting simulation parameters, **I want** parameter range bounds, allowed enums, and optionality rules defined in a single declarative schema module, **so that** URL decoding, profile sanitization, and sidebar validation never disagree on valid inputs.
+
+**Work items:**
+1. **Create `app/param-schema.js`:**
+   - Define frozen declarative rules for required numeric fields (`zero`, `maxRange`, `wind`, `windDir`, `altitude`, `temp`, `step`, `sightHeight`, `angle`), optional numeric fields (`twistRate`, `latitudeDeg`, `azimuthDeg`, `pressureHpa`, `humidityPercent`, `clickValueCustom`, `mvSens`), enum sets (`DRAG_MODELS = ['G1', 'G5', 'G7']`, `VALID_WIND_DIRS`, `UNIT_SYSTEM_VALUES`), and reusable `isParamValid(key, value)` / `validateEnvExtras(...)` helpers.
+   - Document intentional differences where URL state is stricter than profile storage (e.g. `windDir` cardinal 45° steps in `url-state.js` vs `[0, 360]` in `profiles.js`, and `latitudeDeg`/`azimuthDeg` excluded from URL keys per `SEC-LAT-URL`).
+2. **Refactor consumers (`app/url-state.js`, `app/profiles.js`, `app/ballistics.js`):**
+   - Replace hardcoded `VALIDATORS` bounds in `app/url-state.js:28–45`, `REQUIRED_NUMERIC_RULES` / `OPTIONAL_NUMERIC_RULES` in `app/profiles.js:13–33`, and inline range checks in `app/ballistics.js:663–670` (`_readEnvExtras`) with imports from `app/param-schema.js`.
+   - Add `app/param-schema.js` to `package.json` `jest.collectCoverageFrom`.
+3. **Tests:** Add `tests/param-schema.test.js` and verify `tests/url-state.test.js`, `tests/profiles.test.js`, and `tests/ballistics.test.js` pass at 100% coverage.
+
+**Coverage:** 100% Jest (`tests/param-schema.test.js`, `tests/url-state.test.js`, `tests/profiles.test.js`, `tests/ballistics.test.js`).
+
+**Acceptance criteria:**
+- Numeric min/max bounds for shared parameters are declared once in `app/param-schema.js`.
+- All existing URL-state, profile sanitization, and `SEC-LAT-URL` privacy tests pass unchanged.
+- `npm test` and `npm run knip` pass at 100/100/100/100.
+
+**Dependencies:** `S27-1`.
+
+---
+
+### S27-4 — Share typed Web Worker wire protocol & deduplicate build/test YAML projection helpers · Physics / Build · Size S [Must Have]
+
+**As a** developer working on the physics worker and build plugins, **I want** worker message types shared between `engine-async.ts` and `engine.worker.ts` and `physics-tables.yaml` projection shared between Vite and Jest mocks, **so that** protocol or YAML schema changes are enforced at compile and test time.
+
+**Work items:**
+1. **Shared worker protocol types (`app/physics/types.ts`):**
+   - Export `WorkerSimulateRequest`, `WorkerSolveBCRequest`, `WorkerRequest`, `WorkerSuccessResponse`, `WorkerSolveBCResponse`, `WorkerErrorResponse`, and `WorkerResponse` from `app/physics/types.ts` (or a dedicated type-only `app/physics/worker-protocol.ts` included in `knip` / `tsconfig`).
+   - Remove the duplicate local interface blocks in `app/physics/engine-async.ts:6–44` and `app/physics/engine.worker.ts:7–46`, importing the shared types in both files.
+2. **Shared `physics-tables-projection.cjs`:**
+   - Extract `projectPhysicsTables(yamlData)` into root `physics-tables-projection.cjs` (matching `catalog-projection.cjs` conventions and adding `'physics-tables-projection.cjs'` to `.github/workflows/ci.yml` `paths-filter`).
+   - Call `projectPhysicsTables` from both `vite.config.mjs` (`physicsTablesPlugin`, `lines 177–186`) and `tests/__mocks__/physics-tables.js`.
+3. **Mock catalog schema parity test (`tests/bullet-catalog.test.js`):**
+   - Add an assertion verifying every entry in `tests/__mocks__/bullet-catalog.js` has the exact same property key set and value types as `projectBulletCatalog()` output from `app/data/bullets.yaml`, preventing mock drift when catalog fields (such as `ballisticCoefficientG5`) are added.
+
+**Coverage:** 100% Jest (`tests/bullet-catalog.test.js`, `tests/physics/engine-async.test.ts`); `tsc -p tsconfig.json` and `npm run knip` pass cleanly.
+
+**Acceptance criteria:**
+- Zero duplicate `Worker*Request` / `Worker*Response` interface declarations exist across `app/physics/`.
+- `vite.config.mjs` and `tests/__mocks__/physics-tables.js` delegate to `physics-tables-projection.cjs`.
+- `tests/bullet-catalog.test.js` enforces key-and-type parity between `tests/__mocks__/bullet-catalog.js` and `catalog-projection.cjs`.
+- `npm test`, `npm run knip`, and `npm run build` pass at 100/100/100/100.
+
+**Dependencies:** `S27-1`.
+
+---
+
+### S27-5 — Move MV Truing & BC Truing solvers into the physics Web Worker & retire `_setBcLoadSimulate` seam · Physics / FE · Size M [Must Have]
+
+**As a** user running MV Truing or BC Truing on long-range trajectories, **I want** truing bisection to execute inside the physics Web Worker instead of importing `engine.ts` onto the main thread and running ~100 synchronous simulations per click, **so that** the UI never stutters, the main thread never downloads a duplicate copy of `engine.ts`, and pre-ADR-011 test workarounds are retired.
+
+**Work items:**
+1. **`app/physics/types.ts`, `app/physics/engine.ts`, `app/physics/engine.worker.ts` & `app/physics/engine-async.ts`:**
+   - Add typed worker solvers `solveTruedMV(params: TruingMVParams)` and `solveTruedBC(params: TruingBCParams)` in `app/physics/engine.ts` (reusing `evalDropCmAtRange` / safeguarded secant-bisection over the active drag model's BC field `'G1' | 'G5' | 'G7'` and full `TrajectoryParams` atmosphere/zero/sightHeight/twist/customDragTable), exposed asynchronously via `solveTruedMVAsync()` and `solveTruedBCAsync()` in `app/physics/engine-async.ts`.
+2. **`app/tools.js` & `app/ballistics.js`:**
+   - Update `initMvTruing()` and `initBcTruing()` in `app/tools.js` and `_ensureToolsLoaded()` in `app/ballistics.js:292–301` to await `solveTruedMVAsync` / `solveTruedBCAsync` (setting `disabled` + `aria-busy="true"` on `#truingCalc` / `#solveBcBtn` while in flight, matching `#bcCalcBtn`).
+   - Delete `loadSimulate: () => import('./physics/engine.ts').then(m => m.simulate)` (`app/ballistics.js:294, 1760`) and delete `_bcLoadSimulateFn` / `_setBcLoadSimulate` (`app/ballistics.js:1761–1762, 1782`).
+3. **Tests (`tests/physics-engine.test.js`, `tests/physics/engine-async.test.ts`, `tests/mv-truing.test.js`, `tests/tools.test.js`):**
+   - Test `solveTruedMV` and `solveTruedBC` directly against real ADR-011 BRL G1/G5/G7 physics (no synthetic BC-dependent fake `simulate` needed now that ADR 011 standard drag is live), plus worker dispatch/error/abort coverage in `engine-async.test.ts`.
+
+**Coverage:** 100% Jest across `app/physics/` and `app/tools.js` / `app/ballistics.js`.
+
+**Acceptance criteria:**
+- `grep -rn "import('./physics/engine.ts')\|_setBcLoadSimulate" app/` returns nothing — `app/physics/engine.ts` is bundled exclusively into the worker chunk (`dist/assets/engine.worker-*.js`), never imported dynamically onto the main UI thread.
+- MV Truing and BC Truing converge accurately against real ADR-011 physics off the main thread.
+- `npm test`, `npm run knip`, `npm run build`, and `npm run test:e2e` pass at 100/100/100/100.
+
+**Dependencies:** `S27-4` (shared worker protocol types; also coordinate with `S25-2` if merged first).
+
+---
+
+### S27-6 — Decompose `app/ballistics.js` (1,789 lines) into focused UI controllers (`unit-dom.js`, `profile-bar.js`, `custom-bullet-form.js`) · FE / Architecture · Size M [Should Have]
+
+**As a** contributor navigating the frontend codebase, **I want** unit-system DOM syncing, rifle profile bar controls, and the custom-bullet form controller extracted out of `app/ballistics.js` into focused single-responsibility ES modules, **so that** `app/ballistics.js` returns to a lean top-level coordinator with zero circular imports.
+
+**Work items:**
+1. **Extract `app/unit-dom.js` (~125 lines):** Move `UNIT_INPUT_CONFIG`, `ALL_UNIT_INPUTS`, `PREF_UNIT_INPUT_IDS`, `_syncUnitToggleUI`, and input capture/restore helpers (`lines 97–188` of `app/ballistics.js`), injecting callbacks for post-toggle re-render.
+2. **Extract `app/profile-bar.js` (~140 lines):** Move `_renderProfileSelect`, `_applyProfile`, and `#profileSelect` / `#saveProfileBtn` / `#deleteProfileBtn` event wiring (`lines 982–1050, 1351–1400`), communicating with `ballistics.js` via explicit context callbacks (no cycle).
+3. **Extract `app/custom-bullet-form.js` (~350 lines):** Move `_readDragCsvFile`, `_syncCustomPanelAvailability`, `_syncCbDragCsvUI`, `openCustomBulletAdd`, `openCustomBulletEdit`, `closeCustomBulletForm`, `requestCustomBulletDelete`, and `_handleCustomBulletSubmit` (`lines 338–365, 1401–1718`) into a dedicated form controller module.
+4. **Config & test wiring (`package.json`, `knip.config.ts`):**
+   - Add `app/unit-dom.js`, `app/profile-bar.js`, and `app/custom-bullet-form.js` to `package.json` `jest.collectCoverageFrom`.
+   - Verify zero circular dependencies (`npx knip` + import graph check) and confirm `app/ballistics.js` drops below 1,150 lines.
+
+**Coverage:** 100% Jest across all extracted modules and `app/ballistics.js`.
+
+**Acceptance criteria:**
+- `wc -l app/ballistics.js` is `< 1150` lines.
+- `app/unit-dom.js`, `app/profile-bar.js`, and `app/custom-bullet-form.js` have zero circular imports back to `app/ballistics.js` and are covered at 100/100/100/100 in `jest.collectCoverageFrom`.
+- `npm run build` main-bundle gzipped size does not regress, and `npm test`, `npm run knip`, and `npm run test:e2e` pass cleanly.
+
+**Dependencies:** `S27-2`, `S27-3`, `S27-5` (and stack after Sprint 26 UI stories if executed sequentially).
+
+---
+
+### S27-7 — Derive Jest DOM fixtures from `app/index.html` & split `tests/ballistics.test.js` (5,419 lines) into domain suites · QA / DX · Size M [Should Have]
+
+**As a** developer running and maintaining unit tests, **I want** Jest tests to mount the real `app/index.html` body markup rather than a drifted hand-copied HTML string, and `tests/ballistics.test.js` split into focused suites, **so that** HTML/JS mismatches are caught immediately in unit tests and Jest parallelizes runs across CPU cores.
+
+**Work items:**
+1. **Create `tests/helpers/dom-fixture.js`:**
+   - Read and cache `app/index.html` once per worker process, extract the `<body>` inner markup (stripping `<script type="module" src="./ballistics.js"></script>`), and export `mountAppDOM()` + `setupTestEnv()` (`TextEncoder`/`TextDecoder`, `HTMLCanvasElement.prototype.getContext`, `flushMicrotasks`).
+   - Fix any tests in `tests/ballistics.test.js` that relied on stale fixture quirks (e.g. `temperature="59"` instead of production `value="15"`, missing `#machColHeader`, or empty `<aside id="sidebar">`).
+   - Ensure `knip.config.ts` `jest.entry` includes `tests/helpers/**/*.js`.
+2. **Split `tests/ballistics.test.js` (5,419 lines) into focused suites (< 1,500 lines each):**
+   - `tests/ballistics-init.test.js` — boot, SW registration, URL/pref precedence, ADR 011 re-truing notice, auto-compute scheduling.
+   - `tests/ballistics-selection.test.js` — bullet cards, search filter, roving tabindex, 5-round limit, recent combinations (`HIST-1`).
+   - `tests/ballistics-profiles.test.js` — named rifle profile save/load/delete/overwrite UI flows.
+   - `tests/ballistics-custom-form.test.js` — custom bullet add/edit/delete confirmation, drag-CSV upload, trued-bullet saving.
+   - `tests/ballistics-io-tabs.test.js` — tab switching, deferred table/tools flush, unit-system toggle integration, export/import/copy-link delegation, mobile drawer.
+3. **Verify coverage & speed:** Confirm total test count is preserved or increased and global coverage remains 100/100/100/100.
+
+**Coverage:** 100% Jest across all files in `jest.collectCoverageFrom`.
+
+**Acceptance criteria:**
+- Zero hand-duplicated multi-hundred-line `app/index.html` shell strings remain in `tests/`; `mountAppDOM()` mounts the real `app/index.html` body.
+- No single test file under `tests/` exceeds 2,500 lines (`tests/ballistics.test.js` is replaced by or slimmed to `< 1,500` lines alongside the split suites).
+- `npm test` and `npm run knip` pass at 100/100/100/100.
+
+**Dependencies:** `S27-6`.
+
+---
+
+### S27-8 — Audit `/* istanbul ignore */` directives (92 sites), replace `innerHTML = ''` clears & automate `sec2-innerHTML-audit.md` parity · FE / Security · Size S [Should Have]
+
+**As a** security-conscious maintainer enforcing 100% coverage, **I want** unnecessary `istanbul ignore` suppressions pruned, container clears migrated off `innerHTML = ''`, and `docs/sec2-innerHTML-audit.md` verified automatically by a test, **so that** coverage gates and XSS sink inventories never silently rot.
+
+**Work items:**
+1. **Replace `innerHTML = ''` container clears with `replaceChildren()`:**
+   - Convert `list.innerHTML = ''` (`app/ballistics.js:1071`), `cc.innerHTML = ''` (`app/charts.js:906`, `app/sweep.js:112`), and `container.innerHTML = ''` (`app/tools.js:419`) to `.replaceChildren()`.
+2. **Audit all 92 `/* istanbul ignore ... */` directives across `app/`:**
+   - Remove ignores that mask reachable branches (writing unit tests for those branches instead) or redundant `if (el)` guards around static DOM IDs guaranteed by `mountAppDOM()` / `app/index.html` (using a shared `requireEl(id)` helper or direct access where appropriate).
+   - Keep `/* istanbul ignore next -- <reason> */` strictly for genuine runtime-environment guards (e.g. `ServiceWorkerGlobalScope` in `app/sw.js:126`), requiring every surviving ignore comment to carry an `-- <explanation>` rationale enforced by a lint test.
+3. **Refresh & lock `docs/sec2-innerHTML-audit.md`:**
+   - Update `docs/sec2-innerHTML-audit.md` to match the exact post-cleanup set of `innerHTML`, `insertAdjacentHTML`, and `outerHTML` sinks across `app/`.
+   - Add an automated test in `tests/sec-audit.test.js` that scans `app/**/*.{js,ts}` for `innerHTML`, `insertAdjacentHTML`, `outerHTML`, and `document.write`, asserting `0` `document.write` calls, `0` un-explained `istanbul ignore` directives, and that every module/function containing an HTML sink is listed in `docs/sec2-innerHTML-audit.md`.
+
+**Coverage:** 100% Jest (`tests/sec-audit.test.js` + affected module suites).
+
+**Acceptance criteria:**
+- Zero `innerHTML = ''` container-clearing statements remain in `app/`.
+- Every remaining `/* istanbul ignore ... */` comment in `app/` includes an explicit `-- <reason>` and total count is reduced substantially from 92.
+- Adding an undocumented `innerHTML` sink in `app/` fails `tests/sec-audit.test.js` immediately.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** `S27-7`.
+
+---
+
+### S27-9 — Reuse built `dist/` artifact in CI `e2e-smoke` & reconcile stale contracts, ADR paths, and `CHANGELOG.md` · DevSecOps / Docs · Size S [Should Have]
+
+**As a** contributor reviewing CI runs, contracts, and release history, **I want** `e2e-smoke` to test the exact `dist/` artifact produced by `frontend-build` without rebuilding, and all contract docs, ADR references, and `CHANGELOG.md` entries brought up to date with automated link/path checking, **so that** CI is faster and project documentation is 100% trustworthy.
+
+**Work items:**
+1. **`.github/workflows/ci.yml` (`frontend-build` & `e2e-smoke`):**
+   - Upload `dist/` as a short-retention workflow artifact (`retention-days: 1`) in `frontend-build` when `needs.changes.outputs.frontend == 'true'`.
+   - Make `e2e-smoke` depend on `[changes, frontend-build]`, download the `dist/` artifact instead of running a duplicate `npm run build`, and launch `npm run test:e2e` against the exact production bundle that `deploy` publishes.
+2. **Fix broken doc references & stale contracts:**
+   - Fix `BACKLOG.md:3047`: change non-existent `docs/adr/011-engine-drag-calibration.md` to `contracts/adr-engine-drag-calibration.md`.
+   - Add a `> **STATUS: SUPERSEDED / RETIRED (CLN-11)**` banner to `contracts/custom-round-library.md` (preserving historical text per contract conventions) and log the retirement in `contracts/CHANGELOG.md`.
+   - Bump `contracts/url-state.md` to document `SEC-LAT-URL` (`latitudeDeg`/`azimuthDeg` removal), `units`, `mvSens`, and `clickValue`/`clickValueCustom`, with a corresponding entry at the top of `contracts/CHANGELOG.md`.
+3. **Reconcile root `CHANGELOG.md` & add doc-reference test:**
+   - Update `CHANGELOG.md` `[Unreleased]` so Sprints 16–24 changes are complete and consistent (coordinating with `S25-5` if merged: `knip` dead-code gate, `G5` drag model & reactive MODEL pill, incremental chart diff, `SEC-LAT-URL` privacy fix, `HIST-1` recent bullet combinations, Sprint 23–24 field-realism & ADR 011 standard drag).
+   - Add a lightweight test in `tests/docs-integrity.test.js` verifying that every relative markdown link `[...](...)` and backticked `contracts/*.md` / `docs/**/*.md` file path in `README.md`, `CHANGELOG.md`, `contracts/CHANGELOG.md`, and `docs/` resolves to an existing file on disk.
+
+**Coverage:** 100% Jest (`tests/docs-integrity.test.js`).
+
+**Acceptance criteria:**
+- `.github/workflows/ci.yml` builds `dist/` once in `frontend-build` and reuses it in `e2e-smoke`.
+- Zero broken relative links or nonexistent `docs/` / `contracts/` paths exist across `README.md`, `CHANGELOG.md`, `BACKLOG.md`, `docs/`, and `contracts/` (enforced by `tests/docs-integrity.test.js`).
+- `contracts/custom-round-library.md`, `contracts/url-state.md`, `contracts/CHANGELOG.md`, and `CHANGELOG.md` accurately reflect the current codebase.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** None.
+
+---
+
+### S27-10 — Git branch, remote-tracking ref, `.DS_Store` & `.claude/worktrees` maintenance sweep · DevOps / DX · Size XS [Could Have]
+
+**As a** developer working in the local repository and GitHub branch list, **I want** obsolete merged branches, stale pre-SPA remote refs, detached merged worktrees, and stray `.DS_Store` files cleaned up, **so that** `git branch -a` and `git worktree list` reflect only active work.
+
+**Work items:**
+1. **Worktree cleanup:** Verify `.claude/worktrees/focused-kapitsa-3813e6` (`3464d83`, merged in PR #221) has zero uncommitted changes, remove it via `git worktree remove`, and run `git worktree prune` (leaving any unmerged worktree such as `backlog-sprint25` untouched until its branch lands).
+2. **Local & remote branch cleanup:**
+   - Run `git fetch --prune origin` and `gh pr list --state open` to identify any branches backing open PRs.
+   - Delete the 13+ local branches already merged into `main` (`git branch -d ...`) and delete merged/obsolete `origin/*` branches (including leftover `origin/dependabot/maven/*`, `origin/dependabot/docker/*`, `origin/claude/wa*`, and merged `feat/s23-*` / `feat/s24-*` / `sprint17/*` branches).
+3. **OS metadata & `.gitignore` hardening:**
+   - Remove untracked `.DS_Store` files (`rm -f .DS_Store docs/.DS_Store .claude/worktrees/.DS_Store`) and ensure `.gitignore` matches `**/.DS_Store`.
+
+**Coverage:** Repo/ops maintenance (plus `.gitignore` one-liner if needed); `npm test` remains 100/100/100/100.
+
+**Acceptance criteria:**
+- `git worktree list` shows only `main` (and any intentionally active unmerged worktree).
+- `git branch --merged main` lists only `main`.
+- Zero `dependabot/maven/*` or `dependabot/docker/*` branches remain on `origin`, and `find . -name .DS_Store` returns nothing.
+
+**Dependencies:** Run at end of sprint after active feature/cleanup PRs merge.
