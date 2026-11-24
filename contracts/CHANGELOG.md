@@ -3,6 +3,19 @@
 This file tracks internal interface contract changes. All physics runs in
 the browser; there is no server-side API.
 
+## 2026-11-23: Engine drag calibration (ADR 011)
+
+| Contract | Version | Change | Breaking |
+|---|---|---|---|
+| `adr-engine-drag-calibration.md` | ADR 011 (Proposed) | New. Replaces the near-vacuum drag (`F(v)·rho/BC`, with no v² term and no unit constant) with standard point-mass retardation `a = 2.08551e-4 · rho · Cd(M) · v² / BC`. Standard BRL G1/G5/G7 Mach→Cd tables. Mach is converted per run at the ambient sound speed. | n/a |
+| `engine-drag-calibration.md` | 1.0.0 | New. YAML keys `g1Table`/`g5Table`/`g7Table` `{v,f}` become `g1CdTable`/`g5CdTable`/`g7CdTable` `{mach,cd}`. The `virtual:physics-tables` exports `G1_TABLE`/`G5_TABLE`/`G7_TABLE` become `G1_CD_TABLE`/`G5_CD_TABLE`/`G7_CD_TABLE`. New `@internal` `CD_TO_RETARD` and `referenceDragTable(model, soundFps)`. The RK4 drag expression changes at 12 sites. The loop stop moves from total speed to `vx` (hang guard). `solveBC` gets a feasible-lower-bound search and a temperature-matched G1 table. Public API signatures are unchanged. The golden fixture is re-baselined. | Internal: **yes** (virtual-module export names and shapes; every numeric engine output). Public API: **no** (same signatures). Wire: **none** |
+| `feat3-custom-drag-ts.md` | 1.1.0 | §3.4 "physics limitation" note SUPERSEDED by ADR 011. Custom `cd` is now a true reference C_d. | No |
+| `spa1-ts-engine.md` | 1.1.0 | §11.3 item 1 baseline (`a63f361`) SUPERSEDED. The fixture is re-baselined under ADR 011, and the exact-equality lock stays. | No |
+
+User-visible: every trajectory output changes: drop, velocity, TOF, energy, wind drift, spin drift, Coriolis, supersonic limit, DOPE, MPBR, and the MV/BC truing tools. Results are now physically realistic. Wire-visible: none.
+
+---
+
 ## 2026-11-17: Sprint 10 physics features (FEAT-1 to FEAT-3, stacked)
 
 | Contract | Version | Change | Breaking |
