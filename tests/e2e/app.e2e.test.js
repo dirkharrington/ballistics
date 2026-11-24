@@ -704,3 +704,81 @@ describe('S23-5c theme persistence', () => {
     expect(await theme()).toBe(after);
   });
 });
+
+// ── S24-3: Sprint 23 feature smoke tests ──────────────────────────────────────
+
+/** Set an input/select value and fire input + change so the app reacts. */
+async function setField(selector, value) {
+  await page.$eval(selector, (el, v) => {
+    el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }, value);
+}
+
+describe('S24-3 Sprint 23 features', () => {
+  it('S24-3a: MV temperature sensitivity shows an Effective MV line', async () => {
+    await loadApp(true);
+    await waitForResults(1);
+    expect(await page.$eval('.stats-grid', el => el.textContent)).not.toContain('Effective MV');
+
+    await setField('#temperature', '30');
+    await setField('#mvSens', '1');
+    await page.waitForFunction(
+      () => document.querySelector('.stats-grid')?.textContent.includes('Effective MV'),
+      { timeout: 15000 },
+    );
+    expect(await page.$eval('.stats-grid', el => el.textContent)).toContain('Effective MV');
+  });
+
+  it('S24-3b: transonic / subsonic markers appear on the stat card', async () => {
+    await loadApp(true);
+    await waitForResults(1);
+    const text = await page.$eval('.stats-grid', el => el.textContent);
+    expect(/Mach 1\.[02]/.test(text) || text.includes('Beyond max range')).toBe(true);
+    expect(text).toContain('transonic');
+    expect(text).toContain('subsonic');
+  });
+
+  it('S24-3c: DOPE table shows a Clicks column for the chosen click value', async () => {
+    await loadApp(true);
+    await waitForResults(1);
+    await page.click('#tab-tools');
+    await page.waitForFunction(
+      () => document.getElementById('toolsPanel')?.classList.contains('active')
+        && document.querySelectorAll('#dopeTable tbody tr').length > 0,
+      { timeout: 10000 },
+    );
+    await setField('#clickValue', '0.5moa');
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('#dopeTable th')].some(th => th.textContent.includes('Clicks')),
+      { timeout: 5000 },
+    );
+    const headings = await page.$$eval('#dopeTable th', ths => ths.map(t => t.textContent));
+    expect(headings.some(h => h.includes('Clicks'))).toBe(true);
+    expect(await page.$eval('#dopeTable', el => el.parentElement.parentElement.textContent)).toMatch(/½ MOA|0\.5 MOA/i);
+  });
+
+  it('S24-3d: MV truing solves a numeric trued MV', async () => {
+    await loadApp(true);
+    await waitForResults(1);
+    await page.click('#tab-tools');
+    await page.waitForFunction(
+      () => document.getElementById('toolsPanel')?.classList.contains('active'),
+      { timeout: 10000 },
+    );
+    await page.waitForSelector('#truingCalc', { visible: true });
+    await setField('#truingRange', '500');
+    await setField('#truingDrop', '120');
+    await page.click('#truingCalc');
+    await page.waitForFunction(
+      () => document.getElementById('truingResult')?.style.display !== 'none'
+        || document.getElementById('truingError')?.textContent,
+      { timeout: 15000 },
+    );
+    expect(await page.$eval('#truingError', el => el.textContent)).toBe('');
+    const mvText = await page.$eval('#truingMV', el => el.textContent);
+    expect(mvText).toMatch(/^\d+(\.\d+)?\s*\S+/);
+    expect(Number.parseFloat(mvText)).toBeGreaterThan(0);
+  });
+});
