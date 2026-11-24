@@ -453,7 +453,9 @@ export function findZeroAngleFps(
   // instead of 64 fixed bisection passes while matching to <1e-12 rad.
   for (let i = 0; i < 64 && hi - lo > 1e-13; i++) {
     const span = hi - lo;
-    const secant = hi - fHi * (span / (fHi - fLo));
+    // istanbul ignore next -- fLo is always finite here: expansion loop sets lo=hi, fLo=fHi,
+    // and if that fHi were -Infinity the guard above (fHi < 0 → return NaN) would have fired.
+    const secant = Number.isFinite(fLo) ? hi - fHi * (span / (fHi - fLo)) : /* istanbul ignore next */ Number.NaN;
     const margin = 0.05 * span;
     const mid = (secant > lo + margin && secant < hi - margin)
       ? secant
@@ -826,7 +828,6 @@ export function solveBC(params: SolveBCParams): number | null {
     const resMid = evalDropCmAtRange(mvFps, mid, rho, zeroFt, sightHtFt, targetFt, g1, startIdx, hintAngle)!;
     hintAngle = resMid.angle;
     const fMid = resMid.dropCm - measuredDropCm;
-    /* istanbul ignore next */
     if (Math.abs(fMid) <= 1e-7) break;
     if (fMid < 0) {
       lo = mid;

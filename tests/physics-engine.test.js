@@ -1515,7 +1515,7 @@ describe('PERF-30: warm-bracket findZeroAngleFps, safeguarded secant solveBC & h
     expect(fastBc).toBeGreaterThanOrEqual(0.001);
     expect(fastBc).toBeLessThanOrEqual(1.5);
 
-    // Upward bracket advance (v > vArr[idx]) in evalDropCmAtRange: 121.9 m/s (399.93 fps) accelerates past 400 fps over 150m
+    // Upward bracket advance (v > vArr[idx]) in evalDropCmAtRange: 121.9 m/s is too slow to reach 150m, returns hi=1.5
     const accelBc = solveBC({ weightG: 10, mvMps: 121.9, measuredDropCm: -50, rangeM: 150, altM: 0, tempC: 15 });
     expect(accelBc).toBe(1.5);
 
@@ -1527,8 +1527,7 @@ describe('PERF-30: warm-bracket findZeroAngleFps, safeguarded secant solveBC & h
     // solveBC early-exit (line 810): short range (10m < zero 100m) with measuredDropCm more negative than
     // any feasible drop at 10m — computed drop ≈ -0.5 cm, so -1 cm forces fLo >= 0 immediately
     const earlyExitBc = solveBC({ weightG: 10.89, mvMps: 807, measuredDropCm: -1, rangeM: 10, altM: 0, tempC: 15 });
-    expect(earlyExitBc).toBeGreaterThan(0);
-    expect(earlyExitBc).toBeLessThanOrEqual(1.5);
+    expect(earlyExitBc).toBe(0.008);
   });
 });
 
@@ -2135,5 +2134,14 @@ describe('ADR 011: drag calibration', () => {
     // Every BC → zero unreachable at MV=5 m/s
     const result = solveBC({ weightG: 10.89, mvMps: 5, measuredDropCm: -100, rangeM: 500, altM: 0, tempC: 15 });
     expect(result).toBeNull();
+  });
+
+  // N19: solveBC bisection exact-convergence (|fMid| ≤ 1e-7 early break)
+  test('N19: solveBC bisection exact-convergence exits early via |fMid| ≤ 1e-7 and returns 4-dp BC', () => {
+    const { solveBC } = require('../app/physics/engine.ts');
+    // weightG=5, mvMps=600, rangeM=300 produces a bisection trajectory where the midpoint
+    // drop matches measuredDropCm to within 1e-7 cm before the interval converges to 1e-5.
+    const result = solveBC({ weightG: 5, mvMps: 600, measuredDropCm: -200, rangeM: 300, altM: 0, tempC: 15 });
+    expect(result).toBe(0.2011);
   });
 });
