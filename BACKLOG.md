@@ -3811,3 +3811,267 @@ Merge order guidance: S25-5 (`.md`-only, no devsecops) → S25-2 → S25-1 (adds
 - Zero `dependabot/maven/*` or `dependabot/docker/*` branches remain on `origin`, and `find . -name .DS_Store` returns nothing.
 
 **Dependencies:** Run at end of sprint after active feature/cleanup PRs merge.
+
+---
+
+## Sprint 28 — 3D Trajectory Visualization (Three.js)
+
+**Sprint Goal:** Add an interactive, lazy-loaded Three.js 3D trajectory view (`3D View` tab) that renders a selected bullet's full 3D flight path — downrange distance, elevation/drop (with sight height, max ordinate, zero crossing, and Eötvös), and lateral deflection (wind drift, gyroscopic spin drift, and Coriolis) — with Mach-regime coloring, configurable scale exaggeration, camera presets, real-time/slow-motion flight playback, target impact visualization, full light/dark and Metric/Imperial reactivity, zero impact on initial bundle load or strict CSP, and 100/100/100/100 Jest coverage.
+
+**Architectural baseline & constraints (`main` + Sprints 25–27):**
+- **Physics data already present (`app/physics/types.ts`, `app/physics/packed-points.ts`):** Every `TrajectoryPoint` already carries `rangeMeters`, `dropCm`, `windDriftCm`, `velocityMps`, `energyJoules`, `timeOfFlightSec`, `spinDriftCm`, optional `coriolisDeflectionCm`, and optional `coriolisVerticalCm`, plus result-level `maxOrdinateCm`, `maxOrdinateRangeMeters`, `supersonicLimitMeters`, and `request` (`zeroRangeMeters`, `sightHeightMm`, `shootingAngleDegrees`, `windSpeedKph`, `windDirectionDeg`). Zero new physics-engine math is required.
+- **Scale reality:** At 1,000 m range, bullet drop (~8–12 m) is ~1% of range and lateral drift (~1–3 m) is ~0.2% of range; a naive 1:1 3D plot looks like a flat line. The 3D view must separate pure coordinate/exaggeration math (`app/view3d-math.js`) from WebGL rendering (`app/view3d.js`) and always disclose active vertical/lateral scale magnification (`1× True`, `10×`, `25×`, `Auto`) in the HUD.
+- **Bundle, SW & CSP discipline (`vite.config.mjs`, `app/index.html`, `app/sw.js`):** `three` (~160 KB gzipped) must live in a dedicated lazy chunk (`assets/three-*.js`), excluded from initial boot and first-visit SW precache (mirroring Chart.js `vendor-*.js` in `PERF-3`/`PERF-24`, cached on demand via `cacheFirstNetworkFallback`). All textures, grids, and labels must be procedurally generated (`THREE.CanvasTexture`) with zero external URLs and zero `'unsafe-eval'` to keep `app/index.html` CSP intact.
+- **Coverage & testability (`package.json`, `knip.config.ts`):** Keeping pure math in `app/view3d-math.js` and mocking `three` + `OrbitControls` in `tests/__mocks__/three.js` (mirroring `app/chart-loader.js` + `tests/__mocks__/chart.js`) preserves genuine 100/100/100/100 Jest coverage without requiring WebGL in jsdom.
+
+**Merge & execution order:**
+- **Wave 1 — Architecture, Lazy Bundling & Pure Math (`[Must Have]`):** `S28-1` (architect contract pass + `three` install, `view3d-loader.js`, Vite chunk split, SW precache exclusion & Jest mocks) → `S28-2` (`app/view3d-math.js` pure coordinate/scale/Mach/camera/interpolation math).
+- **Wave 2 — Workspace Tab & Core 3D Scene (`[Must Have]`):** `S28-3` (`#tab-3d` / `#view3dPanel`, lazy loader wiring, focal bullet selector & multi-round ghost toggle) → `S28-4` (`app/view3d.js` Three.js scene, trajectory tube, grid, LoS ray, shadow curve, milestones, WebGL fallback & GPU disposal).
+- **Wave 3 — Interaction, Playback, Target/Wind & Theme/Units (`[Must Have]` / `[Should Have]`):** `S28-5` (`OrbitControls`, 5 camera presets & scale exaggeration selector) → `S28-6` (scrubber, flight playback animation & live telemetry HUD), `S28-7` (target plate impact reticle & 3D wind-vector arrow), and `S28-8` (Light/Dark theme sync, Metric/Imperial updates & PNG snapshot export) in parallel.
+- **Wave 4 — E2E Verification & Docs (`[Must Have]`):** `S28-9` (Puppeteer E2E smoke tests, lazy-load network verification, `contracts/view3d-trajectory.md` & `README.md`).
+
+---
+
+### S28-1 — Three.js dependency, lazy `three` chunk split, SW precache exclusion & Jest mock scaffold · Build / Architecture · Size S [Must Have] ⚠️ Needs architect pass
+
+**As a** maintainer protecting startup performance, offline reliability, and strict CSP, **I want** Three.js installed and wired behind a tree-shaken lazy loader with its own Vite chunk, Service Worker precache exclusion, and Jest mock mapping, **so that** users who stay on 2D Charts / Data Table / Tools pay zero download or parse cost and all CI gates stay green.
+
+**Work items:**
+1. **Dependency & tree-shaken wrapper (`package.json`, `app/view3d-loader.js`):**
+   - Add pinned `three` (MIT, zero runtime dependencies) to `package.json` `dependencies`.
+   - Create `app/view3d-loader.js` (mirroring `app/chart-loader.js`) re-exporting only the named `three` primitives needed (`Scene`, `PerspectiveCamera`, `WebGLRenderer`, `Color`, `Vector3`, `CatmullRomCurve3`, `TubeGeometry`, `BufferGeometry`, `Float32BufferAttribute`, `Line`, `LineBasicMaterial`, `LineDashedMaterial`, `Mesh`, `MeshStandardMaterial`, `MeshBasicMaterial`, `SphereGeometry`, `RingGeometry`, `PlaneGeometry`, `GridHelper`, `ArrowHelper`, `Sprite`, `SpriteMaterial`, `CanvasTexture`, `AmbientLight`, `DirectionalLight`, `Group`, `Box3`) plus `OrbitControls` from `three/addons/controls/OrbitControls.js`.
+2. **Vite chunk splitting & SW precache (`vite.config.mjs`):**
+   - Add `{ name: 'three', test: /[\\/]node_modules[\\/]three[\\/]/, priority: 25 }` to `build.rolldownOptions.output.codeSplitting.groups` (`lines 215–222`) so Three.js never merges into the entry chunk or `vendor` (Chart.js) chunk.
+   - Update `serviceWorkerPlugin()` (`vite.config.mjs:120`) filter to `!/^assets\/(vendor|three)-.*\.js$/` so first-visit SW install does not eagerly download the Three.js chunk (first visit to `#tab-3d` caches it on demand via `cacheFirstNetworkFallback`).
+3. **Jest mocks & `knip` (`package.json`, `knip.config.ts`, `tests/__mocks__/three.js`):**
+   - Add `tests/__mocks__/three.js` (and `tests/__mocks__/three-orbit-controls.js`) mapped via `jest.moduleNameMapper` (`"^three$"`, `"^three/addons/controls/OrbitControls\\.js$"`).
+   - Verify `npm run knip` and `npm audit --audit-level=high --omit=dev` pass cleanly with zero phantom-dep or unused-export warnings.
+4. **Tests:** Add build/config verification assertions in `tests/sw.test.js` (confirming `assets/three-*.js` is excluded from precache while still cached on runtime fetch) and verify `app/index.html` CSP requires zero relaxation (`no unsafe-eval`, `no external origins`).
+
+**Coverage:** 100% Jest; `npm run knip` and `npm run build` emit a separate `dist/assets/three-*.js` chunk with zero Three.js code in the main entry chunk.
+
+**Acceptance criteria:**
+- `npm run build` emits a separate `dist/assets/three-*.js` chunk and the main entry bundle size does not increase materially (`< 2 KB` delta).
+- `dist/sw.js` precache manifest excludes `assets/three-*.js` (just like `assets/vendor-*.js`).
+- `npm test`, `npm run knip`, and `npm audit --audit-level=high --omit=dev` all exit `0` at 100/100/100/100 coverage.
+
+**Notes for architect:** Confirm exact `three` version pin, coordinate-axis convention (`+Z` downrange vs `+X` downrange, right-handed Y-up), and whether `contracts/view3d-trajectory.md` should be authored as part of `S28-1` before `S28-4` starts.
+
+**Dependencies:** None.
+
+---
+
+### S28-2 — Pure 3D trajectory geometry, scale-exaggeration, Mach coloring & camera framing math (`app/view3d-math.js`) · FE / Math · Size S [Must Have]
+
+**As a** developer building the 3D scene and unit tests, **I want** all trajectory-to-3D coordinate projection, vertical/lateral exaggeration, Mach-regime color classification, time-of-flight interpolation, and camera preset math isolated in a pure WebGL-free ES module, **so that** every geometric calculation is deterministic and 100% unit-tested in Jest.
+
+**Work items:**
+1. **Create `app/view3d-math.js` (and add to `package.json` `jest.collectCoverageFrom`):**
+   - `computeAutoScale(points, rangeMeters)`: chooses a clean vertical/lateral exaggeration multiplier (e.g. clamped to `[1, 50]` and snapped to readable steps `1`, `2`, `5`, `10`, `25`, `50`) so the trajectory envelope spans ~15–25% of downrange length for clear 3D readability without distortion overload.
+   - `projectTrajectory3D(result, opts)`: converts `result.points` into `{ x, y, z, mach, regime, t, rangeMeters, dropCm, lateralCm, windCm, spinCm, coriolisCm, velocityMps, energyJoules }[]` where:
+     - `z` = downrange distance (scaled into normalized scene units, e.g. `1 scene unit = 10 m` or meters directly, consistent across grid/camera),
+     - `y` = vertical offset `(dropCm + (includeEotvos ? coriolisVerticalCm ?? 0 : 0)) / 100 * yScale`, optionally tilted by `shootingAngleDegrees` when incline display is enabled,
+     - `x` = lateral deflection `(windDriftCm + (includeSpin ? spinDriftCm : 0) + (includeCoriolis ? coriolisDeflectionCm ?? 0 : 0)) / 100 * xScale`,
+     - `mach` & `regime` (`'supersonic'` ≥ `TRANSONIC_MACH`, `'transonic'` in `[SUBSONIC_MACH, TRANSONIC_MACH)`, `'subsonic'` < `SUBSONIC_MACH`, reusing `resultSpeedOfSound` / `TRANSONIC_MACH` / `SUBSONIC_MACH` from `app/mach.js`).
+   - `interpolateFlightState(projectedPoints, rangeMetersOrFraction)`: binary-search linear interpolation returning exact 3D position `(x, y, z)`, velocity, Mach, energy, drop, lateral drift breakdown, MOA/MRAD elevation (`computeAdjustments`), and `timeOfFlightSec` for scrubber and flight playback.
+   - `getCameraPreset(presetId, bounds)`: computes deterministic `{ position, target, fov }` for `'isometric'`, `'shooter'`, `'side'`, `'top'`, and `'target'` views framed tightly around the trajectory bounding box.
+   - `extractMilestones(result, projectedPoints, opts)`: returns 3D positions & labels for `Zero` (`zeroRangeMeters`), `Max Ordinate` (`maxOrdinateRangeMeters`), `Transonic` (`Mach 1.2`), and `Subsonic` (`Mach 1.0`) markers when within `[0, maxRangeMeters]`.
+2. **Tests (`tests/view3d-math.test.js`):** Full unit test coverage across flat/angled trajectories, zero/non-zero wind + spin + Coriolis + Eötvös, `1×` / `10×` / `25×` / `Auto` scale modes, Mach regime transitions, empty/single-point edge guards, interpolation bounds, and all 5 camera presets.
+
+**Coverage:** 100% Jest (`tests/view3d-math.test.js`).
+
+**Acceptance criteria:**
+- `app/view3d-math.js` has zero imports from `three` or DOM APIs.
+- All coordinate projections, scale clamping, Mach regime classifications, flight interpolations, and camera presets pass deterministic unit assertions at 100/100/100/100 coverage.
+- `npm test` and `npm run knip` pass cleanly.
+
+**Dependencies:** `S28-1`.
+
+---
+
+### S28-3 — Add lazy-loaded `3D View` workspace tab (`#tab-3d`), `#view3dPanel` shell & focal bullet selector · FE · Size S [Must Have]
+
+**As a** user exploring computed trajectories, **I want** a `3D View` tab alongside `Trajectory Charts`, `Data Table`, and `Tools` where I can pick which selected round is the focal 3D trajectory (and optionally overlay other selected rounds), **so that** 3D inspection integrates naturally into the existing workspace without slowing initial load.
+
+**Work items:**
+1. **`app/index.html` & `app/ballistics.css`:**
+   - Add `#tab-3d` (`3D View`) in `.tabs` (`lines 336–340`) and `#view3dPanel` (`class="view3d-panel"`) in `<main class="main">` containing:
+     - Top toolbar: focal round `<select id="view3dBulletSelect" aria-label="Focal round for 3D view">`, `"Show other selected rounds"` checkbox (`#view3dShowOthers`), camera preset buttons container (`#view3dCameraBar`), scale exaggeration selector (`#view3dScaleSelect`: `Auto`, `1× True`, `10×`, `25×`), `Reset` & `PNG` action buttons, and active scale badge (`#view3dScaleBadge`).
+     - Viewport container (`#view3dViewport`) with canvas mount, empty-state placeholder (`#view3dEmpty`), WebGL-fallback notice (`#view3dFallback`, `hidden`), and compact corner telemetry HUD (`#view3dHud`).
+     - Bottom playback/scrubber bar (`#view3dPlaybackBar`: `#view3dPlayBtn`, `#view3dSpeedSelect`, `#view3dScrubber`, `#view3dScrubLabel`).
+   - Style `#view3dPanel.active` with `display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;` (responsive down to `375×667` mobile viewports, `touch-action: none` on the 3D canvas, excluded in `@media print`).
+2. **`app/ballistics.js` (and `app/url-state.js` if `tab=` is present from `S26-5`):**
+   - Add memoized lazy loader `_loadView3d()` (`_lazyLoad('view3d', () => import('./view3d.js'))`, evicting promise on rejection with user-facing error banner via `_setSimulationError`).
+   - Add deferred dirty-flag state (`_view3dDirty`, mirroring `_dopeDirty` / `setTablePendingResults`): `renderResults()` only marks 3D dirty when `#view3dPanel` is inactive and triggers `view3dMod.renderView3D(...)` immediately only when `#view3dPanel` is active.
+   - Inside `switchTab(name, el)`: when switching **to** `'3d'`, lazily load and initialize/flush `app/view3d.js`; when switching **away** from `'3d'`, call `view3dMod?.pauseView3D()` so zero GPU frames render in the background!
+   - Populate `#view3dBulletSelect` whenever results update, preserving the previously chosen focal `bulletId` if still selected (otherwise defaulting to `results[0]`).
+3. **Tests (`tests/ballistics.test.js`, `tests/css-perf.test.js`):** Cover tab switching to/from `'3d'`, lazy load success & failure retry, deferred render flush, pause on tab switch away, focal bullet selection persistence, and CSS token/perf hygiene.
+
+**Coverage:** 100% Jest (`tests/ballistics.test.js`, `tests/css-perf.test.js`).
+
+**Acceptance criteria:**
+- Initial page load on `Trajectory Charts` never imports `app/view3d.js` or `three`.
+- Clicking `#tab-3d` lazily loads `app/view3d.js` and renders the active selected trajectory; switching `#view3dBulletSelect` re-focuses on any other selected round without re-running physics.
+- Switching away from `#tab-3d` immediately pauses the 3D render loop.
+- `npm test` and `npm run knip` pass at 100/100/100/100.
+
+**Dependencies:** `S28-1`, `S28-2`.
+
+---
+
+### S28-4 — Three.js trajectory scene renderer, Mach coloring, ground grid, LoS ray, shadow projection & GPU disposal (`app/view3d.js`) · FE / Graphics · Size M [Must Have]
+
+**As a** shooter inspecting a trajectory in 3D, **I want** a crisp, readable WebGL scene showing the bullet's 3D flight curve colored by Mach regime, optical line of sight, ground range grid with distance markers, ground-plane drop-shadow curve, and Zero / Peak / Transonic / Subsonic callouts, **so that** vertical drop and lateral drift are immediately intuitive in three dimensions.
+
+**Work items:**
+1. **Create `app/view3d.js` (and add to `package.json` `jest.collectCoverageFrom`):**
+   - **Renderer & WebGL guard:** Detect WebGL availability before constructing `WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })`; cap `setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))`; attach `ResizeObserver` on `#view3dViewport`; handle `webglcontextlost` / `webglcontextrestored` events cleanly; if WebGL initialization fails, show `#view3dFallback` with a clear message and zero uncaught errors.
+   - **Procedural range environment (zero external assets):**
+     - Ground range grid (`GridHelper` / custom `LineSegments`) spanning `0` to `maxRange` with tick markers every `100 m` / `100 yd` and crisp `CanvasTexture` sprite distance labels.
+     - Firing-line bore/optic origin marker and dashed optical **Line of Sight (LoS)** ray (`y = 0` at `zeroRange`, showing muzzle sight-height offset below LoS at `range = 0`).
+   - **Trajectory geometry:**
+     - Focal bullet rendered as a smooth `TubeGeometry` along `CatmullRomCurve3` with per-vertex colors encoding Mach regime (`supersonic` → accent/green, `transonic` Mach 1.2 → amber, `subsonic` Mach 1.0 → crimson) plus a projected ground-plane shadow line (`y = groundY`) and subtle vertical drop-sticks at major range ticks so lateral wind/spin/Coriolis drift reads unambiguously in 3D.
+     - When `#view3dShowOthers` is checked and multiple bullets are selected, render secondary active bullets as thinner translucent `Line` / `TubeGeometry` curves in their `colorFor(b)` catalog colors.
+     - Render milestone sprites/rings for **ZERO**, **PEAK (Max Ord)**, **MACH 1.2**, and **MACH 1.0** from `extractMilestones()`.
+   - **Lifecycle & memory hygiene:**
+     - Export `initView3D()`, `renderView3D(results, req, opts)`, `pauseView3D()`, `resumeView3D()`, and `destroyView3D()`.
+     - Explicitly `.dispose()` all replaced geometries, materials, and `CanvasTexture`s on every re-render and dispose renderer + `ResizeObserver` + `document` `visibilitychange` / `pagehide` listeners in `destroyView3D()`.
+     - Render on-demand (`controls` change, playback active, resize, or theme/data update) rather than spinning an idle 60 fps loop when the camera is stationary, saving laptop and mobile battery!
+2. **Tests (`tests/view3d.test.js`):** Unit test WebGL initialization, no-WebGL fallback, `webglcontextlost` / `webglcontextrestored` handlers, trajectory + multi-bullet ghost rendering, milestone sprite creation, `ResizeObserver`, `pauseView3D` / `resumeView3D` / `visibilitychange`, and `.dispose()` invocation counts on rebuild and teardown.
+
+**Coverage:** 100% Jest (`tests/view3d.test.js`).
+
+**Acceptance criteria:**
+- Focal trajectory renders in 3D with Mach-colored tube, LoS ray, ground grid, shadow curve, and milestone markers.
+- Re-computing trajectories or switching focal bullets disposes 100% of prior scene geometries, materials, and textures (verified via mock `.dispose()` assertions).
+- Stationary 3D view does not burn continuous idle rAF frames; hiding tab or backgrounding the browser pauses animation cleanly.
+- Missing WebGL or lost context degrades gracefully to `#view3dFallback` with zero uncaught exceptions.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** `S28-2`, `S28-3`.
+
+---
+
+### S28-5 — OrbitControls, one-click camera presets & scale-exaggeration controls · FE · Size S [Must Have]
+
+**As a** user exploring drop vs. wind drift from different angles, **I want** smooth mouse/touch orbit-pan-zoom controls, one-click camera presets (`Isometric`, `Shooter POV`, `Side Profile`, `Top-Down`, `Target View`), and a vertical/lateral scale-exaggeration toggle with a clear HUD badge, **so that** I can inspect either true-scale geometry or magnified drop/drift curves effortlessly.
+
+**Work items:**
+1. **`app/view3d.js` (`OrbitControls` & presets):**
+   - Wire `OrbitControls` with damping (`enableDamping = true`), sensible `minDistance`/`maxDistance` clamped to trajectory bounds, and touch gestures (1-finger orbit, 2-finger dolly/pan).
+   - Wire `#view3dCameraBar` buttons (`Isometric`, `Shooter POV`, `Side Profile`, `Top-Down`, `Target View`) and `#view3dResetCamBtn` to `getCameraPreset()`, smoothly interpolating camera position & target over ~300 ms (or snapping immediately when `prefers-reduced-motion: reduce` is active).
+   - Add keyboard shortcuts when `#view3dViewport` is focused (`1`–`5` for camera presets, `R` for Reset Camera, `Space` for Play/Pause when `S28-6` lands).
+2. **Scale exaggeration selector (`#view3dScaleSelect`, `#view3dScaleBadge`):**
+   - Support `'auto'` (default), `'1'` (`1× True Scale`), `'10'` (`10×`), and `'25'` (`25×`).
+   - Persist scale preference in `localStorage` (`bv_view3dScale` via `safeGetItem`/`safeSetItem` in `app/prefs.js`), rebuild 3D trajectory geometry in place on change, and update `#view3dScaleBadge` (`Scale: 10× V/L` or `Scale: 1× True`).
+3. **Tests (`tests/view3d.test.js`):** Cover all 5 camera presets (animated and `prefers-reduced-motion` instant paths), `Reset Camera`, keyboard shortcuts, and scale-mode persistence + badge updates.
+
+**Coverage:** 100% Jest (`tests/view3d.test.js`).
+
+**Acceptance criteria:**
+- Every camera preset frames the active trajectory cleanly; `Shooter POV` aligns behind the optic looking downrange along LoS, `Side Profile` isolates drop/max-ordinate, and `Top-Down` isolates wind/spin/Coriolis drift.
+- Switching `#view3dScaleSelect` updates the 3D geometry and `#view3dScaleBadge` immediately and persists across reload.
+- `prefers-reduced-motion: reduce` disables camera transition tweening.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** `S28-4`.
+
+---
+
+### S28-6 — Interactive range/time scrubber, animated projectile flight playback & live telemetry HUD · FE · Size M [Should Have]
+
+**As a** shooter visualizing bullet flight over time, **I want** a Play/Pause tracer animation and range scrubber synced to a live HUD readout, **so that** I can watch the bullet cross zero, peak at max ordinate, transition through Mach 1.2, and impact downrange while reading exact drop, lateral drift, velocity, energy, and scope holdovers at any range.
+
+**Work items:**
+1. **`app/view3d.js` (Playback loop & tracer mesh):**
+   - Add a high-visibility projectile marker (`SphereGeometry` + optional subtle halo ring) positioned via `interpolateFlightState(projected, rangeM)` along the focal trajectory curve.
+   - Wire `#view3dPlayBtn` (`▶ Play` / `⏸ Pause`, `aria-pressed`), `#view3dSpeedSelect` (`1` real-time, `0.25` slow-mo, `0.1` ultra-slow), and `#view3dScrubber` (`min="0" max="1000"` normalized range slider with `aria-label="Scrub range along trajectory"`).
+   - Advance playback by real `performance.now()` delta × `speed` against `totalTimeOfFlightSec` (looping or pausing cleanly at max range, and auto-pausing when the user drags `#view3dScrubber` manually or switches away from `#tab-3d`).
+2. **Live telemetry HUD (`#view3dHud`):**
+   - Update DOM nodes via `textContent` (zero `innerHTML`, CSP/XSS-safe) showing Range, Time of Flight (`s`), Drop (cm/in), Elevation (`MOA / MRAD`), Lateral Drift total (with Wind / Spin / Coriolis sub-values when non-zero), Velocity (m/s or fps), Mach (with regime badge), and Energy (J or ft·lb).
+3. **Tests (`tests/view3d.test.js`):** Cover play/pause/complete lifecycle, speed multipliers, scrubber manual drag updates, HUD formatting in both Metric and Imperial, and auto-pause on tab hide.
+
+**Coverage:** 100% Jest (`tests/view3d.test.js`).
+
+**Acceptance criteria:**
+- Clicking Play animates the projectile marker smoothly from muzzle to max range at accurate relative `timeOfFlightSec` pacing; dragging `#view3dScrubber` updates the 3D marker and `#view3dHud` instantaneously.
+- HUD values match the trajectory data table and range readout at equivalent ranges.
+- Playback never starts automatically on tab open (respecting `prefers-reduced-motion` and battery).
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** `S28-5`.
+
+---
+
+### S28-7 — Downrange target plate, impact offset reticle & 3D wind-vector indicator · FE · Size S [Should Have]
+
+**As a** precision shooter assessing real-world impact offset, **I want** a scaled target plate at the end of the range showing the bullet's exact point of impact relative to line of sight, plus a 3D wind-direction arrow at the firing line, **so that** crosswind direction and terminal drop/drift offset are unmistakable at a glance.
+
+**Work items:**
+1. **Downrange target plate (`app/view3d.js`):**
+   - Place a perpendicular circular target reticle (`RingGeometry` + crosshair lines + `CanvasTexture` ring annotations) at `maxRange` centered on the optical Line of Sight (`x = 0, y = 0`), with a contrasting impact dot plotted at the bullet's terminal `(x, y)` offset and a dashed line connecting center-of-target to point-of-impact.
+   - When multiple bullets are overlaid (`#view3dShowOthers`), render each active bullet's impact dot on the target plate in its series color so users can visually compare dispersion/POI shift across loads in `Target View`!
+2. **3D wind-vector indicator (`app/view3d.js`):**
+   - When `req.windSpeedKph > 0`, render a 3D `ArrowHelper` (or procedural chevron arrow + `CanvasTexture` speed/compass label e.g. `"16 km/h from E"`) near the firing line oriented along the meteorological wind vector (`windDirectionDeg`), scaled proportionally to wind speed; omit when `windSpeedKph === 0`.
+3. **Tests (`tests/view3d.test.js`, `tests/view3d-math.test.js`):** Assert wind-vector orientation across cardinal/intercardinal angles (`0°` headwind, `90°` from East blowing left/right matching Pejsa sign convention in `engine.ts`, `180°` tailwind, `270°` from West), omission at `0` wind, and single/multi-bullet target plate impact coordinates.
+
+**Coverage:** 100% Jest (`tests/view3d.test.js`, `tests/view3d-math.test.js`).
+
+**Acceptance criteria:**
+- Target plate centers on LoS at `maxRange` and plots exact impact offsets for the focal bullet (and comparison bullets when enabled).
+- Wind arrow direction matches the sidebar `Wind Dir` convention (`90° = E = right crosswind`) and hides cleanly at zero wind.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** `S28-4`.
+
+---
+
+### S28-8 — Light/dark theme sync, Metric/Imperial reactivity & 3D PNG snapshot export · FE · Size XS [Should Have]
+
+**As a** user switching between Light/Dark mode, Metric/Imperial units, or saving visuals for range notes, **I want** the 3D scene and HUD to react immediately to theme and unit toggles and export crisp PNG snapshots, **so that** the 3D view matches the rest of the application seamlessly.
+
+**Work items:**
+1. **Theme reactivity (`app/view3d.js`, `app/ballistics.js`):**
+   - Define dark (`#080b0f` background, cyan LoS, dim slate grid) and light (`#f0f4f8` background, `#0077aa` LoS, crisp slate grid & dark sprite text) scene palettes in `app/view3d.js`, exporting `applyView3DTheme(theme)`.
+   - Invoke `applyView3DTheme(theme)` from `initThemeToggle` callback in `app/ballistics.js` whenever `app/view3d.js` is already loaded (no eager import if not yet loaded!).
+2. **Unit-system reactivity (`app/view3d.js`, `app/ballistics.js`):**
+   - Invoke `setView3DUnitSystem(unitSystem)` inside `setUnitSystem()` in `app/ballistics.js` (when loaded) to regenerate range marker labels (`m` ↔ `yd`), wind label (`km/h` ↔ `mph`), and `#view3dHud` readouts in place without losing the user's current camera angle or scrubber position.
+3. **PNG snapshot export (`app/view3d.js`, `app/io.js`):**
+   - Wire `#view3dExportPngBtn` to render one synchronous frame (`renderer.render(scene, camera)`), capture `canvas.toDataURL('image/png')`, and trigger download `<bullet-slug>-3d-trajectory.png` (without enabling `preserveDrawingBuffer: true` during continuous rendering).
+4. **Tests (`tests/view3d.test.js`, `tests/ballistics.test.js`):** Verify theme toggle updates scene background & grid colors, unit toggle updates labels/HUD without resetting camera, and PNG export triggers a valid `data:image/png` download.
+
+**Coverage:** 100% Jest (`tests/view3d.test.js`, `tests/ballistics.test.js`).
+
+**Acceptance criteria:**
+- Toggling `#themeToggle` updates 3D background, gridlines, LoS color, and distance sprites immediately with legible contrast in both themes.
+- Toggling `#unitToggle` converts 3D distance markers, wind arrow label, and telemetry HUD between Metric and Imperial without resetting the user's camera orbit.
+- Clicking `PNG` in `#view3dPanel` downloads a non-blank PNG image of the current 3D view with zero CSP violations.
+- `npm test` passes at 100/100/100/100.
+
+**Dependencies:** `S28-4`, `S28-6`.
+
+---
+
+### S28-9 — Puppeteer E2E smoke tests, lazy-load budget check & architecture docs (`contracts/view3d-trajectory.md`, `README.md`) · QA / DX · Size S [Must Have]
+
+**As a** maintainer shipping Three.js to production GitHub Pages, **I want** automated Puppeteer E2E verification against `dist/` proving Three.js stays lazy-loaded until `#tab-3d` is opened and renders error-free under strict CSP, plus concise architecture documentation, **so that** regressions in bundling, CSP, or 3D interactivity are caught in CI.
+
+**Work items:**
+1. **`tests/e2e/app.e2e.test.js`:**
+   - Add `describe('3D trajectory view (Sprint 28)', ...)`:
+     1. Intercept/observe network responses during initial `loadApp()` + `waitForResults(1)` on `#tab-charts` and assert **zero** requests matching `/assets\/three-.*\.js/` were fetched.
+     2. Click `#tab-3d`, wait for `#view3dPanel.active`, verify the lazy `three-*.js` chunk loads cleanly and either `#view3dViewport canvas` has `width > 0 && height > 0` OR `#view3dFallback` is visibly displayed (graceful fallback if headless environment lacks WebGL/SwiftShader), with zero `pageerror` or console/CSP errors.
+     3. Select a second bullet, switch `#view3dBulletSelect` to it, click a camera preset button (e.g. `Side Profile`) and adjust `#view3dScrubber`, asserting `#view3dHud` updates with non-empty range/drop/velocity values.
+     4. Switch back to `#tab-charts` and confirm clean transition with zero errors.
+2. **Documentation (`contracts/view3d-trajectory.md`, `contracts/CHANGELOG.md`, `README.md`):**
+   - Document the 3D coordinate system, scale-exaggeration contract, lazy chunk + SW precache exclusion, WebGL disposal lifecycle, and fallback guarantees in `contracts/view3d-trajectory.md` (logged in `contracts/CHANGELOG.md`).
+   - Add `3D Trajectory View` to the Features table, Architecture tree (`app/view3d.js`, `app/view3d-math.js`, `app/view3d-loader.js`), and Test suites table in `README.md`.
+
+**Coverage:** 100% Jest + full Puppeteer E2E (`npm run build && npm run test:e2e`).
+
+**Acceptance criteria:**
+- Initial page load fetches zero `three-*.js` assets (asserted in E2E).
+- Opening `#tab-3d` renders the 3D view (or verified WebGL fallback) with zero `pageerror`, console, or CSP errors.
+- `npm test`, `npm run knip`, `npm run build`, and `npm run test:e2e` all pass cleanly.
+
+**Dependencies:** `S28-1` through `S28-8`.
